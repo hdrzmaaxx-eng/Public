@@ -1311,7 +1311,7 @@
                 window.__importedStrategies.forEach(it => { it.checked = false; });
             }
             window.__importedAgg = null;
-            if (typeof renderImportList === 'function') renderImportList();
+            if (typeof window.renderImportList === 'function') window.renderImportList();
 
             // 同步剥离所有单点标签的淡绿色反馈
             if (typeof syncUI === 'function') syncUI();
@@ -1378,7 +1378,7 @@
                 text = await navigator.clipboard.readText();
             } catch (err) {
                 // 移动端静默拦截或无权限时，降级唤起系统原生输入框
-                text = prompt("在下方输入框粘贴或输入数字");
+                text = await window.zdrPrompt("在下方输入框粘贴或输入数字", { placeholder: "例如：01 02 03 04" });
             }
             
             // 如果用户取消了 prompt 或未输入任何内容
@@ -1721,7 +1721,7 @@ function scrollToBottom(containerId) {
 }
 .supp-modal {
     background: #fff; width: 90%; max-width: 400px;
-    border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    border-radius: 14px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
 .supp-modal h3 { margin-top: 0; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px;}
 .supp-form-group { margin-bottom: 12px; }
@@ -1731,7 +1731,75 @@ function scrollToBottom(containerId) {
 .supp-actions { display: flex; gap: 10px; margin-top: 20px; }
 .supp-actions button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; }
 .supp-btn-cancel { background: #f1f5f9; color: #475569; }
-.supp-btn-save { background: #007bff; color: #fff; }
+.supp-btn-save { background: linear-gradient(105deg, #10b981, #059669); color: #fff; }
+
+/* ============================================================
+   通用自绘模态框（zdrDialog）：替换原生 alert / confirm / prompt
+   ============================================================ */
+:root {
+    --zdr-primary: #f59e0b;
+    --zdr-primary-deep: #d97706;
+    --zdr-green: #10b981;
+    --zdr-green-deep: #059669;
+    --zdr-indigo: #6366f1;
+    --zdr-indigo-deep: #4f46e5;
+    --zdr-red: #ef4444;
+    --zdr-red-deep: #dc2626;
+    --zdr-text: #1e293b;
+    --zdr-muted: #64748b;
+    --zdr-border: #e2e8f0;
+    --zdr-bg: #ffffff;
+    --zdr-radius: 14px;
+    --zdr-overlay: rgba(15, 23, 42, 0.45);
+    --zdr-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+.zdr-modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--zdr-overlay);
+    z-index: 10001;
+    display: none; align-items: center; justify-content: center;
+    padding: 16px;
+}
+.zdr-modal-overlay.show { display: flex; }
+.zdr-modal {
+    background: var(--zdr-bg);
+    width: 100%; max-width: 400px;
+    border-radius: var(--zdr-radius);
+    padding: 22px 22px 18px;
+    box-shadow: var(--zdr-shadow);
+    animation: popIn 0.18s ease-out;
+    box-sizing: border-box;
+}
+.zdr-modal-title {
+    font-size: 17px; font-weight: 700; color: var(--zdr-text);
+    margin-bottom: 12px; text-align: center; line-height: 1.4;
+}
+.zdr-modal-body {
+    font-size: 14px; color: var(--zdr-muted);
+    line-height: 1.7; text-align: center;
+    white-space: pre-line; word-break: break-word;
+    max-height: 45vh; overflow-y: auto;
+}
+.zdr-modal-input {
+    width: 100%; margin-top: 14px; padding: 10px 12px;
+    border: 1px solid var(--zdr-border); border-radius: 8px;
+    font-size: 14px; color: var(--zdr-text); box-sizing: border-box;
+    outline: none; transition: border-color .15s;
+}
+.zdr-modal-input:focus { border-color: var(--zdr-primary); }
+.zdr-modal-actions {
+    display: flex; gap: 10px; margin-top: 18px;
+}
+.zdr-modal-actions button {
+    flex: 1; padding: 10px 12px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    transition: transform .1s, opacity .15s;
+}
+.zdr-modal-actions button:active { transform: scale(0.97); }
+.zdr-btn-cancel { background: #f1f5f9; color: #475569; }
+.zdr-btn-primary { background: linear-gradient(105deg, var(--zdr-primary), var(--zdr-primary-deep)); color: #fff; }
+.zdr-btn-green { background: linear-gradient(105deg, var(--zdr-green), var(--zdr-green-deep)); color: #fff; }
+.zdr-btn-danger { background: linear-gradient(105deg, var(--zdr-red), var(--zdr-red-deep)); color: #fff; }
 </style>
 
 
@@ -2090,7 +2158,7 @@ window.getSavedStrategies = function() {
         return ai1 === ai2;
     }
 
-    window.saveCurrentStrategy = function() {
+    window.saveCurrentStrategy = async function() {
         let list = window.getSavedStrategies();
         const lotteryType = document.getElementById('btnHk') && document.getElementById('btnHk').classList.contains('active') ? 'hk' : 'macau';
         
@@ -2099,26 +2167,26 @@ window.getSavedStrategies = function() {
             return (item.id === 'default' || item.lotteryType === lotteryType) && isSameConfig(item.weights, window.customWeights, item.strategies, window.customStrategies, item.isAiMode === true, window._isAiMode === true);
         });
         if (isDuplicate) {
-            alert("当前策略已保存！");
+            window.zdrAlert("当前策略已保存！", { type: "success" });
             return;
         }
 
-        let name = prompt("请输入新策略的名称：");
+        let name = await window.zdrPrompt("请输入新策略的名称：", { placeholder: "策略名称" });
         if (name === null) return;
         name = name.trim();
 		
 		
        if (name === "") {
-            alert("策略名称不能为空！");
+            window.zdrAlert("策略名称不能为空！", { type: "error" });
             return;
         }
         if (name === "默认策略") {
-            alert("不能使用系统默认名称！");
+            window.zdrAlert("不能使用系统默认名称！", { type: "error" });
             return;
         }
 
         if (list.some(item => item.id !== 'default' && item.lotteryType === lotteryType && item.name === name)) {
-            if (!confirm("已存在同名策略，是否覆盖？")) return;
+            if (!(await window.zdrConfirm("已存在同名策略，是否覆盖？", { danger: true, okText: "覆盖", cancelText: "取消" }))) return;
             list = list.filter(item => !(item.lotteryType === lotteryType && item.name === name));
         }
 
@@ -2242,7 +2310,7 @@ window.getSavedStrategies = function() {
         }
     };
 
-    window.renameStrategy = function(id) {
+    window.renameStrategy = async function(id) {
         if (id === 'default') return;
         let list = window.getSavedStrategies();
         let strategy = list.find(item => item.id === id);
@@ -2250,21 +2318,21 @@ window.getSavedStrategies = function() {
 
         const lotteryType = document.getElementById('btnHk') && document.getElementById('btnHk').classList.contains('active') ? 'hk' : 'macau';
 
-        let newName = prompt("重命名策略：", strategy.name);
+        let newName = await window.zdrPrompt("重命名策略：", { defaultValue: strategy.name });
         if (newName === null) return;
         newName = newName.trim();
 		
 		
         if (newName === "") {
-            alert("策略名称不能为空！");
+            window.zdrAlert("策略名称不能为空！", { type: "error" });
             return;
         }
         if (newName === "默认策略") {
-            alert("不能使用默认名称！");
+            window.zdrAlert("不能使用默认名称！", { type: "error" });
             return;
         }
         if (list.some(item => item.id !== id && item.lotteryType === lotteryType && item.name === newName)) {
-            alert("已存在同名策略！");
+            window.zdrAlert("已存在同名策略！", { type: "error" });
             return;
         }
 
@@ -2281,9 +2349,9 @@ window.getSavedStrategies = function() {
 
 
 
-  window.deleteStrategy = function(id) {
+  window.deleteStrategy = async function(id) {
         if (id === 'default') return;
-        if (!confirm("确定要删除该策略吗？")) return;
+        if (!(await window.zdrConfirm("确定要删除该策略吗？", { danger: true, okText: "删除", cancelText: "取消" }))) return;
 
         let list = window.getSavedStrategies();
         list = list.filter(item => item.id !== id);
@@ -2307,7 +2375,7 @@ window.getSavedStrategies = function() {
         let list = window.getSavedStrategies().filter(item => item.id !== 'default' && item.lotteryType === lotteryType);
         
         if (list.length === 0) {
-            alert("当前彩种暂无自定义策略可导出！");
+            window.zdrAlert("当前彩种暂无自定义策略可导出！", { type: "error" });
             return;
         }
         
@@ -2336,7 +2404,7 @@ window.getSavedStrategies = function() {
             if (!file) return;
             
             let reader = new FileReader();
-            reader.onload = function(event) {
+            reader.onload = async function(event) {
                 try {
                     let importList = JSON.parse(event.target.result);
                     if (!Array.isArray(importList)) throw new Error("格式错误");
@@ -2345,8 +2413,9 @@ window.getSavedStrategies = function() {
                     let currentList = window.getSavedStrategies();
                     let importedCount = 0;
                     
-                    importList.forEach(importItem => {
-                        if (!importItem.name || !importItem.weights || !importItem.strategies) return;
+                    // 改为 for...of 串行处理：同名策略确认弹窗需逐个等待用户选择
+                    for (const importItem of importList) {
+                        if (!importItem.name || !importItem.weights || !importItem.strategies) continue;
                         
                         // 自动匹配：强制将导入的策略归属于当前所在彩种页面
                         importItem.lotteryType = lotteryType;
@@ -2355,7 +2424,7 @@ window.getSavedStrategies = function() {
                         let existingIndex = currentList.findIndex(item => item.id !== 'default' && item.lotteryType === lotteryType && item.name === importItem.name);
                         
                         if (existingIndex !== -1) {
-                            if (confirm(`已存在同名策略 [${importItem.name}]，是否覆盖？\n点击“确定”覆盖，“取消”则重命名并保留两者。`)) {
+                            if (await window.zdrConfirm(`已存在同名策略 [${importItem.name}]，是否覆盖？`, { okText: "覆盖", cancelText: "重命名保留" })) {
                                 // 覆盖原有同名策略
                                 currentList[existingIndex] = importItem;
                                 importedCount++;
@@ -2369,18 +2438,18 @@ window.getSavedStrategies = function() {
                             currentList.push(importItem);
                             importedCount++;
                         }
-                    });
+                    }
                     
                     if (importedCount > 0) {
                         localStorage.setItem('zdr_saved_strategies', JSON.stringify(currentList));
                         window.renderStrategies();
-                        alert(`✅ 成功导入 ${importedCount} 条策略！`);
+                        window.zdrAlert(`✅ 成功导入 ${importedCount} 条策略！`, { type: "success", title: "导入完成" });
                     } else {
-                        alert("未导入任何有效策略。");
+                        window.zdrAlert("未导入任何有效策略。", { type: "error" });
                     }
                     
                 } catch (err) {
-                    alert("❌ 导入失败，读取的文件格式不正确！");
+                    window.zdrAlert("❌ 导入失败，读取的文件格式不正确！", { type: "error" });
                 }
             };
             reader.readAsText(file);
@@ -4437,8 +4506,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             displayStr += " 等共 " + missingPeriods.length + " 期";
         }
         
-        // 改为 confirm 弹窗，把选择权交给用户
-        var userChoice = confirm("检测到开奖数据存在遗漏！\n\n具体缺失：【" + displayStr + "】\n\n您可以前往页面最底部点击「＋ 补充缺失数据」手动录入。\n\n是否启动【插件穿透】自动修补缺失数据？\n(点击“确定”自动修补，点击“取消”保留现状)");
+        // 改为自绘 confirm 弹窗，把选择权交给用户
+        var userChoice = await window.zdrConfirm("检测到开奖数据存在遗漏！\n\n具体缺失：【" + displayStr + "】\n\n您可以前往页面最底部点击「＋ 补充缺失数据」手动录入。\n\n是否启动【插件穿透】自动修补缺失数据？", { okText: "启动修补", cancelText: "保留现状" });
         
         if (userChoice) {
             // 用户点击确定：转交控制权给插件穿透，自动获取并写入缓存
@@ -4891,6 +4960,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 '</div>').join('');
         updateToggleAllButton();
     }
+    window.renderImportList = renderImportList; // 供 IIFE 外部的 clearAllSelections 调用
 
     // 勾选/取消勾选某条导入；勾选时若条目内容全部停用则默认全部启用
     window.toggleImportItem = function(index, checked) {
@@ -5338,6 +5408,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 })();
 </script>
 
+<!-- ========== 通用自绘模态框（alert / confirm / prompt 替换原生调用） ========== -->
+<div id="zdrDialogOverlay" class="zdr-modal-overlay">
+    <div class="zdr-modal" role="dialog" aria-modal="true">
+        <div class="zdr-modal-title" id="zdrDialogTitle"></div>
+        <div class="zdr-modal-body" id="zdrDialogBody"></div>
+        <input type="text" class="zdr-modal-input" id="zdrDialogInput" style="display:none;" autocomplete="off">
+        <div class="zdr-modal-actions" id="zdrDialogActions"></div>
+    </div>
+</div>
+
 <!-- ========== 新增：补充数据弹窗及逻辑 ========== -->
 <div id="suppModalOverlay" class="supp-modal-overlay">
     <div class="supp-modal">
@@ -5373,6 +5453,109 @@ window.openSuppModal = function() {
 window.closeSuppModal = function() {
     document.getElementById('suppModalOverlay').style.display = 'none';
 };
+
+// ========== 通用自绘模态框引擎：替换原生 alert / confirm / prompt ==========
+(function() {
+    const overlay = document.getElementById('zdrDialogOverlay');
+    const titleEl = document.getElementById('zdrDialogTitle');
+    const bodyEl = document.getElementById('zdrDialogBody');
+    const inputEl = document.getElementById('zdrDialogInput');
+    const actionsEl = document.getElementById('zdrDialogActions');
+    if (!overlay) return;
+
+    let activeResolve = null; // 当前弹窗的 Promise 回调
+    let promptMode = false;   // 是否为输入框模式（Esc / 遮罩 = null）
+
+    function closeDialog(result) {
+        overlay.classList.remove('show');
+        overlay.style.display = 'none';
+        actionsEl.innerHTML = '';
+        inputEl.style.display = 'none';
+        inputEl.value = '';
+        promptMode = false;
+        document.removeEventListener('keydown', onKeydown);
+        const resolve = activeResolve;
+        activeResolve = null;
+        if (resolve) resolve(result);
+    }
+
+    function onKeydown(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeDialog(promptMode ? null : false);
+        } else if (e.key === 'Enter' && promptMode) {
+            e.preventDefault();
+            closeDialog(inputEl.value);
+        }
+    }
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeDialog(promptMode ? null : false);
+    });
+
+    function openDialog(opts) {
+        return new Promise(function(resolve) {
+            activeResolve = resolve;
+            titleEl.textContent = opts.title || '';
+            bodyEl.textContent = opts.message || '';
+            if (opts.input) {
+                promptMode = true;
+                inputEl.placeholder = opts.placeholder || '';
+                inputEl.value = opts.defaultValue !== undefined && opts.defaultValue !== null ? String(opts.defaultValue) : '';
+                inputEl.style.display = 'block';
+            }
+            (opts.buttons || []).forEach(function(b) {
+                const btn = document.createElement('button');
+                btn.textContent = b.text;
+                btn.className = b.className || 'zdr-btn-cancel';
+                btn.onclick = function() { closeDialog(b.value === '__INPUT__' ? inputEl.value : b.value); };
+                actionsEl.appendChild(btn);
+            });
+            overlay.style.display = 'flex';
+            overlay.classList.add('show');
+            document.addEventListener('keydown', onKeydown);
+            if (promptMode) setTimeout(function() { try { inputEl.focus(); } catch (e) { /* ignore */ } }, 30);
+        });
+    }
+
+    window.zdrAlert = function(message, opts) {
+        opts = opts || {};
+        const type = opts.type || 'info';
+        const btnClass = type === 'success' ? 'zdr-btn-green' : (type === 'error' ? 'zdr-btn-danger' : 'zdr-btn-primary');
+        return openDialog({
+            title: opts.title || (type === 'success' ? '✅ 操作成功' : type === 'error' ? '❌ 提示' : '提示'),
+            message: message,
+            buttons: [{ text: opts.okText || '确定', className: btnClass, value: true }]
+        });
+    };
+
+    window.zdrConfirm = function(message, opts) {
+        opts = opts || {};
+        const okClass = opts.danger ? 'zdr-btn-danger' : 'zdr-btn-primary';
+        return openDialog({
+            title: opts.title || '请确认',
+            message: message,
+            buttons: [
+                { text: opts.cancelText || '取消', className: 'zdr-btn-cancel', value: false },
+                { text: opts.okText || '确定', className: okClass, value: true }
+            ]
+        });
+    };
+
+    window.zdrPrompt = function(message, opts) {
+        opts = opts || {};
+        return openDialog({
+            title: opts.title || '请输入',
+            message: message,
+            input: true,
+            placeholder: opts.placeholder || '',
+            defaultValue: opts.defaultValue,
+            buttons: [
+                { text: '取消', className: 'zdr-btn-cancel', value: null },
+                { text: '确定', className: 'zdr-btn-primary', value: '__INPUT__' }
+            ]
+        });
+    };
+})();
 
 // 工具1：获取特定年份特定号码的生肖
 window.getZodiacForYearAndNum = function(num, year) {
@@ -5411,7 +5594,7 @@ window.saveSuppData = function() {
     var numsInput = document.getElementById('supp-nums').value.trim();
 
     if (!year || !qishu || !numsInput) {
-        alert("请填写完整的年份、期数和号码！");
+        window.zdrAlert("请填写完整的年份、期数和号码！", { type: "error" });
         return;
     }
 
@@ -5421,7 +5604,7 @@ window.saveSuppData = function() {
     });
 
     if (nums.length === 0) {
-        alert("未识别到有效号码，请检查输入格式！");
+        window.zdrAlert("未识别到有效号码，请检查输入格式！", { type: "error" });
         return;
     }
 
@@ -5452,7 +5635,7 @@ window.saveSuppData = function() {
     
     localStorage.setItem(storageKey, JSON.stringify(manualData));
 
-    alert("✅ 数据补充成功！系统已自动为您匹配：\n生肖：" + sxs.join(',') + "\n五行：" + wxs.join(',') + "\n\n弹窗关闭后系统将自动重新获取并应用数据。");
+    window.zdrAlert("✅ 数据补充成功！系统已自动为您匹配：\n生肖：" + sxs.join(',') + "\n五行：" + wxs.join(',') + "\n\n弹窗关闭后系统将自动重新获取并应用数据。", { type: "success", title: "补充成功" });
     
     window.closeSuppModal();
     
