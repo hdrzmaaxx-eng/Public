@@ -1040,6 +1040,24 @@
 
 
 
+        // 导入策略的选入类贡献作为独立约束：返回该类别导入号码的并集；无贡献返回 null（不约束）
+        function getImportCategoryUnion(cat) {
+            const imp = window.__importedAgg;
+            if (!imp || !imp[cat] || imp[cat].size === 0) return null;
+            let union = [];
+            const selected = imp[cat];
+            switch (cat) {
+                case 'numbers': union = Array.from(selected); break;
+                case 'firstDigit': selected.forEach(v => union.push(...(firstDigitMap[v] || []))); break;
+                case 'color': selected.forEach(v => union.push(...(colorGroupMap[v] || []))); break;
+                case 'element': selected.forEach(v => union.push(...(elementMap[v] || []))); break;
+                case 'weather': selected.forEach(v => union.push(...(weatherMap[v] || []))); break;
+                case 'lastDigit': selected.forEach(v => union.push(...(lastDigitMap[v] || []))); break;
+                case 'genderZodiac': selected.forEach(v => union.push(...(genderZodiacMap[v] || []))); break;
+            }
+            return [...new Set(union)];
+        }
+
         function updateDisplay() {
             displayContainer.innerHTML = '';
             const displayContainerPredict = document.getElementById('display-container-predict');
@@ -1050,7 +1068,9 @@
             
             // [修改] 判断是否有选中的条件时，必须排除 excludedNumbers（黑名单）
             // 否则当正向选择都清空，只剩下黑名单时，系统会错误地调出全部49个数字进行过滤
-            const hasSelection = Object.entries(selectedOptions).some(([key, s]) => key !== 'excludedNumbers' && s.size > 0);
+            // 导入策略的选入类贡献也算作正向条件（冻结/杀肖不产生正向结果，不计数）
+            const hasSelection = Object.entries(selectedOptions).some(([key, s]) => key !== 'excludedNumbers' && s.size > 0) ||
+                !!(window.__importedAgg && Object.entries(window.__importedAgg).some(([k, s]) => k !== 'frozen' && s.size > 0));
             
             if (!hasSelection) {
                 // [新增] 当没有任何正向条件时（退回空状态），同步清空黑名单，防止幽灵数据干扰下次选号
@@ -1100,6 +1120,12 @@
             result = result.filter(n => getCategoryUnion('firstDigit').includes(n));
             // 特码尾数过滤
             result = result.filter(n => getCategoryUnion('lastDigit').includes(n));
+
+            // [修改] 导入策略的选入类贡献作为独立约束，与手动选择取交集（任一侧为空则该类不约束）
+            ['numbers', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac'].forEach(cat => {
+                const importUnion = getImportCategoryUnion(cat);
+                if (importUnion) result = result.filter(n => importUnion.includes(n));
+            });
             
 			// [新增] 过滤掉所有被用户在结果框中主动点击拉黑的数字
             if (selectedOptions.excludedNumbers && selectedOptions.excludedNumbers.size > 0) {
@@ -4783,8 +4809,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         });
     }
 
-    // 根据勾选状态重算导入贡献，并差分同步到页面状态（保留手动选择）
-    // 聚合规则：选入类规则在勾选策略间取交集；冻结/杀肖类规则取并集
+    // 根据勾选状态重算导入贡献，并同步到页面状态（保留手动选择）
+    // 聚合规则：选入类规则在勾选策略间取交集，并与手动选择取交集（由 updateDisplay 应用）；冻结/杀肖类规则取并集
     function syncImportState() {
         const newAgg = emptyImportAgg();
         const checkedItems = (window.__importedStrategies || []).filter(it => it.checked);
@@ -4806,11 +4832,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
         });
         const oldAgg = window.__importedAgg || emptyImportAgg();
-        IMPORT_CATS.forEach(cat => {
-            const liveSet = cat === 'frozen' ? frozenItems : selectedOptions[cat];
-            oldAgg[cat].forEach(v => { if (!newAgg[cat].has(v)) liveSet.delete(v); });
-            newAgg[cat].forEach(v => { if (!oldAgg[cat].has(v)) liveSet.add(v); });
-        });
+        // 冻结/杀肖类规则：并集，继续差分同步到 frozenItems
+        oldAgg.frozen.forEach(v => { if (!newAgg.frozen.has(v)) frozenItems.delete(v); });
+        newAgg.frozen.forEach(v => { if (!oldAgg.frozen.has(v)) frozenItems.add(v); });
+        // 选入类规则（numbers/firstDigit/color/element/weather/lastDigit/genderZodiac）：
+        // 不再并入 selectedOptions，保留在 __importedAgg 作为独立约束，
+        // 由 updateDisplay 与手动选择取交集（任一侧为空则该类不约束）。
         window.__importedAgg = newAgg;
         refreshFrozenClasses();
         if (typeof syncUI === 'function') syncUI();
