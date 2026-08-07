@@ -468,7 +468,7 @@
             <div class="group-title" style="margin-top:24px; border-left-color:#f59e0b; color:#d97706;">外部专家策略提取 (粘贴导入)</div>
             <div style="background:#fffbeb; padding:15px; border-radius:8px; border: 1px dashed #f59e0b; margin-bottom: 20px;">
                 <textarea id="ext-strategy-input" placeholder="请在此粘贴由油猴提取的 JSON 数据，或直接拖入 .json 文件..." style="width:100%; height:150px; padding:10px; border:1px solid #fcd34d; border-radius:8px; font-size:0.85rem; margin-bottom:10px; box-sizing:border-box; resize:vertical; min-height:120px; font-family:monospace; background:#fff;"></textarea>
-                <button class="btn" style="width:100%; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy()">一键解析并选入</button>
+                <button class="btn" id="btn-parse-and-apply" style="width:100%; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy()">一键解析并选入</button>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
                     <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
@@ -477,7 +477,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.2 · 2026-08-07 20:21</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.4 · 2026-08-07 22:36</div>
 
         </div>
     
@@ -4388,6 +4388,31 @@ async function tryFetch(url) {
 
 
 
+    // ========== 网络全挂时的离线兜底：仅当本地缓存为当天写入时使用 ==========
+    function tryOfflineCacheFallback(bar) {
+        try {
+            var cachedDate = localStorage.getItem('zdr_cache_date_' + currentLottery);
+            if (!cachedDate || cachedDate !== (function(){ var x = new Date(); return x.getFullYear() + '-' + String(x.getMonth()+1).padStart(2,'0') + '-' + String(x.getDate()).padStart(2,'0'); })()) {
+                // 缓存缺失或非当天（每天都是最新一期），过期缓存不可用于离线渲染
+                return false;
+            }
+            var cachedStr = localStorage.getItem('zdr_manual_data_' + currentLottery);
+            if (!cachedStr) return false;
+            var cachedData = JSON.parse(cachedStr);
+            if (!Array.isArray(cachedData) || cachedData.length === 0) return false;
+            cachedData.sort(function(a, b) { return b.id - a.id; });
+            window._rawKjData = cachedData;
+            window._currentDataSource = "本地缓存(今日)";
+            bar.className = "status-bar status-be";
+            bar.innerHTML = "⚠️ 网络不可用，已使用今日本地缓存渲染（仅当天有效，联网后请重新获取最新一期）";
+            render(predict({ data: cachedData }), "本地缓存(今日)");
+            return true;
+        } catch (e) {
+            console.error("离线缓存兜底失败", e);
+            return false;
+        }
+    }
+
   window.runPredict = async function() {
   window._currentFetchMode = 'default';
   var bar = document.getElementById("bar");
@@ -4533,6 +4558,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     return;
   }
   
+  // 网络全挂：先尝试今日本地缓存兜底（仅当天有效），失败再提示手动操作
+  if (tryOfflineCacheFallback(bar)) return;
   bar.className = "status-bar status-be";
   bar.innerHTML = "所有常规线路均无法获取，请使用插件穿透或手动复制粘贴数据";
   document.getElementById("mp").style.display = "block";
@@ -4594,6 +4621,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                           }
                       });
                       localStorage.setItem(storageKey, JSON.stringify(localData));
+                      // 记录缓存写入日期：本地缓存仅当天有效（每天都是最新一期）
+                      var todayStr = new Date();
+                      todayStr = todayStr.getFullYear() + '-' + String(todayStr.getMonth() + 1).padStart(2, '0') + '-' + String(todayStr.getDate()).padStart(2, '0');
+                      localStorage.setItem('zdr_cache_date_' + currentLottery, todayStr);
                       console.log("✅ 已自动将穿透基准数据同步至本地缓存");
                   } catch (e) {
                       console.error("穿透数据同步缓存失败", e);
@@ -4634,6 +4665,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
               try { document.body.removeChild(window._fallbackIframe); } catch(e){}
               window._fallbackIframe = null;
               
+              // 插件穿透超时：先尝试今日本地缓存兜底（仅当天有效），失败再提示手动操作
+              if (tryOfflineCacheFallback(bar)) return;
               bar.className = "status-bar status-be";
               bar.innerHTML = "❌ 插件穿透超时，请尝试下方手动复制粘贴";
               document.getElementById("mp").style.display = "block";
@@ -5135,16 +5168,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         window.__pageFetchFrames = frames;
     };
 
+    // 切换“一键解析并选入 / 取消”共用按钮的状态
+    window.__tspAutoFetchSetPending = function(pending) {
+        const btn = document.getElementById('btn-parse-and-apply');
+        window.__tspAutoFetchPending = !!pending;
+        if (!btn) return;
+        if (pending) {
+            btn.textContent = '⏹ 取消';
+            btn.style.background = 'linear-gradient(105deg, #ef4444, #dc2626)';
+        } else {
+            btn.textContent = '一键解析并选入';
+            btn.style.background = 'linear-gradient(105deg, #f59e0b, #d97706)';
+        }
+    };
+
     window.parseAndApplyExtStrategy = function() {
         const inputEl = document.getElementById('ext-strategy-input');
         const feedbackEl = document.getElementById('ext-strategy-feedback');
         if (!inputEl || !feedbackEl) return;
+        // 等待进行中：再次点击 = 取消自动获取
+        if (window.__tspAutoFetchPending) {
+            if (typeof window.cancelTspAutoFetch === 'function') window.cancelTspAutoFetch();
+            else window.__tspAutoFetchSetPending(false);
+            return;
+        }
         const text = inputEl.value.trim();
         if (window.__tspWaitTimer) { clearTimeout(window.__tspWaitTimer); window.__tspWaitTimer = null; }
         if (!text) {
             // 空输入框时：若有油猴自动获取钩子，直接触发自动获取铁算盘数据
             if (typeof window.__tspAutoFetch === 'function') {
                 window.__tspAutoFetch();
+                window.__tspAutoFetchSetPending(true);
                 return;
             }
             // 等待油猴钩子（移动端注入可能滞后）；约 2 秒仍无则启用页面内置兜底拉取
