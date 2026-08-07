@@ -477,7 +477,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.1 · 2026-08-06 23:29</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.2 · 2026-08-07 20:21</div>
 
         </div>
     
@@ -1310,7 +1310,11 @@
             
             // 一键清空只清选择状态，保留导入条目清单（停用全部条目，重新勾选即可恢复）
             if (window.__importedStrategies) {
-                window.__importedStrategies.forEach(it => { it.checked = false; });
+                window.__importedStrategies.forEach(it => {
+                    it.checked = false;
+                    // 同时清空条目内子选项的选中状态，重新勾选条目时默认全部启用
+                    (it.parts || []).forEach(p => { p.checked = false; });
+                });
             }
             window.__importedAgg = null;
             if (typeof window.renderImportList === 'function') window.renderImportList();
