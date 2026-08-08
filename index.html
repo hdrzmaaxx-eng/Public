@@ -477,7 +477,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.6 · 2026-08-08 12:50</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.9 · 2026-08-08 20:51</div>
 
         </div>
     
@@ -1056,6 +1056,13 @@
                 case 'weather': selected.forEach(v => union.push(...(weatherMap[v] || []))); break;
                 case 'lastDigit': selected.forEach(v => union.push(...(lastDigitMap[v] || []))); break;
                 case 'genderZodiac': selected.forEach(v => union.push(...(genderZodiacMap[v] || []))); break;
+                case 'size': selected.forEach(v => union.push(...(sizeMap[v] || []))); break;
+                case 'oddEven': selected.forEach(v => union.push(...(oddEvenMapForCategory[v] || []))); break;
+                case 'compositeOddEven': selected.forEach(v => union.push(...(compositeOddEvenMap[v] || []))); break;
+                case 'animalType': selected.forEach(v => union.push(...(animalTypeMap[v] || []))); break;
+                case 'yinYangZodiac': selected.forEach(v => union.push(...(yinYangZodiacMap[v] || []))); break;
+                case 'season': selected.forEach(v => union.push(...(seasonMap[v] || []))); break;
+                case 'art': selected.forEach(v => union.push(...(artMap[v] || []))); break;
             }
             return [...new Set(union)];
         }
@@ -1124,7 +1131,7 @@
             result = result.filter(n => getCategoryUnion('lastDigit').includes(n));
 
             // [修改] 导入策略的选入类贡献作为独立约束，与手动选择取交集（任一侧为空则该类不约束）
-            ['numbers', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac'].forEach(cat => {
+            ['numbers', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac', 'size', 'oddEven', 'compositeOddEven', 'animalType', 'yinYangZodiac', 'season', 'art'].forEach(cat => {
                 const importUnion = getImportCategoryUnion(cat);
                 if (importUnion) result = result.filter(n => importUnion.includes(n));
             });
@@ -4705,13 +4712,74 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importedStrategies = window.__importedStrategies || []; // [{title, latest_data, checked, parts, effects}]
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
 
-    const IMPORT_CATS = ['numbers', 'frozen', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac'];
+    const IMPORT_CATS = ['numbers', 'frozen', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac', 'size', 'oddEven', 'compositeOddEven', 'animalType', 'yinYangZodiac', 'season', 'art'];
     // 男肖/女肖生肖组（与页面自身 genderZodiacMap 定义一致）：用于把“男肖/女肖”展开成具体生肖号码
     const MALE_ZODIACS = '鼠牛虎龙马猴狗';
     const FEMALE_ZODIACS = '兔蛇羊鸡猪';
 
     function emptyImportAgg() {
-        return { numbers: new Set(), frozen: new Set(), firstDigit: new Set(), color: new Set(), element: new Set(), weather: new Set(), lastDigit: new Set(), genderZodiac: new Set() };
+        return { numbers: new Set(), frozen: new Set(), firstDigit: new Set(), color: new Set(), element: new Set(), weather: new Set(), lastDigit: new Set(), genderZodiac: new Set(), size: new Set(), oddEven: new Set(), compositeOddEven: new Set(), animalType: new Set(), yinYangZodiac: new Set(), season: new Set(), art: new Set() };
+    }
+
+    // 加号合集子项 → 号码列表（null 表示无法识别）。支持：类别词条 / 生肖串 / 单个号码 / 五行单字
+    // 用于 【单数+羊鸡】【家禽+鼠龙】【男肖+羊蛇】 等合集组合：每项展开为具体号码再并集
+    function expandComboToken(token) {
+        const t = String(token || '').replace(/[.、\s]/g, '');
+        if (!t) return null;
+        switch (t) {
+            case '男肖': return [...new Set(Array.from(MALE_ZODIACS).flatMap(z => zodiacMap[z] || []))];
+            case '女肖': return [...new Set(Array.from(FEMALE_ZODIACS).flatMap(z => zodiacMap[z] || []))];
+            case '家禽': return animalTypeMap.poultry.slice();
+            case '野兽': return animalTypeMap.beast.slice();
+            case '阳肖': return yinYangZodiacMap.yang.slice();
+            case '阴肖': return yinYangZodiacMap.yin.slice();
+            case '大数': case '大': return sizeMap.big.slice();
+            case '小数': case '小': return sizeMap.small.slice();
+            case '单数': case '单': return oddEvenMapForCategory.odd.slice();
+            case '双数': case '双': return oddEvenMapForCategory.even.slice();
+            case '合数单': return compositeOddEvenMap.compositeOdd.slice();
+            case '合数双': return compositeOddEvenMap.compositeEven.slice();
+            case '风': return weatherMap.wind.slice();
+            case '雨': return weatherMap.rain.slice();
+            case '雷': return weatherMap.thunder.slice();
+            case '电': return weatherMap.electric.slice();
+            case '春': return seasonMap.spring.slice();
+            case '夏': return seasonMap.summer.slice();
+            case '秋': return seasonMap.autumn.slice();
+            case '冬': return seasonMap.winter.slice();
+            case '琴': return artMap.qin.slice();
+            case '棋': return artMap.qi.slice();
+            case '书': return artMap.shu.slice();
+            case '画': return artMap.hua.slice();
+            case '红波': return redNums.slice();
+            case '蓝波': return blueNums.slice();
+            case '绿波': return greenNums.slice();
+        }
+        if (/^\d{1,2}$/.test(t)) {
+            const n = parseInt(t, 10);
+            if (n >= 1 && n <= 49) return [n.toString().padStart(2, '0')];
+        }
+        const chars = Array.from(t);
+        // 多字组词：全部由同一组字组成时逐字展开，如 风雨=风+雨、琴棋=琴+棋、春秋=春+秋
+        const groupCharMaps = [
+            { chars: { '风': 'wind', '雨': 'rain', '雷': 'thunder', '电': 'electric' }, map: weatherMap },
+            { chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' }, map: seasonMap },
+            { chars: { '琴': 'qin', '棋': 'qi', '书': 'shu', '画': 'hua' }, map: artMap }
+        ];
+        for (const g of groupCharMaps) {
+            if (chars.every(ch => g.chars[ch])) {
+                return [...new Set(chars.flatMap(ch => g.map[g.chars[ch]] || []))];
+            }
+        }
+        // 五行多字：如 金木、木火 逐字展开
+        if (chars.length > 1 && chars.every(ch => '金木水火土'.includes(ch))) {
+            return [...new Set(chars.flatMap(ch => elementMap[ch] || []))];
+        }
+        if (chars.length && chars.every(ch => zodiacMap[ch])) {
+            return [...new Set(chars.flatMap(ch => zodiacMap[ch] || []))];
+        }
+        if (chars.length === 1 && elementMap[chars[0]]) return elementMap[chars[0]].slice();
+        return null;
     }
 
     function escHtml(s) {
@@ -4723,6 +4791,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function processImportedItem(str, title) {
         const parts = [];
         const hits = [];
+        const seenEffectKeys = new Set(); // 类别效果去重：同一类别同一值只入一次
+
+        // 预扫描：含加号的合集括号区间（【A+B】）。合集内词条统一由“规则9.5 合集”展开为号码并集，
+        // 避免被类别词条规则（9.6）或分组关键字规则（7）重复识别成类别效果（会导致交集冲突）
+        const plusBracketRanges = [];
+        const plusBracketRe = /[〖【]([^〗】]+)[〗】]/g;
+        let plusBracket;
+        while ((plusBracket = plusBracketRe.exec(str)) !== null) {
+            if (/[+＋]/.test(plusBracket[1])) plusBracketRanges.push({ start: plusBracket.index, end: plusBracketRe.lastIndex });
+        }
+        const inPlusBracket = idx => plusBracketRanges.some(r => idx >= r.start && idx < r.end);
 
         // 规则0：选入/杀死标记（油猴自定义模板“内容标记”输出）——整条按标记识别并直接返回，
         // 不再走下面规则，避免“绝杀三肖”等正文词与标记语义冲突（同一批生肖既被杀又被选）
@@ -4730,6 +4809,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const hasKillMark = /【杀死】/.test(str);
         if (hasPickMark || hasKillMark) {
             const isKill = !!hasKillMark;
+            // 尾类内容优先：绝杀二尾【7尾.5尾】/六尾 0.1.2.3.4.8尾 等按 杀尾/尾数 识别，
+            // 而不是把 7、5 等误当成杀码/特码号码（尾部是集合语义，不是单个号码）
+            const tailHead = str.match(/(?:绝杀|死杀|必杀)?(?:六尾|尾数|[一二三四五六七八九十]尾|杀尾)/);
+            if (tailHead) {
+                const afterSeg = str.slice(tailHead.index + tailHead[0].length, tailHead.index + tailHead[0].length + 16);
+                const tailBracket = afterSeg.match(/[〖【]([^〗】]*)[〗】]/);
+                const seg = tailBracket ? tailBracket[1] : afterSeg;
+                const tailStr = seg.replace(/[^\d.]+/g, '.');
+                const tails = tailStr.split('.').filter(t => /^\d$/.test(t));
+                if (tails.length) {
+                    tails.forEach(t => parts.push({ cat: isKill ? 'frozen' : 'lastDigit', label: isKill ? '杀尾' : '尾数', value: t, display: t + '尾', kind: 'digit' }));
+                    hits.push("<span style='color:" + (isKill ? '#ef4444' : '#0891b2') + ";'>" + (isKill ? '杀尾(标记):' : '尾数(标记):') + "</span> " + tails.join(','));
+                    parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+                    return { parts: parts, hits: hits };
+                }
+            }
             const zodList = (str.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []);
             // 数字：取 1~2 位数字段（点号/顿号分隔列表如 05.12.33 也逐个提取；3 位及以上如期数/年份忽略）
             const numList = (str.match(/\d+/g) || []).filter(n => n.length <= 2);
@@ -4809,11 +4904,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
 
         // 规则6：波色（兼容《》/【】括号，支持括号内多个颜色如“【红波+绿波】”；内幕波色由规则8处理）
+        // 加号合集括号（【红波+蓝波】）由规则9.5展开为号码并集，此处跳过，避免颜色类别重复贡献
         if (!/内幕波色/.test(str)) {
             const colorRegex = /[《【]([^》】]*)[》】]/g;
             let colorMatch;
             const colors = new Set();
             while ((colorMatch = colorRegex.exec(str)) !== null) {
+                if (inPlusBracket(colorMatch.index)) continue;
                 if (!/波/.test(colorMatch[1])) continue;
                 (colorMatch[1].match(/[红蓝绿]/g) || []).forEach(c => colors.add(c));
             }
@@ -4823,14 +4920,43 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
         }
 
-        // 规则7：风雨雷电（占位内容如“？？？”不计入）
-        const weatherMatch = str.match(/风雨雷电\s*『(.*?)』/);
-        if (weatherMatch) {
-            const wMap = {'风':'wind', '雨':'rain', '雷':'thunder', '电':'electric'};
-            let added = 0;
-            weatherMatch[1].split('').forEach(w => { if (wMap[w]) { parts.push({ cat: 'weather', label: '风雨雷电', value: wMap[w], display: w, kind: 'char' }); added++; } });
-            if (added) hits.push("天气:" + weatherMatch[1]);
-        }
+        // 规则7：风雨雷电 / 春夏秋冬 / 琴棋书画（类别词引导，取关键字后紧跟的组字）
+        // 兼容旧格式 风雨雷电『风雨』，也支持 风雨雷电：风雨、风雨雷电【风雨】 等写法；
+        // 占位内容如“？？？”不计入；合集括号（【风+雨】）内的字由规则9.5统一展开，此处跳过
+        const groupKeywordRules = [
+            { keyword: '风雨雷电', cat: 'weather', label: '风雨雷电', chars: { '风': 'wind', '雨': 'rain', '雷': 'thunder', '电': 'electric' } },
+            { keyword: '春夏秋冬', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } },
+            { keyword: '四季', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } },
+            { keyword: '琴棋书画', cat: 'art', label: '琴棋书画', chars: { '琴': 'qin', '棋': 'qi', '书': 'shu', '画': 'hua' } }
+        ];
+        const groupHitTexts = [];
+        groupKeywordRules.forEach(gr => {
+            let gIdx = 0;
+            while ((gIdx = str.indexOf(gr.keyword, gIdx)) > -1) {
+                if (inPlusBracket(gIdx)) { gIdx += gr.keyword.length; continue; } // 关键字在合集括号内时由规则9.5处理
+                const after = str.slice(gIdx + gr.keyword.length, gIdx + gr.keyword.length + 16);
+                const found = [];
+                const gSeen = new Set();
+                Array.from(after).forEach((ch, ci) => {
+                    if (!gr.chars[ch] || gSeen.has(ch)) return;
+                    if (inPlusBracket(gIdx + gr.keyword.length + ci)) return; // 合集括号内由规则9.5处理
+                    gSeen.add(ch);
+                    found.push(ch);
+                });
+                if (found.length) {
+                    found.forEach(ch => {
+                        const key = gr.cat + ':' + gr.chars[ch];
+                        if (!seenEffectKeys.has(key)) {
+                            seenEffectKeys.add(key);
+                            parts.push({ cat: gr.cat, label: gr.label, value: gr.chars[ch], display: ch, kind: 'effect' });
+                            groupHitTexts.push(gr.label + '·' + ch);
+                        }
+                    });
+                }
+                gIdx += gr.keyword.length;
+            }
+        });
+        if (groupHitTexts.length) hits.push("<span style='color:#0d9488;'>筛选:</span> " + groupHitTexts.join('、'));
 
         // 规则8：内幕波色（分位单双）如“内幕波色《红波》蓝双”或“内幕波色 〖红波+蓝双〗” → 红波单+红波双+蓝波双
         const nmbsIdx = str.indexOf('内幕波色');
@@ -4856,27 +4982,119 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             hits.push("<span style='color:#0891b2;'>尾数:</span> " + tailMatch[1]);
         }
 
-        // 规则10.5：括号内选男肖/女肖 + 具体生肖，如 男女中特【男肖+羊蛇】 → 男肖组 + 羊蛇
-        // 全部并入 numbers 单一类别（并集），避免与页面交集筛选冲突（男肖∩羊蛇=空）
-        // 优先于规则10：后面的 "女肖：… 男肖:…" 只是分组说明，不应被当成选入
-        let genderBracketFired = false;
-        const genderBracketRe = /[〖【]([^〗】]*(?:男肖|女肖)[^〗】]*)[〗】]/;
-        const gbIdx = str.search(genderBracketRe);
-        if (gbIdx > -1 && !/杀|禁/.test(str.slice(Math.max(0, gbIdx - 6), gbIdx))) {
-            genderBracketFired = true;
-            const gb = str.match(genderBracketRe)[1];
-            const gbParts = gb.split(/[+＋]/).map(s => s.replace(/[.、\s]/g, '')).filter(Boolean);
-            const addZodiacParts = chars => Array.from(chars).forEach(z => { if (zodiacMap[z]) parts.push({ cat: 'numbers', label: '男女中特', value: z, display: z, kind: 'zodiac' }); });
-            gbParts.forEach(part => {
-                if (part === '男肖') addZodiacParts(MALE_ZODIACS);
-                else if (part === '女肖') addZodiacParts(FEMALE_ZODIACS);
-                else addZodiacParts(part);
-            });
-            hits.push("<span style='color:#0d9488;'>男女中特:</span> " + gb);
+        // 规则9.4：杀尾（绝杀二尾/死杀尾等）如 绝杀二尾【7尾.5尾】 → 冻结对应尾数
+        const killTailMatch = str.match(/(?:绝杀|死杀|必杀).*?尾\s*[〖【]?([^〗】]*)/);
+        if (killTailMatch) {
+            const tailStr = killTailMatch[1].replace(/[^\d.]+/g, '.');
+            const killTails = tailStr.split('.').filter(t => /^\d$/.test(t));
+            if (killTails.length) {
+                killTails.forEach(t => parts.push({ cat: 'frozen', label: '杀尾', value: t, display: t + '尾', kind: 'digit' }));
+                hits.push("<span style='color:#ef4444;'>杀尾:</span> " + killTails.join(','));
+            }
         }
 
-        // 规则10：男肖/女肖（兼容点号/顿号/空格分隔）；括号规则已命中则跳过，避免分组说明被误选入
-        if (!genderBracketFired) {
+        // 规则9.5：加号合集组合（【A+B+C】），如 【单数+羊鸡】【家禽+鼠龙】【男肖+羊蛇】
+        // 每项展开为具体号码并入 numbers（并集），避免交集筛选冲突（如 男肖∩羊蛇=空）；
+        // 兼容原有“男女中特【男肖+羊蛇】”语义；仅含加号的括号才识别，“更新中”等普通括号不触发；
+        // 命中后跳过规则10，避免后面的 "女肖：… 男肖:…" 分组说明被当成选入
+        let comboFired = false;
+        plusBracketRanges.forEach(range => {
+            const content = str.slice(range.start + 1, range.end - 1);
+            if (/杀|禁|死/.test(content)) return;
+            const preText = str.slice(Math.max(0, range.start - 6), range.start);
+            if (/杀|禁|死/.test(preText)) return;
+            const tokens = content.split(/[+＋]/).map(s => s.replace(/[.、\s]/g, '')).filter(Boolean);
+            let addedAny = false;
+            const comboLabel = /男肖|女肖/.test(content) ? '男女中特' : '合集';
+            const comboSeen = new Set();
+            tokens.forEach(tok => {
+                const nums = expandComboToken(tok);
+                if (!nums || !nums.length) return;
+                // 生肖串按单个生肖拆分 chips；其余词条整项一个 chip（记录号码集合，避免 chips 爆炸）
+                const allZodiac = tok.length > 0 && Array.from(tok).every(ch => zodiacMap[ch]);
+                if (allZodiac) {
+                    Array.from(tok).forEach(z => {
+                        if (!zodiacMap[z] || comboSeen.has('z:' + z)) return;
+                        comboSeen.add('z:' + z);
+                        parts.push({ cat: 'numbers', label: comboLabel, value: z, display: z, kind: 'zodiac' });
+                    });
+                } else {
+                    if (comboSeen.has('n:' + tok)) return;
+                    comboSeen.add('n:' + tok);
+                    parts.push({ cat: 'numbers', label: comboLabel, value: tok, display: tok, kind: 'numset', nums: nums.slice() });
+                }
+                addedAny = true;
+            });
+            if (addedAny) {
+                comboFired = true;
+                hits.push("<span style='color:#0d9488;'>" + comboLabel + ":</span> " + content);
+            }
+        });
+
+        // 规则9.6：特码筛选器类别词条（大数/小数/单数/双数/合数单/合数双/家禽/野兽/阳肖/阴肖/男肖/女肖）
+        // 成对连写（如“大数小数”“男肖女肖”“阴阳肖”“合数单双”）视为栏目表头跳过，避免误选；
+        // 合集括号内的词条由规则9.5展开，此处跳过；男肖/女肖后跟生肖列表的由规则10处理，此处跳过
+        const filterWordRules = [
+            { word: '合数单', cat: 'compositeOddEven', value: 'compositeOdd', label: '合数单双', pairs: ['合数双', '双'] },
+            { word: '合数双', cat: 'compositeOddEven', value: 'compositeEven', label: '合数单双', pairs: ['合数单', '单'] },
+            { word: '家禽', cat: 'animalType', value: 'poultry', label: '家禽野兽', pairs: ['野兽'] },
+            { word: '野兽', cat: 'animalType', value: 'beast', label: '家禽野兽', pairs: ['家禽'] },
+            { word: '男肖', cat: 'genderZodiac', value: 'male', label: '男肖女肖', pairs: ['女肖'] },
+            { word: '女肖', cat: 'genderZodiac', value: 'female', label: '男肖女肖', pairs: ['男肖'] },
+            { word: '阳肖', cat: 'yinYangZodiac', value: 'yang', label: '阴阳生肖', pairs: ['阴肖', '阴'] },
+            { word: '阴肖', cat: 'yinYangZodiac', value: 'yin', label: '阴阳生肖', pairs: ['阳肖', '阳'] },
+            { word: '大数', cat: 'size', value: 'big', label: '特码大小', pairs: ['小数', '小'] },
+            { word: '小数', cat: 'size', value: 'small', label: '特码大小', pairs: ['大数', '大'] },
+            { word: '单数', cat: 'oddEven', value: 'odd', label: '特码单双', pairs: ['双数', '双'] },
+            { word: '双数', cat: 'oddEven', value: 'even', label: '特码单双', pairs: ['单数', '单'] }
+        ];
+        const filterHits = [];
+        filterWordRules.forEach(rule => {
+            let fIdx = 0;
+            while ((fIdx = str.indexOf(rule.word, fIdx)) > -1) {
+                if (!inPlusBracket(fIdx)) {
+                    const before = str.slice(Math.max(0, fIdx - 2), fIdx);
+                    const after = str.slice(fIdx + rule.word.length, fIdx + rule.word.length + 2);
+                    const pairAdjacent = rule.pairs.some(p => before.endsWith(p) || after.startsWith(p));
+                    const followedByZodiacList = rule.cat === 'genderZodiac' && /^[:：]?\s*[鼠牛虎兔龙蛇马羊猴鸡狗猪]/.test(after);
+                    if (!pairAdjacent && !followedByZodiacList) {
+                        const key = rule.cat + ':' + rule.value;
+                        if (!seenEffectKeys.has(key)) {
+                            seenEffectKeys.add(key);
+                            parts.push({ cat: rule.cat, label: rule.label, value: rule.value, display: rule.word, kind: 'effect' });
+                            filterHits.push(rule.label + '·' + rule.word);
+                        }
+                    }
+                }
+                fIdx += rule.word.length;
+            }
+        });
+        if (filterHits.length) hits.push("<span style='color:#0d9488;'>筛选:</span> " + filterHits.join('、'));
+
+        // 规则9.7：类别词引导的单字（“大小：大”“单双：单数”等；合数单双栏目名不触发特码单双）
+        const singleCharGuides = [
+            { re: /大小\s*[:：]?\s*([大小]+)/, cat: 'size', label: '特码大小', map: { '大': 'big', '小': 'small' } },
+            { re: /单双\s*[:：]?\s*([单双]+)/, cat: 'oddEven', label: '特码单双', map: { '单': 'odd', '双': 'even' } }
+        ];
+        singleCharGuides.forEach(g => {
+            const gm = str.match(g.re);
+            if (!gm) return;
+            const prev2 = str.slice(Math.max(0, gm.index - 2), gm.index);
+            if (/合数/.test(prev2)) return; // “合数单双：…”不当作特码单双
+            Array.from(gm[1]).forEach(ch => {
+                const v = g.map[ch];
+                if (!v) return;
+                const key = g.cat + ':' + v;
+                if (!seenEffectKeys.has(key)) {
+                    seenEffectKeys.add(key);
+                    parts.push({ cat: g.cat, label: g.label, value: v, display: ch, kind: 'effect' });
+                    filterHits.push(g.label + '·' + ch);
+                }
+            });
+        });
+
+        // 规则10：男肖/女肖（兼容点号/顿号/空格分隔）；合集括号规则已命中则跳过，避免分组说明被误选入
+        if (!comboFired) {
             const genderRe = /(男肖|女肖)\s*[:：]?\s*((?:[鼠牛虎兔龙蛇马羊猴鸡狗猪][.、\s]*)+)/g;
             let gm;
             while ((gm = genderRe.exec(str)) !== null) {
@@ -4909,6 +5127,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
         }
 
+        // 汇总去重：同一 类别+标签+值 的子选项只保留一个（效果集合本身会去重，这里避免重复 chips）
+        const seenPartKeys = new Set();
+        const dedupParts = [];
+        parts.forEach(p => {
+            const key = p.cat + '|' + p.label + '|' + p.value;
+            if (seenPartKeys.has(key)) return;
+            seenPartKeys.add(key);
+            dedupParts.push(p);
+        });
+        parts.length = 0;
+        dedupParts.forEach(p => parts.push(p));
+
         parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
         return { parts: parts, hits: hits };
     }
@@ -4925,7 +5155,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (p.cat === 'frozen') effects.frozen.add('num:' + p.value);
                 else effects.numbers.add(p.value);
             } else if (p.kind === 'digit') {
-                if (p.cat === 'lastDigit') effects.lastDigit.add(p.value);
+                if (p.cat === 'frozen') effects.frozen.add('lastDigit:' + p.value); // 杀尾：冻结对应尾数
+                else if (p.cat === 'lastDigit') effects.lastDigit.add(p.value);
                 else effects.firstDigit.add(p.value);
             } else if (p.kind === 'char') {
                 if (p.cat === 'weather') effects.weather.add(p.value);
@@ -4933,12 +5164,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             } else if (p.kind === 'colorChar') {
                 effects.color.add(p.value + '波单');
                 effects.color.add(p.value + '波双');
+            } else if (p.kind === 'numset') {
+                // 加号合集展开的号码集合：直接并入 numbers（并集语义）
+                (p.nums || []).forEach(n => effects.numbers.add(n));
             } else if (p.kind === 'effect') {
                 if (p.cat === 'color') effects.color.add(p.value);
                 else if (p.cat === 'weather') effects.weather.add(p.value);
                 else if (p.cat === 'genderZodiac') effects.genderZodiac.add(p.value);
                 else if (p.cat === 'lastDigit') effects.lastDigit.add(p.value);
                 else if (p.cat === 'firstDigit') effects.firstDigit.add(p.value);
+                else if (p.cat === 'size') effects.size.add(p.value);
+                else if (p.cat === 'oddEven') effects.oddEven.add(p.value);
+                else if (p.cat === 'compositeOddEven') effects.compositeOddEven.add(p.value);
+                else if (p.cat === 'animalType') effects.animalType.add(p.value);
+                else if (p.cat === 'yinYangZodiac') effects.yinYangZodiac.add(p.value);
+                else if (p.cat === 'season') effects.season.add(p.value);
+                else if (p.cat === 'art') effects.art.add(p.value);
             }
         });
         return effects;
