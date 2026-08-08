@@ -477,7 +477,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.4 · 2026-08-07 22:36</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.6 · 2026-08-08 12:50</div>
 
         </div>
     
@@ -1154,6 +1154,7 @@
                     case 'weather': numsToExclude = weatherMap[value] || []; break;
                     case 'firstDigit': numsToExclude = firstDigitMap[value] || []; break;
                     case 'lastDigit': numsToExclude = lastDigitMap[value] || []; break;
+                    case 'num': numsToExclude = [value]; break;
                 }
                 result = result.filter(n => !numsToExclude.includes(n));
             });
@@ -4723,6 +4724,41 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const parts = [];
         const hits = [];
 
+        // 规则0：选入/杀死标记（油猴自定义模板“内容标记”输出）——整条按标记识别并直接返回，
+        // 不再走下面规则，避免“绝杀三肖”等正文词与标记语义冲突（同一批生肖既被杀又被选）
+        const hasPickMark = /【选入】/.test(str);
+        const hasKillMark = /【杀死】/.test(str);
+        if (hasPickMark || hasKillMark) {
+            const isKill = !!hasKillMark;
+            const zodList = (str.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []);
+            // 数字：取 1~2 位数字段（点号/顿号分隔列表如 05.12.33 也逐个提取；3 位及以上如期数/年份忽略）
+            const numList = (str.match(/\d+/g) || []).filter(n => n.length <= 2);
+            const zodSeen = new Set();
+            const numSeen = new Set();
+            let addedZod = 0, addedNum = 0;
+            zodList.forEach(z => {
+                if (!zodiacMap[z] || zodSeen.has(z)) return;
+                zodSeen.add(z);
+                parts.push({ cat: isKill ? 'frozen' : 'numbers', label: isKill ? '杀肖' : '选肖', value: z, display: z, kind: 'zodiac' });
+                addedZod++;
+            });
+            numList.forEach(n => {
+                const numInt = parseInt(n, 10);
+                if (isNaN(numInt) || numInt < 1 || numInt > 49) return;
+                const v = numInt.toString().padStart(2, '0');
+                if (numSeen.has(v)) return;
+                numSeen.add(v);
+                parts.push({ cat: isKill ? 'frozen' : 'numbers', label: isKill ? '杀码' : '特码', value: v, display: v, kind: 'num' });
+                addedNum++;
+            });
+            if (addedZod || addedNum) {
+                const markText = zodList.filter(z => zodiacMap[z]).join('') + (addedNum ? (zodList.length ? ' ' : '') + numList.join(',') : '');
+                hits.push("<span style='color:" + (isKill ? '#ef4444' : '#10b981') + ";'>" + (isKill ? '杀(标记):' : '选入(标记):') + "</span> " + markText);
+            }
+            parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+            return { parts: parts, hits: hits };
+        }
+
         // 规则1：死杀/绝杀生肖（兼容【】与〖〗；内容非生肖（如“更新中”）不计入）
         const killMatch = str.match(/(?:绝杀|死杀).*?肖\s*[〖【]([^〗】]*)[〗】]/);
         if (killMatch) {
@@ -4886,7 +4922,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (p.cat === 'frozen') effects.frozen.add('zodiac:' + p.value);
                 else if (zodiacMap[p.value]) zodiacMap[p.value].forEach(n => effects.numbers.add(n));
             } else if (p.kind === 'num') {
-                effects.numbers.add(p.value);
+                if (p.cat === 'frozen') effects.frozen.add('num:' + p.value);
+                else effects.numbers.add(p.value);
             } else if (p.kind === 'digit') {
                 if (p.cat === 'lastDigit') effects.lastDigit.add(p.value);
                 else effects.firstDigit.add(p.value);
