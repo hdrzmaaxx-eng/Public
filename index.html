@@ -468,7 +468,17 @@
             <div class="group-title" style="margin-top:24px; border-left-color:#f59e0b; color:#d97706;">外部专家策略提取 (粘贴导入)</div>
             <div style="background:#fffbeb; padding:15px; border-radius:8px; border: 1px dashed #f59e0b; margin-bottom: 20px;">
                 <textarea id="ext-strategy-input" placeholder="请在此粘贴由油猴提取的 JSON 数据，或直接拖入 .json 文件..." style="width:100%; height:150px; padding:10px; border:1px solid #fcd34d; border-radius:8px; font-size:0.85rem; margin-bottom:10px; box-sizing:border-box; resize:vertical; min-height:120px; font-family:monospace; background:#fff;"></textarea>
-                <button class="btn" id="btn-parse-and-apply" style="width:100%; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy()">一键解析并选入</button>
+                <div id="ext-strategy-parse-single">
+                    <button class="btn" id="btn-parse-and-apply" style="width:100%; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('macau')">一键解析并选入</button>
+                </div>
+                <div id="ext-strategy-parse-dual" style="display:none; gap:8px;">
+                    <button class="btn" id="btn-parse-macau" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('macau')">导入新澳门条目</button>
+                    <button class="btn" id="btn-parse-hk" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('hk')">导入香港条目</button>
+                </div>
+                <div id="ext-strategy-cat-bar" style="display:none; gap:8px; margin-top:8px;">
+                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+                </div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
                     <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
@@ -478,7 +488,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.10 · 2026-08-09 13:52</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.14 · 2026-08-09 14:35</div>
 
         </div>
     
@@ -1326,7 +1336,10 @@
                 });
             }
             window.__importedAgg = null;
+            window.__importActiveCat = null; // 一键清空：解除“新澳门条目/香港条目”互斥选择
+            if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
             if (typeof window.renderImportList === 'function') window.renderImportList();
+            if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
 
             // 同步剥离所有单点标签的淡绿色反馈
             if (typeof syncUI === 'function') syncUI();
@@ -4712,6 +4725,64 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 导入状态：每条策略记录其贡献，可勾选启用/停用（变化后自动重算，不影响手动选择）
     window.__importedStrategies = window.__importedStrategies || []; // [{title, latest_data, checked, parts, effects}]
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
+    window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
+    const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
+
+    function importTodayStr() {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // 保存导入条目到本地（含当天日期标记；非当天数据一律作废 = 23:59 自动清空）
+    function saveImportedStrategies() {
+        try {
+            localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify({
+                date: importTodayStr(),
+                items: window.__importedStrategies || [],
+                activeCat: window.__importActiveCat
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 页面加载时恢复当天导入条目；过期（非当天）则清空
+    function loadImportedStrategies() {
+        try {
+            const raw = localStorage.getItem(IMPORT_STORAGE_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (!data || !Array.isArray(data.items)) return;
+            if (data.date !== importTodayStr()) {
+                localStorage.removeItem(IMPORT_STORAGE_KEY);
+                return;
+            }
+            data.items.forEach(it => {
+                if (it.lottery !== 'hk' && it.lottery !== 'macau') it.lottery = 'macau'; // 旧数据兜底为新澳门
+                if (Array.isArray(it.parts)) it.parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+                it.effects = buildItemEffects(it.parts || []);
+            });
+            window.__importedStrategies = data.items;
+            if (data.activeCat === 'macau' || data.activeCat === 'hk') window.__importActiveCat = data.activeCat;
+        } catch (e) { /* ignore */ }
+    }
+
+    // 当天 23:59:30 自动清空导入条目（并重新排程次日）
+    function scheduleMidnightClear() {
+        const now = new Date();
+        const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 30, 0);
+        const delay = Math.max(0, next.getTime() - now.getTime());
+        setTimeout(() => {
+            try { localStorage.removeItem(IMPORT_STORAGE_KEY); } catch (e) { /* ignore */ }
+            if ((window.__importedStrategies || []).length || window.__importActiveCat) {
+                window.__importedStrategies.length = 0;
+                window.__importedAgg = null;
+                window.__importActiveCat = null;
+                if (typeof renderImportList === 'function') renderImportList();
+                if (typeof syncImportState === 'function') syncImportState();
+                if (typeof renderCategoryButtons === 'function') renderCategoryButtons();
+            }
+            scheduleMidnightClear();
+        }, delay);
+    }
 
     const IMPORT_CATS = ['numbers', 'frozen', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac', 'size', 'oddEven', 'compositeOddEven', 'animalType', 'yinYangZodiac', 'season', 'art'];
     // 男肖/女肖生肖组（与页面自身 genderZodiacMap 定义一致）：用于把“男肖/女肖”展开成具体生肖号码
@@ -5200,7 +5271,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 聚合规则：选入类规则在勾选策略间取交集，并与手动选择取交集（由 updateDisplay 应用）；冻结/杀肖类规则取并集
     function syncImportState() {
         const newAgg = emptyImportAgg();
-        const checkedItems = (window.__importedStrategies || []).filter(it => it.checked);
+        const activeCat = window.__importActiveCat;
+        // 类别过滤：选择了「新澳门条目/香港条目」时，仅该类别的勾选条目参与聚合
+        const checkedItems = (window.__importedStrategies || []).filter(it => it.checked && (!activeCat || it.lottery === activeCat));
         // 选入类规则 = 交集，冻结/杀肖类规则 = 并集
         IMPORT_CATS.forEach(cat => {
             if (cat === 'frozen') {
@@ -5235,6 +5308,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function renderItemParts(itemIndex, it) {
         const parts = it.parts || [];
         if (!parts.length) return '';
+        const activeCat = window.__importActiveCat;
+        const locked = !!activeCat && it.lottery !== activeCat; // 已选类别时另一类条目不可选
         const groups = [];
         const groupMap = {};
         parts.forEach((p, pi) => {
@@ -5247,8 +5322,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             g.list.map(pi => {
                 const p = parts[pi];
                 const on = it.checked && p.checked;
-                const style = chipBase + (on ? 'background:#f59e0b;color:#fff;font-weight:600;' : 'background:#e2e8f0;color:#94a3b8;');
-                return '<span onclick="window.toggleImportPart(' + itemIndex + ',' + pi + ')" title="点击启用/停用" style="' + style + '">' + escHtml(p.display) + '</span>';
+                const style = chipBase + (locked ? 'background:#f1f5f9;color:#cbd5e1;cursor:not-allowed;opacity:.6;' : (on ? 'background:#f59e0b;color:#fff;font-weight:600;' : 'background:#e2e8f0;color:#94a3b8;'));
+                return '<span' + (locked ? '' : ' onclick="window.toggleImportPart(' + itemIndex + ',' + pi + ')"') + ' title="' + (locked ? '已选择另一类别，不可操作' : '点击启用/停用') + '" style="' + style + '">' + escHtml(p.display) + '</span>';
             }).join('') + '</div>'
         ).join('');
     }
@@ -5259,24 +5334,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!listEl) return;
         const clearBtn = document.getElementById('ext-strategy-clear-btn');
         const items = window.__importedStrategies || [];
+        const activeCat = window.__importActiveCat;
         if (!items.length) {
             listEl.innerHTML = '';
             if (clearBtn) clearBtn.style.display = 'none';
             updateToggleAllButton();
+            renderCategoryButtons();
             return;
         }
         if (clearBtn) clearBtn.style.display = 'block';
+        const badge = (it) => '<span style="display:inline-block;padding:0 5px;margin-right:4px;border-radius:4px;font-size:0.68rem;line-height:1.5;' + (it.lottery === 'hk' ? 'background:#fee2e2;color:#b91c1c;' : 'background:#dbeafe;color:#1d4ed8;') + '">' + (it.lottery === 'hk' ? '香港' : '新澳门') + '</span>';
+        // 类别筛选：选择了「新澳门/香港」时清单只显示该类别条目
+        const visibleItems = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        const catName = activeCat === 'hk' ? '香港' : (activeCat === 'macau' ? '新澳门' : '');
+        if (clearBtn) clearBtn.textContent = activeCat ? '清空「' + catName + '」导入清单' : '清空导入清单';
+        const headText = activeCat
+            ? '已导入条目（共 ' + items.length + ' 条 · 当前仅显示「' + catName + '」' + visibleItems.length + ' 条；点上方类别按钮切换，取消全选可恢复全部。）'
+            : '已导入条目（共 ' + items.length + ' 条，可在下方清单中勾选条目或点击条目内选项单独启用/停用。）';
         listEl.innerHTML =
-            '<div style="margin:4px 0 2px;font-weight:600;">已导入条目（共 ' + items.length + ' 条，可在下方清单中勾选条目或点击条目内选项单独启用/停用。）</div>' +
-            items.map((it, i) =>
-                '<div style="padding:4px 0;border-bottom:1px dashed #fde68a;">' +
-                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
-                '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + i + ', this.checked)" style="width:15px;height:15px;flex-shrink:0;">' +
-                '<span title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + escHtml(it.title) + '</span>' +
-                '</label>' +
-                renderItemParts(i, it) +
-                '</div>').join('');
+            '<div style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>' +
+            visibleItems.map((it) => {
+                const realIndex = items.indexOf(it);
+                return '<div style="padding:4px 0;border-bottom:1px dashed #fde68a;">' +
+                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
+                    '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="width:15px;height:15px;flex-shrink:0;">' +
+                    '<span title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + badge(it) + escHtml(it.title) + '</span>' +
+                    '</label>' +
+                    renderItemParts(realIndex, it) +
+                    '</div>';
+            }).join('');
         updateToggleAllButton();
+        renderCategoryButtons();
     }
     window.renderImportList = renderImportList; // 供 IIFE 外部的 clearAllSelections 调用
 
@@ -5285,6 +5373,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const items = window.__importedStrategies;
         if (!items || !items[index]) return;
         const it = items[index];
+        const activeCat = window.__importActiveCat;
+        if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可选
         it.checked = !!checked;
         if (it.checked && it.parts && it.parts.length && it.parts.every(p => !p.checked)) {
             it.parts.forEach(p => { p.checked = true; });
@@ -5292,6 +5382,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         it.effects = buildItemEffects(it.parts || []);
         syncImportState();
         renderImportList();
+        saveImportedStrategies();
     };
 
     // 点击条目内某个子选项：切换其启用状态并重算
@@ -5300,6 +5391,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const items = window.__importedStrategies;
         const it = items && items[index];
         if (!it || !it.parts || !it.parts[partIndex]) return;
+        const activeCat = window.__importActiveCat;
+        if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可选
         if (!it.checked) {
             it.checked = true;
             it.parts.forEach(p => { p.checked = false; });
@@ -5312,6 +5405,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         it.effects = buildItemEffects(it.parts);
         syncImportState();
         renderImportList();
+        saveImportedStrategies();
     };
 
     // 同步“取消全选/全部启用”按钮的显示与文案
@@ -5320,27 +5414,82 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const copyBtn = document.getElementById('ext-strategy-copy-btn');
         if (!btn) return;
         const items = window.__importedStrategies || [];
-        if (!items.length) {
+        const activeCat = window.__importActiveCat;
+        // 取消全选/全部启用只作用于当前类别（未选类别时作用于全部）
+        const visible = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        if (!visible.length) {
             btn.style.display = 'none';
             if (copyBtn) copyBtn.style.display = 'none';
             return;
         }
         btn.style.display = 'inline-block';
         if (copyBtn) copyBtn.style.display = 'inline-block';
-        btn.textContent = items.some(it => it.checked) ? '取消全选' : '全部启用';
+        btn.textContent = visible.some(it => it.checked) ? '取消全选' : '全部启用';
     }
+
+    // 渲染「新澳门条目/香港条目」筛选按钮（有香港条目时显示；点击后清单只显示该类别条目，可来回切换）
+    function renderCategoryButtons() {
+        const bar = document.getElementById('ext-strategy-cat-bar');
+        if (!bar) return;
+        const items = window.__importedStrategies || [];
+        const hasHk = items.some(it => it.lottery === 'hk');
+        if (!items.length || !hasHk) {
+            bar.style.display = 'none';
+            return;
+        }
+        bar.style.display = 'flex';
+        const btnM = document.getElementById('ext-strategy-cat-macau');
+        const btnH = document.getElementById('ext-strategy-cat-hk');
+        const active = window.__importActiveCat;
+        const base = 'flex:1;padding:6px 10px;border:1px solid #fcd34d;border-radius:6px;font-size:0.75rem;white-space:nowrap;';
+        if (btnM) {
+            btnM.style.cssText = base + (active === 'macau' ? 'background:#d97706;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fffbeb;color:#d97706;cursor:pointer;');
+            btnM.disabled = false;
+        }
+        if (btnH) {
+            btnH.style.cssText = base + (active === 'hk' ? 'background:#d97706;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fffbeb;color:#d97706;cursor:pointer;');
+            btnH.disabled = false;
+        }
+    }
+
+    // 选择导入类别（筛选视图 + 互斥）：点击只显示/启用该类别，另一类别的选中启用状态全部取消；
+    // 再点一次当前按钮恢复显示全部
+    window.setImportActiveCat = function(cat) {
+        if (cat !== 'macau' && cat !== 'hk') return;
+        if (window.__importActiveCat === cat) {
+            window.__importActiveCat = null;
+        } else {
+            window.__importActiveCat = cat;
+            // 互斥：选中本类别时，另一类别的选中启用状态全部取消
+            (window.__importedStrategies || []).forEach(it => {
+                if (it.lottery !== cat) {
+                    it.checked = false;
+                    (it.parts || []).forEach(p => { p.checked = false; });
+                    it.effects = buildItemEffects(it.parts || []);
+                }
+            });
+        }
+        saveImportedStrategies();
+        renderCategoryButtons();
+        renderImportList();
+        syncImportState();
+    };
 
     // 复制全部导入条目为 JSON（可直接粘贴回“外部专家策略提取”输入框重新导入）
     window.copyImportStrategies = function() {
-        const items = window.__importedStrategies || [];
+        const activeCat = window.__importActiveCat;
+        const allItems = window.__importedStrategies || [];
+        // 复制全部只作用于当前类别（未选类别时复制全部）
+        const items = activeCat ? allItems.filter(it => it.lottery === activeCat) : allItems;
         const feedbackEl = document.getElementById('ext-strategy-feedback');
         if (!items.length) {
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可复制的导入条目。</span>';
             return;
         }
-        const text = JSON.stringify(items.map(it => ({ title: it.title, latest_data: it.latest_data })), null, 2);
+        const text = JSON.stringify(items.map(it => ({ title: it.title, latest_data: it.latest_data, lottery: it.lottery === 'hk' ? 'hk' : 'macau' })), null, 2);
         const done = () => {
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已复制全部 ' + items.length + ' 条，粘贴到上方输入框后点「一键解析并选入」即可重新导入。</span>';
+            const catLabel = activeCat === 'hk' ? '香港' : (activeCat === 'macau' ? '新澳门' : '全部');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已复制' + catLabel + '条目 ' + items.length + ' 条，粘贴到上方输入框后点「导入新澳门条目」或「导入香港条目」即可重新导入。</span>';
         };
         const fallbackCopy = () => {
             try {
@@ -5369,8 +5518,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.toggleAllImportItems = function() {
         const items = window.__importedStrategies || [];
         if (!items.length) return;
-        const anyEnabled = items.some(it => it.checked);
-        items.forEach(it => {
+        const activeCat = window.__importActiveCat;
+        // 取消全选/全部启用只作用于当前类别（未选类别时作用于全部）
+        const target = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        if (!target.length) return;
+        const anyEnabled = target.some(it => it.checked);
+        target.forEach(it => {
             it.checked = !anyEnabled;
             if (it.checked && it.parts && it.parts.length) {
                 it.parts.forEach(p => { p.checked = true; });
@@ -5379,18 +5532,28 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         });
         syncImportState();
         renderImportList();
+        saveImportedStrategies();
     };
 
-    // 清空导入清单（容器内按钮）：移除所有导入贡献并清空清单
-    window.clearImportStrategies = function() {
+    // 清空导入清单（容器内按钮）：只移除当前类别的条目（未选类别时清空全部）
+    window.clearImportStrategies = function(cat) {
+        const activeCat = (cat === 'macau' || cat === 'hk') ? cat : window.__importActiveCat;
         const items = window.__importedStrategies;
         if (items && items.length) {
-            items.forEach(it => { it.checked = false; });
-            syncImportState(); // 差分移除全部导入贡献并重算
-            items.length = 0;
+            const target = activeCat ? items.filter(it => it.lottery === activeCat) : items.slice();
+            if (target.length) {
+                target.forEach(it => { it.checked = false; });
+                syncImportState(); // 差分移除贡献并重算
+                target.forEach(it => { const idx = items.indexOf(it); if (idx > -1) items.splice(idx, 1); });
+            }
         }
         window.__importedAgg = null;
+        // 当前类别已清空则回到显示全部（另一类别仍有条目时保留当前视图）
+        if (window.__importActiveCat && !(window.__importedStrategies || []).some(it => it.lottery === window.__importActiveCat)) {
+            window.__importActiveCat = null;
+        }
         renderImportList();
+        saveImportedStrategies();
         const feedbackEl = document.getElementById('ext-strategy-feedback');
         if (feedbackEl) feedbackEl.innerHTML = '';
     };
@@ -5452,7 +5615,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 自动获取失败：' + (failed.join('、') || '所有来源') + ' 未返回数据（请使用粘贴导入）。</span>';
                 return;
             }
-            try { if (typeof window.clearImportStrategies === 'function') window.clearImportStrategies(); } catch (e) { /* ignore */ }
+            try { if (typeof window.clearImportStrategies === 'function') window.clearImportStrategies('macau'); } catch (e) { /* ignore */ }
             inputEl.value = JSON.stringify(merged);
             try { window.parseAndApplyExtStrategy(); } catch (e) { feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 解析导入失败：' + ((e && e.message) || e) + '</span>'; }
             if (failed.length) feedbackEl.innerHTML += '<br><span style="color:#d97706;">⚠️ ' + failed.join('、') + ' 未获取到数据。</span>';
@@ -5488,21 +5651,35 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         window.__pageFetchFrames = frames;
     };
 
-    // 切换“一键解析并选入 / 取消”共用按钮的状态
+    // 输入框为空 → 单个默认按钮（一键解析并选入）；粘贴 JSON 后 → 切换为“导入新澳门/香港条目”两个按钮
+    function updateParseButtonsVisibility() {
+        const inputEl = document.getElementById('ext-strategy-input');
+        const singleWrap = document.getElementById('ext-strategy-parse-single');
+        const dualWrap = document.getElementById('ext-strategy-parse-dual');
+        if (!inputEl || !singleWrap || !dualWrap) return;
+        const hasText = inputEl.value.trim().length > 0;
+        singleWrap.style.display = hasText ? 'none' : 'block';
+        dualWrap.style.display = hasText ? 'flex' : 'none';
+    }
+    window.updateParseButtonsVisibility = updateParseButtonsVisibility; // 供外部调用
+
+    // 切换“一键解析并选入 / 导入新澳门·香港 / 取消”按钮的状态
     window.__tspAutoFetchSetPending = function(pending) {
-        const btn = document.getElementById('btn-parse-and-apply');
+        const btnSingle = document.getElementById('btn-parse-and-apply');
+        const btnM = document.getElementById('btn-parse-macau');
+        const btnH = document.getElementById('btn-parse-hk');
         window.__tspAutoFetchPending = !!pending;
-        if (!btn) return;
         if (pending) {
-            btn.textContent = '⏹ 取消';
-            btn.style.background = 'linear-gradient(105deg, #ef4444, #dc2626)';
+            [btnSingle, btnM, btnH].forEach(b => { if (b) { b.textContent = '⏹ 取消'; b.style.background = 'linear-gradient(105deg, #ef4444, #dc2626)'; } });
         } else {
-            btn.textContent = '一键解析并选入';
-            btn.style.background = 'linear-gradient(105deg, #f59e0b, #d97706)';
+            if (btnSingle) { btnSingle.textContent = '一键解析并选入'; btnSingle.style.background = 'linear-gradient(105deg, #f59e0b, #d97706)'; }
+            if (btnM) { btnM.textContent = '导入新澳门条目'; btnM.style.background = 'linear-gradient(105deg, #f59e0b, #d97706)'; }
+            if (btnH) { btnH.textContent = '导入香港条目'; btnH.style.background = 'linear-gradient(105deg, #f59e0b, #d97706)'; }
         }
     };
 
-    window.parseAndApplyExtStrategy = function() {
+    window.parseAndApplyExtStrategy = function(lottery) {
+        lottery = (lottery === 'hk' || lottery === 'macau') ? lottery : 'macau'; // 默认导入为新澳门
         const inputEl = document.getElementById('ext-strategy-input');
         const feedbackEl = document.getElementById('ext-strategy-feedback');
         if (!inputEl || !feedbackEl) return;
@@ -5558,22 +5735,28 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     return;
                 }
                 const title = item.title || '未命名策略';
-                // 按“标题+内容”去重：重复粘贴不再堆积清单
-                if ((window.__importedStrategies || []).some(it => it.title === title && it.latest_data === str)) return;
+                // 复制按钮带 lottery 时按原分类导入，否则按点击的按钮分类
+                const itemLottery = (item.lottery === 'hk' || item.lottery === 'macau') ? item.lottery : lottery;
+                // 按“标题+内容+分类”去重：重复粘贴不再堆积清单
+                if ((window.__importedStrategies || []).some(it => it.title === title && it.latest_data === str && it.lottery === itemLottery)) return;
                 importCount++;
-                window.__importedStrategies.push({ title, latest_data: str, checked: true, parts: parts, effects: buildItemEffects(parts) });
+                window.__importedStrategies.push({ title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) });
             });
 
             syncImportState();
             renderImportList();
+            saveImportedStrategies();
 
             if (importCount > 0) {
-                feedbackEl.innerHTML = `✅ 识别并已导入条目 ${importCount} 条。`;
+                const catName = lottery === 'hk' ? '香港' : '新澳门';
+                feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`;
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
+                updateParseButtonsVisibility();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } else {
                 feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>';
                 inputEl.value = ""; // 无论是否识别都清空输入框，避免残留整段 JSON 显示为“乱码”
+                updateParseButtonsVisibility();
             }
         } catch (e) {
             feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ JSON 格式错误或解析失败，请检查复制内容。</span>';
@@ -5609,7 +5792,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
           const reader = new FileReader();
           reader.onload = () => {
             extInput.value = String(reader.result || '');
-            if (extFeedback) extFeedback.innerHTML = '<span style="color:#10b981;">✅ 已读取文件：' + file.name + '，点击上方按钮解析选入（再拖一次可覆盖）。</span>';
+            if (typeof window.updateParseButtonsVisibility === 'function') window.updateParseButtonsVisibility();
+            if (extFeedback) extFeedback.innerHTML = '<span style="color:#10b981;">✅ 已读取文件：' + file.name + '，点击上方「导入新澳门条目」或「导入香港条目」解析选入（再拖一次可覆盖）。</span>';
           };
           reader.onerror = () => { if (extFeedback) extFeedback.innerHTML = '<span style="color:#ef4444;">❌ 文件读取失败</span>'; };
           reader.readAsText(file, 'utf-8');
@@ -5626,6 +5810,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         window.runPredict();
         window._predictInitialized = true;
       }
+
+      // 恢复当天导入条目（本地持久化；非当天自动清空），并排程 23:59 自动清空
+      loadImportedStrategies();
+      updateParseButtonsVisibility();
+      extInput.addEventListener('input', updateParseButtonsVisibility);
+      if ((window.__importedStrategies || []).length) {
+        renderImportList();
+        syncImportState();
+        updateToggleAllButton();
+      }
+      renderCategoryButtons();
+      scheduleMidnightClear();
     });
 
 
