@@ -488,7 +488,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.14 · 2026-08-09 14:35</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.16 · 2026-08-09 15:07</div>
 
         </div>
     
@@ -1337,6 +1337,7 @@
             }
             window.__importedAgg = null;
             window.__importActiveCat = null; // 一键清空：解除“新澳门条目/香港条目”互斥选择
+            window.__importCatSnap = {}; // 一键清空：清除各类别选择状态快照
             if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
             if (typeof window.renderImportList === 'function') window.renderImportList();
             if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
@@ -4739,7 +4740,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify({
                 date: importTodayStr(),
                 items: window.__importedStrategies || [],
-                activeCat: window.__importActiveCat
+                activeCat: window.__importActiveCat,
+                catSnap: window.__importCatSnap || {}
             }));
         } catch (e) { /* ignore */ }
     }
@@ -4762,6 +4764,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             });
             window.__importedStrategies = data.items;
             if (data.activeCat === 'macau' || data.activeCat === 'hk') window.__importActiveCat = data.activeCat;
+            window.__importCatSnap = (data.catSnap && typeof data.catSnap === 'object') ? data.catSnap : {};
+            // 兼容无快照的旧数据：先把两类当前状态存快照，再强制类别互斥
+            if (!data.catSnap) {
+                if (typeof snapshotImportCategory === 'function') { snapshotImportCategory('macau'); snapshotImportCategory('hk'); }
+            }
+            if (typeof enforceImportMutex === 'function') enforceImportMutex(window.__importActiveCat);
         } catch (e) { /* ignore */ }
     }
 
@@ -4776,6 +4784,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 window.__importedStrategies.length = 0;
                 window.__importedAgg = null;
                 window.__importActiveCat = null;
+                window.__importCatSnap = {};
                 if (typeof renderImportList === 'function') renderImportList();
                 if (typeof syncImportState === 'function') syncImportState();
                 if (typeof renderCategoryButtons === 'function') renderCategoryButtons();
@@ -5349,7 +5358,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const catName = activeCat === 'hk' ? '香港' : (activeCat === 'macau' ? '新澳门' : '');
         if (clearBtn) clearBtn.textContent = activeCat ? '清空「' + catName + '」导入清单' : '清空导入清单';
         const headText = activeCat
-            ? '已导入条目（共 ' + items.length + ' 条 · 当前仅显示「' + catName + '」' + visibleItems.length + ' 条；点上方类别按钮切换，取消全选可恢复全部。）'
+            ? '已导入条目（共 ' + items.length + ' 条 · 当前仅显示「' + catName + '」' + visibleItems.length + ' 条；点上方类别按钮切换，再点当前类别按钮可恢复全部。）'
             : '已导入条目（共 ' + items.length + ' 条，可在下方清单中勾选条目或点击条目内选项单独启用/停用。）';
         listEl.innerHTML =
             '<div style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>' +
@@ -5380,6 +5389,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             it.parts.forEach(p => { p.checked = true; });
         }
         it.effects = buildItemEffects(it.parts || []);
+        // 严格互斥：勾选某类别条目时，取消另一类别的全部勾选
+        enforceImportMutex(it.checked ? it.lottery : undefined);
         syncImportState();
         renderImportList();
         saveImportedStrategies();
@@ -5403,6 +5414,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // 子选项全部停用时，条目级勾选同步取消
         if (it.checked && it.parts.every(p => !p.checked)) it.checked = false;
         it.effects = buildItemEffects(it.parts);
+        // 严格互斥：启用某类别子选项时，取消另一类别的全部勾选
+        enforceImportMutex(it.checked ? it.lottery : undefined);
         syncImportState();
         renderImportList();
         saveImportedStrategies();
@@ -5452,22 +5465,73 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
     }
 
-    // 选择导入类别（筛选视图 + 互斥）：点击只显示/启用该类别，另一类别的选中启用状态全部取消；
-    // 再点一次当前按钮恢复显示全部
+    // 类别互斥：保证同一时刻只有一种类别有勾选条目（两类不能有交集）
+    // preferred 指定保留的类别；未指定时保留当前有勾选条目的类别（都没有则保留第一条目的类别）
+    window.__importCatSnap = window.__importCatSnap || {}; // 各类别被取消前的选择状态快照
+
+    // 保存某类别的当前勾选状态（按 标题+内容 键，供切回时恢复）
+    function snapshotImportCategory(cat) {
+        const snap = {};
+        (window.__importedStrategies || []).forEach(it => {
+            if (it.lottery === cat) {
+                const key = it.title + '\u0001' + it.latest_data;
+                snap[key] = { checked: !!it.checked, parts: (it.parts || []).map(p => !!p.checked) };
+            }
+        });
+        window.__importCatSnap = window.__importCatSnap || {};
+        window.__importCatSnap[cat] = snap;
+    }
+
+    // 按快照恢复某类别上次的选择状态（快照中不存在的条目保持现状）
+    function restoreImportCategory(cat) {
+        const snap = (window.__importCatSnap || {})[cat];
+        if (!snap) return;
+        (window.__importedStrategies || []).forEach(it => {
+            if (it.lottery === cat) {
+                const key = it.title + '\u0001' + it.latest_data;
+                const s = snap[key];
+                if (s) {
+                    it.checked = !!s.checked;
+                    (it.parts || []).forEach((p, pi) => { p.checked = (s.parts && s.parts[pi] !== undefined) ? !!s.parts[pi] : true; });
+                    it.effects = buildItemEffects(it.parts || []);
+                }
+            }
+        });
+    }
+
+    function enforceImportMutex(preferred) {
+        const items = window.__importedStrategies || [];
+        if (!items.length) return;
+        if (preferred !== 'macau' && preferred !== 'hk') {
+            const checked = items.find(it => it.checked && (it.lottery === 'macau' || it.lottery === 'hk'));
+            preferred = checked ? checked.lottery : (items[0].lottery || 'macau');
+        }
+        // 先快照将被取消的类别（有选中状态时才需要记忆），切回时按快照恢复
+        ['macau', 'hk'].forEach(cat => {
+            if (cat !== preferred && items.some(it => it.lottery === cat && (it.checked || (it.parts || []).some(p => p.checked)))) {
+                snapshotImportCategory(cat);
+            }
+        });
+        items.forEach(it => {
+            if (it.lottery !== preferred) {
+                it.checked = false;
+                (it.parts || []).forEach(p => { p.checked = false; });
+                it.effects = buildItemEffects(it.parts || []);
+            }
+        });
+    }
+
+    // 选择导入类别（筛选视图 + 严格互斥）：选中某类时恢复该类上一次的选择状态、取消另一类的全部选中；
+    // 再点一次当前按钮恢复显示全部（勾选不变，互斥已保证只有一类有勾选）
     window.setImportActiveCat = function(cat) {
         if (cat !== 'macau' && cat !== 'hk') return;
         if (window.__importActiveCat === cat) {
             window.__importActiveCat = null;
         } else {
             window.__importActiveCat = cat;
-            // 互斥：选中本类别时，另一类别的选中启用状态全部取消
-            (window.__importedStrategies || []).forEach(it => {
-                if (it.lottery !== cat) {
-                    it.checked = false;
-                    (it.parts || []).forEach(p => { p.checked = false; });
-                    it.effects = buildItemEffects(it.parts || []);
-                }
-            });
+            // 恢复该类上一次的选择状态（无快照则保持现状）
+            restoreImportCategory(cat);
+            enforceImportMutex(cat);
         }
         saveImportedStrategies();
         renderCategoryButtons();
@@ -5520,9 +5584,20 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!items.length) return;
         const activeCat = window.__importActiveCat;
         // 取消全选/全部启用只作用于当前类别（未选类别时作用于全部）
-        const target = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        const anyEnabled = (activeCat ? items.filter(it => it.lottery === activeCat) : items).some(it => it.checked);
+        let winCat = activeCat;
+        let target;
+        if (anyEnabled) {
+            target = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        } else {
+            // 未选类别时「全部启用」也只启用一种类别（严格互斥）：优先有勾选的类别，否则第一条目的类别
+            if (!winCat) {
+                const checked = items.find(it => it.checked && (it.lottery === 'macau' || it.lottery === 'hk'));
+                winCat = checked ? checked.lottery : (items[0].lottery || 'macau');
+            }
+            target = items.filter(it => it.lottery === winCat);
+        }
         if (!target.length) return;
-        const anyEnabled = target.some(it => it.checked);
         target.forEach(it => {
             it.checked = !anyEnabled;
             if (it.checked && it.parts && it.parts.length) {
@@ -5530,6 +5605,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
             it.effects = buildItemEffects(it.parts || []);
         });
+        if (!anyEnabled) enforceImportMutex(winCat);
         syncImportState();
         renderImportList();
         saveImportedStrategies();
@@ -5551,6 +5627,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // 当前类别已清空则回到显示全部（另一类别仍有条目时保留当前视图）
         if (window.__importActiveCat && !(window.__importedStrategies || []).some(it => it.lottery === window.__importActiveCat)) {
             window.__importActiveCat = null;
+        }
+        // 清掉的类别快照作废（避免切回时恢复已删除条目的状态）
+        if (window.__importCatSnap) {
+            if (activeCat) delete window.__importCatSnap[activeCat];
+            else window.__importCatSnap = {};
         }
         renderImportList();
         saveImportedStrategies();
@@ -5743,6 +5824,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 window.__importedStrategies.push({ title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) });
             });
 
+            if (importCount > 0) {
+                // 导入类别成为当前视图，并取消另一类别的全部选中（严格互斥）
+                window.__importActiveCat = lottery;
+                enforceImportMutex(lottery);
+            }
             syncImportState();
             renderImportList();
             saveImportedStrategies();
