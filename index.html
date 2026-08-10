@@ -476,8 +476,8 @@
                     <button class="btn" id="btn-parse-hk" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('hk')">导入香港条目</button>
                 </div>
                 <div id="ext-strategy-cat-bar" style="display:none; gap:8px; margin-top:8px;">
-                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
-                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #1d4ed8; background:#dbeafe; color:#1d4ed8; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #b91c1c; background:#fee2e2; color:#b91c1c; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
                 </div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
@@ -488,7 +488,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.17 · 2026-08-09 23:57</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.28 · 2026-08-10 23:54</div>
 
         </div>
     
@@ -3569,6 +3569,8 @@ function switchLottery(type) {
 
 // 渲染页面
 function render(r, src) {
+  // 开奖数据到达后刷新导入条目近期 10 期战绩（无导入条目时为空操作）
+  if (typeof window.refreshImportHistories === 'function') window.refreshImportHistories();
   var d = r.latest, n = parseInt(d.qishu) + 1;
   var x = new Date(), ds = x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0") + "-" + String(x.getDate()).padStart(2,"0");
   const lotteryName = currentLottery === 'macau' ? '新澳门六合彩' : '香港六合彩';
@@ -4577,6 +4579,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 	
     // =======================================================
     
+    // 将本类别开奖数据合并写入本地持久存储，供历史战绩离线使用（跨标签/刷新后仍可用）
+    if (typeof window.persistLotteryData === 'function') window.persistLotteryData(currentLottery, result.payload.data);
+
     render(predict({data: result.payload.data}), result.source);
     return;
   }
@@ -4706,6 +4711,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // ========== 新增：同步挂载全局缓存支持粘贴数据的滑块微调 ==========
         window._rawKjData = d.data;
         window._currentDataSource = "粘贴数据";
+        if (typeof window.persistLotteryData === 'function') window.persistLotteryData(currentLottery, d.data);
         // ================================================================
         render(predict({data: d.data}), "粘贴");
       } catch(e) {
@@ -4792,6 +4798,290 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             scheduleMidnightClear();
         }, delay);
     }
+
+    // ========== 新增：导入条目近期 10 期战绩（独立本地存储，清空导入清单/23:59 一律不清除） ==========
+    // v2 语义：每一期只跟自己的开奖一一对应（222 期条目只对 222 期开奖判定中/不中），
+    // 同一条策略（去掉标题里的期数前缀）跨期在本地累积最近 10 期各自的开奖结果。
+    const IMPORT_HISTORY_KEY = 'zdr_import_history_v2';
+    const IMPORT_HISTORY_LIMIT = 10;
+
+    // 旧版 v1 是「当前策略回测最近 10 期」的错误语义，作废并清理
+    try { localStorage.removeItem('zdr_import_history_v1'); } catch (e) { /* ignore */ }
+
+    // 提取条目自身的期数（标题或内容中第一个 N期；无期数则无法一一对应判定）
+    function extractItemPeriod(it) {
+        const m = String(it.title || '').match(/(\d{1,4})期/) || String(it.latest_data || '').match(/(\d{1,4})期/);
+        return m ? parseInt(m[1], 10) : null;
+    }
+
+    // 策略历史键：类别 + 去掉期数前缀的标题（同一策略跨期累积，内容每期不同不影响累积）
+    function importHistoryKey(it) {
+        const title = String(it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '');
+        return (it.lottery || 'macau') + '|' + title;
+    }
+
+    function loadImportHistories() {
+        try {
+            const raw = localStorage.getItem(IMPORT_HISTORY_KEY);
+            const data = raw ? JSON.parse(raw) : null;
+            return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+        } catch (e) { return {}; }
+    }
+
+    // 保存历史：每条只保留最近 10 期（超出的自动删除），历史条目总量设上限防止无限增长
+    function saveImportHistories(map) {
+        try {
+            Object.keys(map).forEach(k => {
+                const h = map[k];
+                if (!h || !Array.isArray(h.periods)) return;
+                if (h.periods.length > IMPORT_HISTORY_LIMIT) h.periods = h.periods.slice(-IMPORT_HISTORY_LIMIT);
+            });
+            const keys = Object.keys(map);
+            if (keys.length > 1000) {
+                keys.sort((a, b) => (map[a].updatedAt || '').localeCompare(map[b].updatedAt || ''));
+                keys.slice(0, keys.length - 1000).forEach(k => delete map[k]);
+            }
+            localStorage.setItem(IMPORT_HISTORY_KEY, JSON.stringify(map));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 把某类别开奖数据合并写入本地持久存储（按 id 覆盖/追加），供历史战绩离线使用（跨标签/刷新后仍可用）
+    function persistLotteryData(lottery, records) {
+        try {
+            if (!Array.isArray(records) || !records.length) return;
+            const storageKey = 'zdr_manual_data_' + lottery;
+            let localData = [];
+            const raw = localStorage.getItem(storageKey);
+            if (raw) { try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) localData = parsed; } catch (e) { /* ignore */ } }
+            records.forEach(r => {
+                if (!r || r.id == null) return;
+                const idx = localData.findIndex(d => d && d.id === r.id);
+                if (idx > -1) localData[idx] = r; else localData.push(r);
+            });
+            localStorage.setItem(storageKey, JSON.stringify(localData));
+        } catch (e) { /* ignore */ }
+    }
+    window.persistLotteryData = persistLotteryData; // 供 runPredict / ps 在数据到达时调用
+
+    // 悬浮提示用：汇总条目的子选项文本（如「选肖:羊 狗 龙 …；杀肖:虎 牛」）
+    function summarizeItemParts(parts) {
+        const groups = {};
+        const order = [];
+        (parts || []).forEach(p => {
+            const label = p.label || '选项';
+            if (!groups[label]) { groups[label] = []; order.push(label); }
+            groups[label].push(p.display != null ? String(p.display) : String(p.value));
+        });
+        return order.map(l => l + ':' + groups[l].join(' ')).join('；');
+    }
+
+    // 取某类别全部开奖记录（优先当前内存数据，其次本地持久数据），按 id 去重升序
+    function getAllLotteryRecords(lottery) {
+        let list = null;
+        if (lottery === currentLottery && Array.isArray(window._rawKjData) && window._rawKjData.length) {
+            list = window._rawKjData;
+        } else {
+            try {
+                const raw = localStorage.getItem('zdr_manual_data_' + lottery);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length) list = parsed;
+                }
+            } catch (e) { /* ignore */ }
+        }
+        if (!list || !list.length) return [];
+        const seen = {};
+        const uniq = [];
+        list.forEach(r => {
+            if (r && r.id != null && !seen[r.id]) { seen[r.id] = true; uniq.push(r); }
+        });
+        uniq.sort((a, b) => a.id - b.id);
+        return uniq;
+    }
+
+    // 查找某类别指定期数的开奖记录（同期数跨年时取最新一期）
+    function findDrawRecordByPeriod(lottery, period) {
+        const list = getAllLotteryRecords(lottery);
+        let best = null;
+        list.forEach(r => {
+            if (r && r.qishu != null && parseInt(r.qishu, 10) === period && (!best || r.id > best.id)) best = r;
+        });
+        return best;
+    }
+
+    // 从开奖记录取特码（统一补足两位）
+    function getTmFromRecord(r) {
+        const nums = String(r.num || '').split(/[,，]/);
+        const tm = nums[nums.length - 1];
+        if (tm == null || String(tm).trim() === '') return '';
+        return String(tm).trim().padStart(2, '0');
+    }
+
+    // 判断某期特码是否命中该条目策略（选入类各维度取交集，冻结/杀肖/杀尾排除）
+    function entryHitsPeriod(effects, t) {
+        if (!t) return false;
+        if (effects.numbers.size && !effects.numbers.has(t)) return false;
+        if (effects.firstDigit.size && !effects.firstDigit.has(t.slice(0, 1))) return false;
+        if (effects.lastDigit.size && !effects.lastDigit.has(t.slice(-1))) return false;
+        if (effects.size.size && !effects.size.has(parseInt(t, 10) >= 25 ? 'big' : 'small')) return false;
+        if (effects.oddEven.size && !effects.oddEven.has(parseInt(t, 10) % 2 === 1 ? 'odd' : 'even')) return false;
+        if (effects.compositeOddEven.size) {
+            const co = compositeOddEvenMap.compositeOdd.includes(t) ? 'compositeOdd' : 'compositeEven';
+            if (!effects.compositeOddEven.has(co)) return false;
+        }
+        if (effects.color.size) {
+            const c = redNums.includes(t) ? '红' : (blueNums.includes(t) ? '蓝' : (greenNums.includes(t) ? '绿' : '?'));
+            if (!effects.color.has(c + '波' + (parseInt(t, 10) % 2 === 1 ? '单' : '双'))) return false;
+        }
+        if (effects.element.size) {
+            let e = '?';
+            for (const k in elementMap) if (elementMap[k].includes(t)) { e = k; break; }
+            if (!effects.element.has(e)) return false;
+        }
+        const inGroup = (map, tm) => { for (const k in map) if (map[k].includes(tm)) return k; return null; };
+        if (effects.weather.size) {
+            const w = inGroup(weatherMap, t);
+            if (!w || !effects.weather.has(w)) return false;
+        }
+        if (effects.season.size) {
+            const s = inGroup(seasonMap, t);
+            if (!s || !effects.season.has(s)) return false;
+        }
+        if (effects.art.size) {
+            const a = inGroup(artMap, t);
+            if (!a || !effects.art.has(a)) return false;
+        }
+        if (effects.animalType.size) {
+            const at = inGroup(animalTypeMap, t);
+            if (!at || !effects.animalType.has(at)) return false;
+        }
+        if (effects.genderZodiac.size) {
+            const g = inGroup(genderZodiacMap, t);
+            if (!g || !effects.genderZodiac.has(g)) return false;
+        }
+        if (effects.yinYangZodiac.size) {
+            const y = inGroup(yinYangZodiacMap, t);
+            if (!y || !effects.yinYangZodiac.has(y)) return false;
+        }
+        if (effects.frozen.size) {
+            const frozenNums = new Set();
+            effects.frozen.forEach(k => {
+                if (k.indexOf('zodiac:') === 0) (zodiacMap[k.slice(7)] || []).forEach(n => frozenNums.add(n));
+                else if (k.indexOf('num:') === 0) frozenNums.add(k.slice(4).padStart(2, '0'));
+                else if (k.indexOf('lastDigit:') === 0) (lastDigitMap[k.slice(10)] || []).forEach(n => frozenNums.add(n));
+            });
+            if (frozenNums.has(t)) return false;
+        }
+        return true;
+    }
+
+    // 历史战绩始终按条目导入时的完整内容计算（与当前勾选/停用状态无关），
+    // 避免「一键清空/取消全选」导致第三排变成「全部选项已停用」而不显示期数
+    function fullItemEffects(it) {
+        const parts = (it.parts || []).map(p => Object.assign({}, p, { checked: true }));
+        return buildItemEffects(parts);
+    }
+
+    // 累积/更新单条条目的本期战绩：只对自身期数一一对应判定（无期数或该期未开奖则跳过；有变化才返回 true）
+    function updateEntryHistory(map, it) {
+        const period = extractItemPeriod(it);
+        if (period == null) return false;
+        const rec = findDrawRecordByPeriod(it.lottery, period);
+        if (!rec) return false; // 该期开奖数据还没到，等数据刷新后自动补记
+        const hit = entryHitsPeriod(fullItemEffects(it), getTmFromRecord(rec));
+        const partsText = summarizeItemParts(it.parts || []);
+        // 记录该期开奖特码信息（号码/生肖/五行/波色），供悬浮提示显示
+        const tm = getTmFromRecord(rec);
+        let sx = '', wx = '', color = '';
+        if (tm) {
+            for (const z in zodiacMap) if (zodiacMap[z].includes(tm)) { sx = z; break; }
+            for (const k in elementMap) if (elementMap[k].includes(tm)) { wx = k; break; }
+            color = redNums.includes(tm) ? '红' : (blueNums.includes(tm) ? '蓝' : (greenNums.includes(tm) ? '绿' : ''));
+        }
+        const key = importHistoryKey(it);
+        const prev = map[key];
+        const next = (prev && Array.isArray(prev.periods) ? prev.periods.filter(p => !(p.qishu != null && parseInt(p.qishu, 10) === period)) : []);
+        next.push({ qishu: String(rec.qishu), hit: hit, partsText: partsText, tm: tm, sx: sx, wx: wx, color: color });
+        next.sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10));
+        if (next.length > IMPORT_HISTORY_LIMIT) next.splice(0, next.length - IMPORT_HISTORY_LIMIT);
+        if (prev && JSON.stringify(prev.periods || []) === JSON.stringify(next)) return false;
+        map[key] = { lottery: it.lottery || 'macau', title: String(it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, ''), periods: next, updatedAt: new Date().toISOString() };
+        return true;
+    }
+
+    // 惰性补齐并持久化全部导入条目的本期战绩（有变化才写存储；返回最新历史表）
+    function ensureImportHistories() {
+        const items = window.__importedStrategies || [];
+        const map = loadImportHistories();
+        let changed = false;
+        items.forEach(it => {
+            if (updateEntryHistory(map, it)) changed = true;
+        });
+        if (changed) saveImportHistories(map);
+        return map;
+    }
+
+    // 开奖数据刷新后重算并刷新清单（数据到达时由 render 调用；无导入条目时为空操作）
+    function refreshImportHistories() {
+        ensureImportHistories();
+        if (typeof renderImportList === 'function') renderImportList();
+    }
+    window.refreshImportHistories = refreshImportHistories;
+
+    // 悬浮提示：属性值转义（在 escHtml 基础上再转双引号）
+    function escAttr(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 悬浮历史期数 0.5 秒后显示该期条目的子选项
+    let __periodTipTimer = null;
+    function getPeriodTipEl() {
+        let tip = document.getElementById('zdr-period-tooltip');
+        if (!tip) {
+            tip = document.createElement('div');
+            tip.id = 'zdr-period-tooltip';
+            tip.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.15);padding:8px 10px;font-size:0.75rem;color:#334155;max-width:280px;pointer-events:none;display:none;word-break:break-all;';
+            document.body.appendChild(tip);
+        }
+        return tip;
+    }
+    function showPeriodTooltip(evt, el) {
+        hidePeriodTooltip();
+        const qishu = el.getAttribute('data-qishu') || '';
+        const hit = el.getAttribute('data-hit') === '1';
+        const tipText = el.getAttribute('data-tip') || '';
+        const tm = el.getAttribute('data-tm') || '';
+        const sx = el.getAttribute('data-sx') || '';
+        const wx = el.getAttribute('data-wx') || '';
+        const color = el.getAttribute('data-color') || '';
+        __periodTipTimer = setTimeout(function() {
+            const tip = getPeriodTipEl();
+            const colorHex = color === '红' ? '#ef4444' : (color === '蓝' ? '#2563eb' : (color === '绿' ? '#16a34a' : ''));
+            let html = '<div style="font-weight:600;margin-bottom:4px;">' + escHtml(qishu) + '期开：';
+            if (tm) {
+                html += '<span style="color:' + colorHex + ';">' + escHtml(tm) + '</span>' + (sx ? ' / ' + escHtml(sx) : '') + (wx ? ' / ' + escHtml(wx) : '');
+            }
+            html += '<span style="margin-left:8px;background:' + (hit ? '#ef4444' : '#f1f5f9') + ';color:' + (hit ? '#fff' : '#94a3b8') + ';padding:3px 8px;border-radius:4px;font-weight:600;' + (hit ? 'box-shadow:0 1px 2px rgba(239,68,68,0.3);' : '') + '">' + (hit ? '中' : '错') + '</span></div>';
+            html += tipText ? '<div style="line-height:1.6;">' + escHtml(tipText) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
+            tip.innerHTML = html;
+            const r = el.getBoundingClientRect();
+            const tw = tip.offsetWidth, th = tip.offsetHeight;
+            let left = r.left + r.width / 2 - tw / 2;
+            left = Math.max(4, Math.min(left, window.innerWidth - tw - 4));
+            let top = r.bottom + 6;
+            if (top + th > window.innerHeight - 4) top = r.top - th - 6;
+            tip.style.left = left + 'px';
+            tip.style.top = top + 'px';
+            tip.style.display = 'block';
+        }, 500);
+    }
+    function hidePeriodTooltip() {
+        if (__periodTipTimer) { clearTimeout(__periodTipTimer); __periodTipTimer = null; }
+        const tip = document.getElementById('zdr-period-tooltip');
+        if (tip) tip.style.display = 'none';
+    }
+    window.showPeriodTooltip = showPeriodTooltip;
+    window.hidePeriodTooltip = hidePeriodTooltip;
 
     const IMPORT_CATS = ['numbers', 'frozen', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac', 'size', 'oddEven', 'compositeOddEven', 'animalType', 'yinYangZodiac', 'season', 'art'];
     // 男肖/女肖生肖组（与页面自身 genderZodiacMap 定义一致）：用于把“男肖/女肖”展开成具体生肖号码
@@ -5337,6 +5627,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         ).join('');
     }
 
+    // 渲染单条条目的近期 10 期战绩第三排：只显示该策略本地累积的各自期数结果
+    // （每期一一对应，222 期只对 222 期；无期数条目不渲染），中=红、不中=灰，
+    // 每期带圆角外框、间距拉开，一排容纳 10 期（移动端超窄时横向滚动兜底），最新期在右侧
+    function renderImportHistory(itemIndex, it, histMap) {
+        if (extractItemPeriod(it) == null) return ''; // 无期数，无法一一对应，不渲染第三排
+        const h = histMap[importHistoryKey(it)];
+        const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
+        if (!periods.length) {
+            return '<div style="margin:2px 0 0 21px;font-size:0.72rem;color:#94a3b8;line-height:1.7;">暂无开奖数据</div>';
+        }
+        return '<div style="margin:3px 0 0 21px;display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">' +
+            periods.map(p => '<span style="flex-shrink:0;display:inline-block;padding:1px 7px;border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';font-size:0.7rem;line-height:1.5;cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '" onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()">' + escHtml(String(p.qishu)) + '</span>').join('') +
+            '</div>';
+    }
+
     // 渲染导入条目清单（条目级勾选保留；条目内子选项直接点击切换）
     function renderImportList() {
         const listEl = document.getElementById('ext-strategy-list');
@@ -5358,8 +5663,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const catName = activeCat === 'hk' ? '香港' : (activeCat === 'macau' ? '新澳门' : '');
         if (clearBtn) clearBtn.textContent = activeCat ? '清空「' + catName + '」导入清单' : '清空导入清单';
         const headText = activeCat
-            ? '已导入条目（共 ' + items.length + ' 条 · 当前仅显示「' + catName + '」' + visibleItems.length + ' 条；点上方类别按钮切换，再点当前类别按钮可恢复全部。）'
-            : '已导入条目（共 ' + items.length + ' 条，可在下方清单中勾选条目或点击条目内选项单独启用/停用。）';
+            ? '<span style="color:' + (activeCat === 'hk' ? '#b91c1c' : '#1d4ed8') + ';">当前条目仅显示「' + catName + '」' + visibleItems.length + ' 条。</span>'
+            : '已导入条目（共 ' + items.length + ' 条。）';
+        const histMap = ensureImportHistories();
         listEl.innerHTML =
             '<div style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>' +
             visibleItems.map((it) => {
@@ -5370,6 +5676,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     '<span title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + badge(it) + escHtml(it.title) + '</span>' +
                     '</label>' +
                     renderItemParts(realIndex, it) +
+                    renderImportHistory(realIndex, it, histMap) +
                     '</div>';
             }).join('');
         updateToggleAllButton();
@@ -5456,13 +5763,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const btnM = document.getElementById('ext-strategy-cat-macau');
         const btnH = document.getElementById('ext-strategy-cat-hk');
         const active = window.__importActiveCat;
-        const base = 'flex:1;padding:6px 10px;border:1px solid #fcd34d;border-radius:6px;font-size:0.75rem;white-space:nowrap;';
         if (btnM) {
-            btnM.style.cssText = base + (active === 'macau' ? 'background:#d97706;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fffbeb;color:#d97706;cursor:pointer;');
+            // 新澳门：蓝色主题（边框/文字/选中底色均为蓝色系）
+            btnM.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #1d4ed8;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'macau' ? 'background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#dbeafe;color:#1d4ed8;cursor:pointer;');
             btnM.disabled = false;
         }
         if (btnH) {
-            btnH.style.cssText = base + (active === 'hk' ? 'background:#d97706;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fffbeb;color:#d97706;cursor:pointer;');
+            // 香港：红色主题（边框/文字/选中底色均为红色系）
+            btnH.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #b91c1c;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'hk' ? 'background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fee2e2;color:#b91c1c;cursor:pointer;');
             btnH.disabled = false;
         }
     }
