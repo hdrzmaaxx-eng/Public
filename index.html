@@ -488,7 +488,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.28 · 2026-08-10 23:54</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.29 · 2026-08-11 00:09</div>
 
         </div>
     
@@ -4899,11 +4899,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return uniq;
     }
 
-    // 查找某类别指定期数的开奖记录（同期数跨年时取最新一期）
+    // 查找某类别指定期数的开奖记录（只匹配当前年份，避免跨年误配到上一年的同号期，
+    // 如香港 2026 年 087 未开时误配到 2025-08-12 的 087）
     function findDrawRecordByPeriod(lottery, period) {
+        const year = new Date().getFullYear();
         const list = getAllLotteryRecords(lottery);
         let best = null;
         list.forEach(r => {
+            const rYear = r.year != null ? parseInt(r.year, 10) : Math.floor(r.id / 1000);
+            if (rYear !== year) return;
             if (r && r.qishu != null && parseInt(r.qishu, 10) === period && (!best || r.id > best.id)) best = r;
         });
         return best;
@@ -5016,6 +5020,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         let changed = false;
         items.forEach(it => {
             if (updateEntryHistory(map, it)) changed = true;
+        });
+        // 清理跨年误配的陈旧期数：本地历史中已无当前年份开奖记录的期数一律删除
+        // （修复如香港 087 未开奖时误配到 2025 年 087 的错误记录）
+        Object.keys(map).forEach(key => {
+            const h = map[key];
+            if (!h || !Array.isArray(h.periods)) return;
+            const kept = h.periods.filter(p => p.qishu != null && findDrawRecordByPeriod(h.lottery, parseInt(p.qishu, 10)));
+            if (kept.length !== h.periods.length) {
+                if (kept.length) { h.periods = kept; h.updatedAt = new Date().toISOString(); } else { delete map[key]; }
+                changed = true;
+            }
         });
         if (changed) saveImportHistories(map);
         return map;
