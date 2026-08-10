@@ -146,6 +146,30 @@
             background-color: #0056b3;
         }
 
+        /* 输入框右侧的暂存按钮（位于复制按钮与一键清空中间） */
+        .save-icon {
+            position: absolute;
+            top: 50%;
+            right: 5px;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            background-color: #8b5cf6;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        .save-icon:hover {
+            background-color: #7c3aed;
+        }
+
         /* 数字标签（Tag）基础样式 */
 		
 		
@@ -308,7 +332,8 @@
 <div class="calculator">
         <div class="main-tabs">
             <button id="tabZdr" class="main-tab-btn active" onclick="switchMainTab('zdr')">特码筛选器</button>
-            <button id="tabPredict" class="main-tab-btn" onclick="switchMainTab('predict')">钟道人特码</button>
+            <button id="tabMacau" class="main-tab-btn" onclick="switchMainTab('macau')">新澳门特码</button>
+            <button id="tabHk" class="main-tab-btn" onclick="switchMainTab('hk')">香港特码</button>
         </div>
         
         <div id="zdrView">
@@ -488,7 +513,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.29 · 2026-08-11 00:09</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.40 · 2026-08-11 01:59</div>
 
         </div>
     
@@ -500,7 +525,7 @@
           <div class="header">
             <div class="logo">六合彩特码预测</div>
 			
-            <div class="toggle-group">
+            <div class="toggle-group" style="display:none;">
               <button id="btnMacau" class="toggle-btn active">新澳门特码预测</button>
               <button id="btnHk" class="toggle-btn">香港特码预测</button>
             </div>
@@ -1217,6 +1242,7 @@
           // 在末尾附加一键清空的小 X 图标及右上角的复制图标
             const clearIconStr = '<div class="clear-icon" onclick="window.clearAllSelections()" title="一键清空">✕</div>';
             const copyIconStr = '<div class="copy-icon" onclick="window.copySelections(this)" title="复制">' + SVG_COPY + '</div>';
+            const saveIconStr = '<div class="save-icon" onclick="window.saveCurrentNumbersToStash(this)" title="暂存号码">存</div>';
             
             // 构建来源角标
             let badgeStr = '';
@@ -1226,9 +1252,9 @@
                 badgeStr = '<div class="source-badge hk">香港</div>';
             }
 
-            displayContainer.insertAdjacentHTML('beforeend', clearIconStr + copyIconStr + badgeStr);
+            displayContainer.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + badgeStr);
             if (displayContainerPredict) {
-                displayContainerPredict.insertAdjacentHTML('beforeend', clearIconStr + copyIconStr + badgeStr);
+                displayContainerPredict.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + badgeStr);
             }
         }
 
@@ -1846,15 +1872,16 @@ console.log('🔧 波色分组已拆分为6个：红波单/双、蓝波单/双�
 
 
 // 全局状态：记录各视图的滚动位置
-window.scrollPos = { zdr: 0, predict: 0 };
-window.currentActiveTab = 'zdr'; // 默认初始处于钟道人视图
+window.scrollPos = { zdr: 0, macau: 0, hk: 0 };
+window.currentActiveTab = 'zdr'; // 默认初始处于特码筛选器
 
 // 1. 选项卡切换逻辑 (全局挂载)
 window.switchMainTab = function(tab) {
     const zdrView = document.getElementById('zdrView');
     const predictView = document.getElementById('predictView');
     const tabZdr = document.getElementById('tabZdr');
-    const tabPredict = document.getElementById('tabPredict');
+    const tabMacau = document.getElementById('tabMacau');
+    const tabHk = document.getElementById('tabHk');
 
     // 切换前，保存当前视图的滚动高度
     window.scrollPos[window.currentActiveTab] = window.scrollY || document.documentElement.scrollTop;
@@ -1863,27 +1890,30 @@ window.switchMainTab = function(tab) {
         zdrView.style.display = 'block';
         predictView.style.display = 'none';
         tabZdr.classList.add('active');
-        tabPredict.classList.remove('active');
+        if (tabMacau) tabMacau.classList.remove('active');
+        if (tabHk) tabHk.classList.remove('active');
         window.currentActiveTab = 'zdr';
         
-        // 恢复钟道人视图的滚动位置
+        // 恢复特码筛选器视图的滚动位置
         window.scrollTo(0, window.scrollPos.zdr);
     } else {
         zdrView.style.display = 'none';
         predictView.style.display = 'block';
-        tabPredict.classList.add('active');
         tabZdr.classList.remove('active');
-        window.currentActiveTab = 'predict';
+        const lottery = tab === 'hk' ? 'hk' : 'macau';
+        if (tabMacau) tabMacau.classList.toggle('active', lottery === 'macau');
+        if (tabHk) tabHk.classList.toggle('active', lottery === 'hk');
+        window.currentActiveTab = lottery;
         
         // 恢复预测视图的滚动位置
-        window.scrollTo(0, window.scrollPos.predict);
-        
-        // 首次切换到预测工具时自动触发获取数据
-        if (!window._predictInitialized) {
-            window.runPredict();
-            window._predictInitialized = true;
-        }
+        window.scrollTo(0, window.scrollPos[lottery] || 0);
+
+        // 切换到对应彩种预测（会话缓存优先，未加载过才网络提取）
+        window.switchLottery(lottery);
     }
+
+    // 记忆当前主标签页与彩种（特码筛选器/新澳门特码/香港特码），刷新后恢复
+    try { localStorage.setItem('zdr_page_state_v1', JSON.stringify({ tab: window.currentActiveTab, lottery: typeof window.getCurrentLottery === 'function' ? window.getCurrentLottery() : 'macau' })); } catch (e) { /* ignore */ }
 };
 
 
@@ -3541,6 +3571,13 @@ const API_BASE = isLocal ? "https://sk1420hdb.ddvbok.com:2099" : "";
 
 let API = API_BASE + "/api/kjdata.php?g=am";
 let currentLottery = 'macau';
+window.__lotteryData = window.__lotteryData || {}; // 会话内各彩种开奖数据缓存（切换彩种时避免重复提取）
+
+// 记录某彩种最近一次成功加载的开奖数据
+function rememberLotteryData(lottery, data) {
+    if (!data || !Array.isArray(data) || !data.length) return;
+    window.__lotteryData[lottery] = data;
+}
 
 function switchLottery(type) {
   if (type === 'macau') {
@@ -3560,9 +3597,65 @@ function switchLottery(type) {
   if (footerMsg) {
     footerMsg.innerHTML = currentLottery === 'macau' ? '直连失败时可手动粘贴 · 推荐 Kiwi 浏览器' : '直连失败时可手动粘贴（香港） · 推荐 Kiwi 浏览器';
   }
+  // 记忆当前彩种（新澳门/香港），刷新后恢复
+  try { localStorage.setItem('zdr_page_state_v1', JSON.stringify({ tab: window.currentActiveTab || 'zdr', lottery: currentLottery })); } catch (e) { /* ignore */ }
+
+  // 页面刷新恢复时强制走网络提取（保证拿到最新开奖）；日常切换彩种则用缓存/本地数据即时渲染
+  const forceFetch = !!window.__forceLotteryFetch;
+  window.__forceLotteryFetch = false; // 一次性标记
+
+  if (!forceFetch) {
+    // 1) 会话缓存优先
+    const cached = window.__lotteryData && window.__lotteryData[currentLottery];
+    if (cached && cached.length) {
+      window._rawKjData = cached;
+      window._currentDataSource = "会话缓存";
+      const bar = document.getElementById("bar");
+      if (bar) {
+        bar.className = "status-bar";
+        bar.innerHTML = "已使用本会话缓存数据（点状态栏可强制重新提取）";
+      }
+      render(predict({ data: cached }), "会话缓存");
+      return;
+    }
+    // 2) 本地已保存的开奖数据兜底：仅当为当天写入（每天都是最新一期）时才即时渲染，
+    //    过期本地数据一律不当作当期展示（避免旧期数据冒充当期，如香港 019 期被当成 087 期）
+    let localData = null;
+    try {
+      const todayStr = (function() { var x = new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); })();
+      const cachedDate = localStorage.getItem('zdr_cache_date_' + currentLottery);
+      if (cachedDate === todayStr) {
+        const raw = localStorage.getItem('zdr_manual_data_' + currentLottery);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length) localData = parsed;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    if (localData && localData.length) {
+      localData = localData.slice().sort(function(a, b) { return b.id - a.id; });
+      window._rawKjData = localData;
+      window._currentDataSource = "本地数据";
+      rememberLotteryData(currentLottery, localData);
+      const bar = document.getElementById("bar");
+      if (bar) {
+        bar.className = "status-bar";
+        bar.innerHTML = "已使用今日本地保存数据（点状态栏可强制重新提取）";
+      }
+      render(predict({ data: localData }), "本地数据");
+      return;
+    }
+  }
   window.runPredict();
 }
 
+
+
+
+
+// 暴露给顶层 switchMainTab 调用（v1.37 起顶层直接切换彩种，但本函数定义在 IIFE 内，不暴露会抛 ReferenceError）
+window.switchLottery = switchLottery;
+window.getCurrentLottery = function() { return currentLottery; };
 
 
 
@@ -3797,7 +3890,8 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   var listDisp = isListOpen ? 'flex' : 'none';
   var iconTxt = isListOpen ? '▼' : '▲';
 
-  var code8Html = '<div id="strategy-panel" style="background: #ffffff; border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 12px; padding: 12px; display: block;">' +
+  var code8Html = '<div id="saved-numbers-panel"></div>' +
+                  '<div id="strategy-panel" style="background: #ffffff; border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 12px; padding: 12px; display: block;">' +
                   '<div style="font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="window.toggleStrategyList()">' +
                   '<span>自定义策略库</span>' +
                   '<div style="display: flex; align-items: center; gap: 8px; margin-left: auto;">' +
@@ -4009,9 +4103,11 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   if (document.getElementById("out-hero") && document.getElementById("out-content")) {
       document.getElementById("out-hero").innerHTML = heroHtml;
       document.getElementById("out-content").innerHTML = code8Html + otherHtml;
+      if (typeof window.refreshSavedNumbersPanel === 'function') window.refreshSavedNumbersPanel();
   } else {
       // 保留兜底兼容
       document.getElementById("out").innerHTML = heroHtml + code8Html + otherHtml;
+      if (typeof window.refreshSavedNumbersPanel === 'function') window.refreshSavedNumbersPanel();
   }
   
   
@@ -4348,10 +4444,14 @@ async function tryFetch(url) {
       if (typeof window.requestCORS === 'function') {
         try {
           console.log("检测到油猴环境，尝试特权直连...");
-          const data = await window.requestCORS(url, { method: 'GET' });
+          // 油猴直连增加 8 秒硬超时：GM_xmlhttpRequest 未设 timeout 时网络卡死会一直转圈
+          const data = await Promise.race([
+            window.requestCORS(url, { method: 'GET' }),
+            new Promise(function(_, reject) { setTimeout(function() { reject(new Error("油猴直连超时")); }, 8000); })
+          ]);
           if (data) return { payload: data, source: "油猴直连" };
         } catch(e) { 
-          console.warn("油猴请求失败，准备降级至代理..."); 
+          console.warn("油猴请求失败，准备降级至代理...", e && e.message); 
         }
       }
 
@@ -4428,6 +4528,7 @@ async function tryFetch(url) {
             cachedData.sort(function(a, b) { return b.id - a.id; });
             window._rawKjData = cachedData;
             window._currentDataSource = "本地缓存(今日)";
+            rememberLotteryData(currentLottery, cachedData);
             bar.className = "status-bar status-be";
             bar.innerHTML = "⚠️ 网络不可用，已使用今日本地缓存渲染（仅当天有效，联网后请重新获取最新一期）";
             render(predict({ data: cachedData }), "本地缓存(今日)");
@@ -4456,6 +4557,7 @@ async function tryFetch(url) {
     // ========== 新增：将原始开奖数据及数据源挂载到全局，用于支持滑块实时响应重算 ==========
     window._rawKjData = result.payload.data;
     window._currentDataSource = result.source;
+    rememberLotteryData(currentLottery, result.payload.data);
     // =================================================================================
     
 	
@@ -4664,6 +4766,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 				  
                   window._rawKjData = payload.data;
                   window._currentDataSource = "插件穿透";
+                  rememberLotteryData(currentLottery, payload.data);
                   // =================================================================================
 
                   // 触发数据解析及渲染流程
@@ -4711,6 +4814,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // ========== 新增：同步挂载全局缓存支持粘贴数据的滑块微调 ==========
         window._rawKjData = d.data;
         window._currentDataSource = "粘贴数据";
+        rememberLotteryData(currentLottery, d.data);
         if (typeof window.persistLotteryData === 'function') window.persistLotteryData(currentLottery, d.data);
         // ================================================================
         render(predict({data: d.data}), "粘贴");
@@ -4859,6 +4963,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (idx > -1) localData[idx] = r; else localData.push(r);
             });
             localStorage.setItem(storageKey, JSON.stringify(localData));
+            // 记录当日缓存日期标记，网络失败时可作今日离线兜底
+            const d = new Date();
+            localStorage.setItem('zdr_cache_date_' + lottery, d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
         } catch (e) { /* ignore */ }
     }
     window.persistLotteryData = persistLotteryData; // 供 runPredict / ps 在数据到达时调用
@@ -4875,10 +4982,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return order.map(l => l + ':' + groups[l].join(' ')).join('；');
     }
 
-    // 取某类别全部开奖记录（优先当前内存数据，其次本地持久数据），按 id 去重升序
+    // 取某类别全部开奖记录（优先本会话已加载的新鲜数据，其次当前内存数据，最后本地持久数据），按 id 去重升序
     function getAllLotteryRecords(lottery) {
         let list = null;
-        if (lottery === currentLottery && Array.isArray(window._rawKjData) && window._rawKjData.length) {
+        if (window.__lotteryData && Array.isArray(window.__lotteryData[lottery]) && window.__lotteryData[lottery].length) {
+            // 会话内已加载过该彩种（本会话必为当天数据），避免跨彩种读取时用旧本地数据算出过期期数
+            list = window.__lotteryData[lottery];
+        } else if (lottery === currentLottery && Array.isArray(window._rawKjData) && window._rawKjData.length) {
             list = window._rawKjData;
         } else {
             try {
@@ -5097,6 +5207,207 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
     window.showPeriodTooltip = showPeriodTooltip;
     window.hidePeriodTooltip = hidePeriodTooltip;
+
+    // ========== 新增：号码暂存（香港/新澳门分开，显示在自定义策略库上方） ==========
+    const SAVED_NUMS_KEY = 'zdr_saved_numbers_v1';
+    const SAVED_NUMS_LIMIT = 20;
+
+    function loadSavedNumbers() {
+        try {
+            const raw = localStorage.getItem(SAVED_NUMS_KEY);
+            const data = raw ? JSON.parse(raw) : null;
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                if (!Array.isArray(data.macau)) data.macau = [];
+                if (!Array.isArray(data.hk)) data.hk = [];
+                return data;
+            }
+        } catch (e) { /* ignore */ }
+        return { macau: [], hk: [] };
+    }
+
+    function saveSavedNumbers(data) {
+        try {
+            data.macau = (data.macau || []).slice(-SAVED_NUMS_LIMIT);
+            data.hk = (data.hk || []).slice(-SAVED_NUMS_LIMIT);
+            localStorage.setItem(SAVED_NUMS_KEY, JSON.stringify(data));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 当前预测期数（最新已开奖期 + 1；无数据时澳门按当天年内天数）
+    function getCurrentPredictionPeriod(lottery) {
+        const year = new Date().getFullYear();
+        let max = 0;
+        getAllLotteryRecords(lottery).forEach(r => {
+            const rYear = r.year != null ? parseInt(r.year, 10) : Math.floor(r.id / 1000);
+            if (rYear === year && r.qishu != null) {
+                const q = parseInt(r.qishu, 10);
+                if (q > max) max = q;
+            }
+        });
+        if (max) return max + 1;
+        if (lottery === 'macau') {
+            const d = new Date();
+            const start = new Date(d.getFullYear(), 0, 0);
+            return Math.floor((d - start) / 86400000);
+        }
+        return null;
+    }
+
+    // 读取输入框容器内当前显示的全部号码（来自手动选择/导入条目/分类筛选的结果）
+    function readDisplayNumbers(container) {
+        if (!container) return [];
+        const tags = container.querySelectorAll('.num-tag');
+        const seen = {};
+        const nums = [];
+        Array.from(tags).forEach(t => {
+            const raw = String(t.textContent || '').trim().substring(0, 2);
+            const v = parseInt(raw, 10);
+            if (v >= 1 && v <= 49) {
+                const p = String(v).padStart(2, '0');
+                if (!seen[p]) { seen[p] = true; nums.push(p); }
+            }
+        });
+        return nums.sort();
+    }
+
+    // 核心保存：写入指定彩种的暂存列表（成功时暂存按钮给反馈动画，不弹窗）
+    function saveNumbersToStash(lottery, nums, btn) {
+        const data = loadSavedNumbers();
+        const periodNum = getCurrentPredictionPeriod(lottery);
+        const period = periodNum != null ? (lottery === 'hk' ? String(periodNum).padStart(3, '0') : String(periodNum)) : '当期';
+        data[lottery] = data[lottery] || [];
+        // 与已保存的某组暂存号码完全重复时自动去重（不新增、不提示）
+        const dup = data[lottery].some(s => s.nums && JSON.stringify(s.nums.slice().sort()) === JSON.stringify(nums));
+        if (!dup) {
+            data[lottery].push({ id: Date.now(), period: period, nums: nums, time: new Date().toISOString() });
+            saveSavedNumbers(data);
+        }
+        refreshSavedNumbersPanel();
+        if (btn && typeof window.showBtnFeedback === 'function') window.showBtnFeedback(btn, true, '存');
+    }
+
+    // 暂存按钮：读取输入框内当前显示的号码
+    // 预测页（新澳门/香港特码预测）→ 按当前标签直接保存；
+    // 特码筛选器 → 有 新澳门/香港 条目分类时按分类保存，否则弹小窗选择
+    window.saveCurrentNumbersToStash = function(btn) {
+        const container = btn && btn.parentNode ? btn.parentNode : null;
+        if (!container) return;
+        const nums = readDisplayNumbers(container);
+        if (!nums.length) {
+            if (typeof window.zdrAlert === 'function') window.zdrAlert('当前没有已选号码，请先挑选数字再暂存。', { type: 'warning', title: '暂存提示' });
+            return;
+        }
+        let target = null;
+        if (container.id === 'display-container-predict') {
+            target = currentLottery; // 新澳门特码预测/香港特码预测标签
+        } else if (window.__importActiveCat === 'macau' || window.__importActiveCat === 'hk') {
+            target = window.__importActiveCat; // 香港/新澳门条目分类
+        }
+        if (target) {
+            saveNumbersToStash(target, nums, btn);
+        } else {
+            showStashLotteryPicker(btn, nums); // 特码筛选器手动输入 → 悬浮小窗选择
+        }
+    };
+
+    // 特码筛选器暂存悬浮小窗：只显示「新澳门」「香港」两个按钮，点击空白处取消
+    function showStashLotteryPicker(btn, nums) {
+        hideStashLotteryPicker();
+        const pop = document.createElement('div');
+        pop.id = 'zdr-stash-picker';
+        pop.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.15);padding:8px;display:flex;gap:6px;';
+        pop.innerHTML = '<button onclick="window._stashPick(\'macau\')" style="padding:8px 14px;border:none;border-radius:8px;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">澳门</button>' +
+            '<button onclick="window._stashPick(\'hk\')" style="padding:8px 14px;border:none;border-radius:8px;background:#b91c1c;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">香港</button>';
+        document.body.appendChild(pop);
+        // 定位在暂存按钮附近（优先下方，放不下则上方）
+        const r = btn.getBoundingClientRect();
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        let left = r.left + r.width / 2 - pw / 2;
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        let top = r.bottom + 6;
+        if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+        pop.style.left = left + 'px';
+        pop.style.top = top + 'px';
+        window._stashPickNums = nums;
+        window._stashPickBtn = btn;
+        // 点击小窗以外的空白处取消（延迟绑定，避免打开瞬间被同一事件关闭）
+        window._stashOutsideHandler = function(e) {
+            const p = document.getElementById('zdr-stash-picker');
+            if (p && !p.contains(e.target)) hideStashLotteryPicker();
+        };
+        setTimeout(function() { document.addEventListener('click', window._stashOutsideHandler); }, 0);
+    }
+    function hideStashLotteryPicker() {
+        const p = document.getElementById('zdr-stash-picker');
+        if (p) p.remove();
+        if (window._stashOutsideHandler) { document.removeEventListener('click', window._stashOutsideHandler); window._stashOutsideHandler = null; }
+        window._stashPickNums = null;
+        window._stashPickBtn = null;
+    }
+    window._stashPick = function(lottery) {
+        const nums = window._stashPickNums || [];
+        const btn = window._stashPickBtn || null;
+        hideStashLotteryPicker();
+        if (nums.length) saveNumbersToStash(lottery, nums, btn);
+    };
+    window._stashCancel = hideStashLotteryPicker;
+
+    // 删除整组暂存
+    window.deleteSavedStash = function(stashId) {
+        const data = loadSavedNumbers();
+        data[currentLottery] = (data[currentLottery] || []).filter(s => s.id !== stashId);
+        saveSavedNumbers(data);
+        refreshSavedNumbersPanel();
+    };
+
+    // 标记/取消标记整组暂存（标记代表重要，默认不标记）
+    window.toggleStashMark = function(stashId) {
+        const data = loadSavedNumbers();
+        const st = (data[currentLottery] || []).find(s => s.id === stashId);
+        if (!st) return;
+        st.marked = !st.marked;
+        saveSavedNumbers(data);
+        refreshSavedNumbersPanel();
+    };
+
+    // 构建暂存面板内容（插入到自定义策略库上方；无暂存时面板整体隐藏）
+    function buildSavedNumbersHtml() {
+        const lottery = currentLottery;
+        const catName = lottery === 'hk' ? '香港' : '新澳门';
+        const color = lottery === 'hk' ? '#b91c1c' : '#1d4ed8';
+        const list = (loadSavedNumbers()[lottery] || []).slice().reverse();
+        let html = '<div style="font-size:0.95rem;font-weight:700;color:#1e293b;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;">' +
+            '<span style="color:' + color + ';">暂存号码（' + catName + '）</span></div>';
+        list.forEach(s => {
+            const marked = !!s.marked;
+            html += '<div style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;">' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
+                '<div style="display:flex;gap:4px;">' +
+                '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:2px 8px;font-size:0.7rem;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
+                '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:2px 8px;font-size:0.7rem;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:5px;cursor:pointer;">删除</button>' +
+                '</div>' +
+                '</div>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+                (s.nums || []).map(n => '<span style="display:inline-block;padding:2px 8px;border:1px solid ' + color + ';border-radius:7px;color:' + color + ';font-size:0.78rem;cursor:pointer;background:#fff;" onclick="window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框">' + n + '</span>').join('') +
+                '</div></div>';
+        });
+        return html;
+    }
+
+    // 刷新暂存面板：当前彩种没有暂存时整个容器隐藏
+    function refreshSavedNumbersPanel() {
+        const panel = document.getElementById('saved-numbers-panel');
+        if (!panel) return;
+        if (!(loadSavedNumbers()[currentLottery] || []).length) {
+            panel.style.display = 'none';
+            panel.innerHTML = '';
+            return;
+        }
+        panel.style.display = 'block';
+        panel.innerHTML = '<div style="background:#ffffff;border-radius:12px;border:1px solid #cbd5e1;box-shadow:0 4px 12px rgba(0,0,0,0.03);margin-bottom:12px;padding:12px;">' + buildSavedNumbersHtml() + '</div>';
+    }
+    window.refreshSavedNumbersPanel = refreshSavedNumbersPanel;
 
     const IMPORT_CATS = ['numbers', 'frozen', 'firstDigit', 'color', 'element', 'weather', 'lastDigit', 'genderZodiac', 'size', 'oddEven', 'compositeOddEven', 'animalType', 'yinYangZodiac', 'season', 'art'];
     // 男肖/女肖生肖组（与页面自身 genderZodiacMap 定义一致）：用于把“男肖/女肖”展开成具体生肖号码
@@ -6216,10 +6527,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
 
 
-      // 页面打开或刷新时，默认在后台直接运行新澳门特码预测，提前缓存数据
-      if (typeof window.runPredict === 'function') {
+      // 恢复刷新前的页面状态：主标签页（特码筛选器/新澳门特码/香港特码）
+      let savedPageState = null;
+      try { savedPageState = JSON.parse(localStorage.getItem('zdr_page_state_v1') || 'null'); } catch (e) { /* ignore */ }
+      let savedTab = (savedPageState && savedPageState.tab) || 'zdr';
+      if (savedTab === 'predict') savedTab = 'macau'; // 旧版「钟道人特码」→ 新澳门特码
+      if (savedTab !== 'macau' && savedTab !== 'hk') savedTab = 'zdr';
+      if (savedTab !== 'zdr') {
+        // 切到对应彩种预测页（内部按会话缓存/网络加载数据）
+        window.__forceLotteryFetch = true; // 刷新恢复：强制重新提取最新开奖（失败时走今日离线兜底）
+        switchMainTab(savedTab);
+      } else if (typeof window.runPredict === 'function') {
+        // 默认特码筛选器：后台预取新澳门数据
         window.runPredict();
-        window._predictInitialized = true;
       }
 
       // 恢复当天导入条目（本地持久化；非当天自动清空），并排程 23:59 自动清空
@@ -6251,7 +6571,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
         // 1. 监听滚动控制显示与隐藏
         window.addEventListener('scroll', function() {
-            if (window.currentActiveTab !== 'predict') return;
+            if (window.currentActiveTab === 'zdr') return;
             const panel = document.getElementById('strategy-panel');
             if (!panel) return;
             
@@ -6612,7 +6932,7 @@ window.saveSuppData = function() {
     };
 
     // 存入当前彩种专属的 localStorage
-    var storageKey = 'zdr_manual_data_' + currentLottery;
+    var storageKey = 'zdr_manual_data_' + (typeof window.getCurrentLottery === 'function' ? window.getCurrentLottery() : 'macau');
     var manualDataStr = localStorage.getItem(storageKey);
     var manualData = manualDataStr ? JSON.parse(manualDataStr) : [];
     
