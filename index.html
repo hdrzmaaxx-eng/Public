@@ -513,7 +513,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.40 · 2026-08-11 01:59</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.42 · 2026-08-11 20:26</div>
 
         </div>
     
@@ -2946,15 +2946,47 @@ window.getSavedStrategies = function() {
 
 
 
+// 记录“新旧”排序键（用于把开奖数据稳定排成最新在前）：
+// 优先 id（年份*1000+期数，如 2026222）→ 年份+期数 → 日期（转当年第几天）→ 仅期数
+// 兼容插件穿透/手动粘贴等无 id、无 date 的数据，避免源站顺序把旧期放数组头部
+// 导致标题显示旧期数（如澳门 157 期 / 香港 19 期）
+function recordSortKey(r) {
+  if (!r) return 0;
+  if (r.id != null) {
+    var n = parseInt(r.id, 10);
+    if (!isNaN(n)) return n;
+  }
+  if (r.year != null && r.qishu != null) {
+    var y = parseInt(r.year, 10), q = parseInt(r.qishu, 10);
+    if (!isNaN(y) && !isNaN(q)) return y * 1000 + q;
+  }
+  if (r.date && /^\d{4}-\d{2}-\d{2}/.test(String(r.date))) {
+    var d = new Date(String(r.date).slice(0, 10));
+    if (!isNaN(d.getTime())) {
+      var start = new Date(d.getFullYear(), 0, 0);
+      return d.getFullYear() * 1000 + Math.floor((d - start) / 86400000);
+    }
+  }
+  if (r.qishu != null) {
+    var qq = parseInt(r.qishu, 10);
+    return new Date().getFullYear() * 1000 + (isNaN(qq) ? 0 : qq);
+  }
+  return 0;
+}
+
 function predict(raw) {
   var hist = [];
+  // 统一按“最新在前”排序后再计算（不改变调用方传入的数组）
+  var dataArr = (Array.isArray(raw.data) ? raw.data.slice() : []).sort(function(a, b) {
+    return recordSortKey(b) - recordSortKey(a);
+  });
   
   
   
   // 1. 数据截断与预处理 (只取前 200 期以保证回测与状态计算有足够且敏感的数据)
-  var maxRecords = Math.min(raw.data.length, 200);
+  var maxRecords = Math.min(dataArr.length, 200);
   for (var i = 0; i < maxRecords; i++) {
-    var nums = raw.data[i].num.split(",");
+    var nums = dataArr[i].num.split(",");
     var tm = nums[nums.length - 1];
     var numInt = parseInt(tm);
     hist.push({
@@ -3539,7 +3571,7 @@ function predict(raw) {
 
   // 返回给外层 render 函数的数据结构保持原样不变，新增 aiTop12 及 baseScores 输出
   return {
-    latest: raw.data[0],
+    latest: dataArr[0],
     cur: hist[0],
     hc: hist.length,
     predSX: currentResult.predSX || [], 
@@ -3579,6 +3611,27 @@ function rememberLotteryData(lottery, data) {
     window.__lotteryData[lottery] = data;
 }
 
+// 判断开奖数据是否足够新鲜（最新一期开奖日期在容差内；澳门每日开奖容差 1 天、香港每周 3 期容差 3 天）
+// 用于「本地/会话数据当作当期渲染」前的新鲜度校验：仅凭“当天写入标记”不够（粘贴/穿透可能今天写入旧数据），
+// 必须同时确认数据本身的最新一期是近期的，否则把几个月前的旧数据当当期展示（如香港 19 期、澳门 157 期）
+function isLotteryDataFresh(lottery, data) {
+    if (!Array.isArray(data) || !data.length) return false;
+    var maxDate = '';
+    data.forEach(function(r) {
+        var d = r && r.date ? String(r.date) : '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
+            var dd = d.slice(0, 10);
+            if (dd > maxDate) maxDate = dd;
+        }
+    });
+    if (!maxDate) return false;
+    var today = new Date();
+    var tol = lottery === 'hk' ? 3 : 1;
+    var cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - tol);
+    var cutoffStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth() + 1).padStart(2, '0') + '-' + String(cutoff.getDate()).padStart(2, '0');
+    return maxDate >= cutoffStr;
+}
+
 function switchLottery(type) {
   if (type === 'macau') {
     API = API_BASE + "/api/kjdata.php?g=am";
@@ -3607,7 +3660,7 @@ function switchLottery(type) {
   if (!forceFetch) {
     // 1) 会话缓存优先
     const cached = window.__lotteryData && window.__lotteryData[currentLottery];
-    if (cached && cached.length) {
+    if (cached && cached.length && isLotteryDataFresh(currentLottery, cached)) {
       window._rawKjData = cached;
       window._currentDataSource = "会话缓存";
       const bar = document.getElementById("bar");
@@ -3628,7 +3681,7 @@ function switchLottery(type) {
         const raw = localStorage.getItem('zdr_manual_data_' + currentLottery);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length) localData = parsed;
+          if (Array.isArray(parsed) && parsed.length && isLotteryDataFresh(currentLottery, parsed)) localData = parsed;
         }
       }
     } catch (e) { /* ignore */ }
@@ -4429,7 +4482,9 @@ async function tryFetch(url) {
         console.log("尝试原生直连 (检测是否有 CORS 扩展支持)...");
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); 
-        const directR = await fetch(url, { signal: controller.signal });
+        // 带时间戳 + no-store，杜绝浏览器缓存把旧开奖数据当最新返回（桌面端 157/19 期旧标题的来源之一）
+        const urlTs = url + (url.indexOf('?') > -1 ? '&' : '?') + '_t=' + Date.now();
+        const directR = await fetch(urlTs, { signal: controller.signal, cache: 'no-store' });
         clearTimeout(timeoutId);
 
         if (directR.ok) {
@@ -4468,8 +4523,8 @@ async function tryFetch(url) {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 6000);
           
-          const proxyUrl = p.prefix + encodeURIComponent(url);
-          const r = await fetch(proxyUrl, { signal: controller.signal });
+          const proxyUrl = p.prefix + encodeURIComponent(url + (url.indexOf('?') > -1 ? '&' : '?') + '_t=' + Date.now());
+          const r = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-store' });
           clearTimeout(timeoutId);
 
           if (r.ok) {
@@ -4525,6 +4580,8 @@ async function tryFetch(url) {
             if (!cachedStr) return false;
             var cachedData = JSON.parse(cachedStr);
             if (!Array.isArray(cachedData) || cachedData.length === 0) return false;
+            // 数据本身必须足够新鲜（仅当天写入标记不够，粘贴/穿透可能今天写入旧数据）
+            if (!isLotteryDataFresh(currentLottery, cachedData)) return false;
             cachedData.sort(function(a, b) { return b.id - a.id; });
             window._rawKjData = cachedData;
             window._currentDataSource = "本地缓存(今日)";
@@ -4627,13 +4684,24 @@ async function tryFetch(url) {
                         result.payload.data.push(mRecord);
                     }
                 });
-                // 重新按 id 降序排序，确保数据最新在前
-                result.payload.data.sort(function(a, b) { return b.id - a.id; });
                 console.log('✅ 已合并本地手动补充数据，共 ' + manualData.length + ' 条');
             }
         } catch(e) {
             console.error("本地补充数据解析失败", e);
         }
+    }
+    // 统一按“最新在前”排序（兼容无 id 数据，避免旧期冒到数组头部）
+    result.payload.data.sort(function(a, b) { return recordSortKey(b) - recordSortKey(a); });
+    // 网络数据新鲜度校验：过期数据一律不当当期渲染
+    // （服务器/代理/浏览器缓存可能返回旧数据，如澳门停在 156 期导致标题显示 157 期）
+    if (!isLotteryDataFresh(currentLottery, result.payload.data)) {
+        console.warn("网络获取的开奖数据已过期，不再按当期渲染");
+        if (tryOfflineCacheFallback(bar)) return;
+        bar.className = "status-bar status-be";
+        bar.innerHTML = "⚠️ 获取到的开奖数据已过期（非最新一期），请使用插件穿透或手动粘贴最新数据";
+        document.getElementById("mp").style.display = "block";
+        document.getElementById("rb").style.display = "block";
+        return;
     }
 
 
@@ -4727,6 +4795,28 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
              if (payload && payload.action === "ZDR_UPDATE" && payload.data && payload.data.length > 0) {
                   console.log("成功接收到跨域穿透数据总线消息！");
                   
+                  // ========== 新增：穿透数据标准化（补 id/year，澳门按每天一期推导 date）+ 最新在前排序 ==========
+                  // 源站 #msg li 提取出的记录只有 {qishu, num}，无 id/date 且顺序不保证最新在前，
+                  // 直接渲染会把旧期放在数组头部导致标题显示旧期数（澳门 157 期 / 香港 19 期）
+                  payload.data = (payload.data || []).map(function(r) {
+                      if (r && r.qishu != null) {
+                          var q = parseInt(r.qishu, 10);
+                          var yr = r.year != null ? parseInt(r.year, 10) : new Date().getFullYear();
+                          if (!isNaN(q)) {
+                              if (r.id == null) r.id = yr * 1000 + q;
+                              if (r.year == null) r.year = yr;
+                              if (!r.date && currentLottery === 'macau' && q >= 1 && q <= 366) {
+                                  var d0 = new Date(yr, 0, 1);
+                                  d0.setDate(d0.getDate() + (q - 1));
+                                  r.date = d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' + String(d0.getDate()).padStart(2, '0');
+                              }
+                          }
+                      }
+                      return r;
+                  });
+                  payload.data.sort(function(a, b) { return recordSortKey(b) - recordSortKey(a); });
+                  // =================================================================================
+
                   // 拦截断路保护：成功取得有效开奖记录后立刻解绑环境，直接粉碎油猴定时推送引发的死循环 BUG
                   window.removeEventListener('message', window._fallbackListener);
                   if (window._fallbackIframe) {
@@ -4739,6 +4829,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                       var storageKey = 'zdr_manual_data_' + currentLottery;
                       var localDataStr = localStorage.getItem(storageKey);
                       var localData = localDataStr ? JSON.parse(localDataStr) : [];
+                      if (!Array.isArray(localData)) localData = [];
+                      // 清理历史遗留的无 id 脏数据（旧版穿透写入导致 findIndex 误匹配、排序失效）
+                      localData = localData.filter(function(d) { return d && d.id != null; });
                       
                       // 取前 60 期数据作为高精度基准库（足以覆盖近期的所有缺失）
                       var preciseData = payload.data.slice(0, 60);
@@ -4811,6 +4904,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       try {
         var d = JSON.parse(document.getElementById("ta").value);
         if(!d.data || !d.data.length) throw new Error();
+        // ========== 新增：粘贴数据统一最新在前排序（兼容无 id/date 数据，避免旧期标题） ==========
+        d.data = d.data.slice().sort(function(a, b) { return recordSortKey(b) - recordSortKey(a); });
+        // =========================================================================================
         // ========== 新增：同步挂载全局缓存支持粘贴数据的滑块微调 ==========
         window._rawKjData = d.data;
         window._currentDataSource = "粘贴数据";
@@ -4818,6 +4914,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof window.persistLotteryData === 'function') window.persistLotteryData(currentLottery, d.data);
         // ================================================================
         render(predict({data: d.data}), "粘贴");
+        // 粘贴数据带日期但明显过期时给警告（无日期数据无法判断，跳过）
+        var hasDates = d.data.some(function(r) { return r && r.date && /^\d{4}-\d{2}-\d{2}/.test(String(r.date)); });
+        if (hasDates && !isLotteryDataFresh(currentLottery, d.data)) {
+          var barEl = document.getElementById("bar");
+          if (barEl) { barEl.className = "status-bar status-be"; barEl.innerHTML = "⚠️ 粘贴的数据较旧（非最新一期），已按粘贴内容显示"; }
+        }
       } catch(e) {
 	  
 	  
@@ -4983,8 +5085,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     // 取某类别全部开奖记录（优先本会话已加载的新鲜数据，其次当前内存数据，最后本地持久数据），按 id 去重升序
-    function getAllLotteryRecords(lottery) {
+    // freshOnly=true 时仅返回可视为“当前”的新鲜数据（本地来源还须当天写入标记），用于计算当期期数，避免旧数据算出过期期数
+    function getAllLotteryRecords(lottery, freshOnly) {
         let list = null;
+        let fromLocal = false;
         if (window.__lotteryData && Array.isArray(window.__lotteryData[lottery]) && window.__lotteryData[lottery].length) {
             // 会话内已加载过该彩种（本会话必为当天数据），避免跨彩种读取时用旧本地数据算出过期期数
             list = window.__lotteryData[lottery];
@@ -4995,9 +5099,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const raw = localStorage.getItem('zdr_manual_data_' + lottery);
                 if (raw) {
                     const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed) && parsed.length) list = parsed;
+                    if (Array.isArray(parsed) && parsed.length) { list = parsed; fromLocal = true; }
                 }
             } catch (e) { /* ignore */ }
+        }
+        if (freshOnly && list && list.length) {
+            if (fromLocal) {
+                try {
+                    const todayStr = (function() { var x = new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); })();
+                    if (localStorage.getItem('zdr_cache_date_' + lottery) !== todayStr) list = null;
+                } catch (e) { list = null; }
+            }
+            if (list && !isLotteryDataFresh(lottery, list)) list = null;
         }
         if (!list || !list.length) return [];
         const seen = {};
@@ -5237,7 +5350,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function getCurrentPredictionPeriod(lottery) {
         const year = new Date().getFullYear();
         let max = 0;
-        getAllLotteryRecords(lottery).forEach(r => {
+        // 只基于新鲜数据计算当前期数，旧数据一律不算（否则本地旧数据会把暂存期数记成过期期数，如 157 期）
+        getAllLotteryRecords(lottery, true).forEach(r => {
             const rYear = r.year != null ? parseInt(r.year, 10) : Math.floor(r.id / 1000);
             if (rYear === year && r.qishu != null) {
                 const q = parseInt(r.qishu, 10);
@@ -5360,6 +5474,32 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         refreshSavedNumbersPanel();
     };
 
+    // 删除暂存分组中的单个号码（该组删空后整组移除）
+    window.deleteNumberFromStash = function(stashId, num) {
+        const data = loadSavedNumbers();
+        const list = data[currentLottery] || [];
+        const st = list.find(s => s.id === stashId);
+        if (!st) return;
+        // 统一按字符串比较（存储的号码是字符串，如 '26'），避免传入数字时永远删不掉
+        st.nums = (st.nums || []).filter(n => String(n) !== String(num));
+        if (!st.nums.length) {
+            data[currentLottery] = list.filter(s => s.id !== stashId);
+        }
+        saveSavedNumbers(data);
+        refreshSavedNumbersPanel();
+    };
+
+    // 一键导入整组暂存号码到输入框（输入框已有号码时自动取并集，不重复不删除）
+    window.importStashGroup = function(stashId, btn) {
+        const data = loadSavedNumbers();
+        const st = (data[currentLottery] || []).find(s => s.id === stashId);
+        if (!st || !(st.nums || []).length) return;
+        (st.nums || []).forEach(n => {
+            if (typeof window.addSingleNumberToZdr === 'function') window.addSingleNumberToZdr(n);
+        });
+        if (btn && typeof window.showBtnFeedback === 'function') window.showBtnFeedback(btn, true, '导入');
+    };
+
     // 标记/取消标记整组暂存（标记代表重要，默认不标记）
     window.toggleStashMark = function(stashId) {
         const data = loadSavedNumbers();
@@ -5370,14 +5510,59 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         refreshSavedNumbersPanel();
     };
 
+    // 长按 1 秒删除单个号码：按下启动 1s 定时器，期间移动/松开/取消均取消；触发后抑制随后的单击导入
+    window._stashNumHold = function(el, stashId, num) {
+        window._stashNumRelease(el);
+        el.__zdrHoldFired = false;
+        el.style.opacity = '0.6';
+        el.style.transform = 'scale(0.93)';
+        el.__zdrHoldTimer = setTimeout(function() {
+            el.__zdrHoldFired = true;
+            el.style.opacity = '1';
+            el.style.transform = 'scale(1)';
+            window.deleteNumberFromStash(stashId, num);
+        }, 1000);
+    };
+    window._stashNumRelease = function(el) {
+        if (!el) return;
+        if (el.__zdrHoldTimer) { clearTimeout(el.__zdrHoldTimer); el.__zdrHoldTimer = null; }
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1)';
+    };
+    window._stashNumConsumeClick = function(el) {
+        if (!el) return false;
+        if (el.__zdrHoldFired) { el.__zdrHoldFired = false; return true; }
+        if (el.__zdrHoldTimer) { clearTimeout(el.__zdrHoldTimer); el.__zdrHoldTimer = null; }
+        return false;
+    };
+
+    // 暂存容器折叠状态（按彩种分开记忆，本地持久化；默认展开）
+    function loadSavedCollapsed() {
+        try {
+            const raw = JSON.parse(localStorage.getItem('zdr_saved_collapsed_v1') || 'null');
+            if (raw && typeof raw === 'object') return { macau: !!raw.macau, hk: !!raw.hk };
+        } catch (e) { /* ignore */ }
+        return { macau: false, hk: false };
+    }
+    window.toggleSavedNumbersCollapse = function() {
+        const st = loadSavedCollapsed();
+        st[currentLottery] = !st[currentLottery];
+        try { localStorage.setItem('zdr_saved_collapsed_v1', JSON.stringify(st)); } catch (e) { /* ignore */ }
+        refreshSavedNumbersPanel();
+    };
+
     // 构建暂存面板内容（插入到自定义策略库上方；无暂存时面板整体隐藏）
     function buildSavedNumbersHtml() {
         const lottery = currentLottery;
         const catName = lottery === 'hk' ? '香港' : '新澳门';
         const color = lottery === 'hk' ? '#b91c1c' : '#1d4ed8';
         const list = (loadSavedNumbers()[lottery] || []).slice().reverse();
-        let html = '<div style="font-size:0.95rem;font-weight:700;color:#1e293b;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;">' +
-            '<span style="color:' + color + ';">暂存号码（' + catName + '）</span></div>';
+        const collapsed = !!loadSavedCollapsed()[lottery];
+        // 标题行整体可点击：折叠/展开暂存分组（箭头方向与页面自定义策略库一致：展开 ▼、折叠 ▲）
+        let html = '<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.95rem;font-weight:700;color:#1e293b;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f1f5f9;cursor:pointer;" onclick="window.toggleSavedNumbersCollapse()" title="' + (collapsed ? '展开' : '折叠') + '暂存号码">' +
+            '<span style="color:' + color + ';">暂存号码（' + catName + '）</span>' +
+            '<span style="font-size:0.75rem;color:#64748b;">' + (collapsed ? '▲' : '▼') + '</span></div>';
+        if (collapsed) return html;
         list.forEach(s => {
             const marked = !!s.marked;
             html += '<div style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
@@ -5385,11 +5570,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;">' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
                 '<div style="display:flex;gap:4px;">' +
                 '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:2px 8px;font-size:0.7rem;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
+                '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:2px 8px;font-size:0.7rem;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;cursor:pointer;">导入</button>' +
                 '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:2px 8px;font-size:0.7rem;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:5px;cursor:pointer;">删除</button>' +
                 '</div>' +
                 '</div>' +
                 '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
-                (s.nums || []).map(n => '<span style="display:inline-block;padding:2px 8px;border:1px solid ' + color + ';border-radius:7px;color:' + color + ';font-size:0.78rem;cursor:pointer;background:#fff;" onclick="window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框">' + n + '</span>').join('') +
+                (s.nums || []).map(n => {
+                    const c = nc(n); // 波色：红/蓝/绿
+                    // 实色波色块：背景用对应波色，数字与生肖用白色
+                    const bg = c === '红' ? '#dc2626' : (c === '蓝' ? '#2563eb' : '#16a34a');
+                    const fg = '#ffffff';
+                    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:opacity 0.12s, transform 0.12s;" ' +
+                        'onpointerdown="window._stashNumHold(this,' + s.id + ',\'' + n + '\')" onpointerup="window._stashNumRelease(this)" onpointerleave="window._stashNumRelease(this)" onpointercancel="window._stashNumRelease(this)" ' +
+                        'oncontextmenu="event.preventDefault(); window._stashNumRelease(this); return false;" ' +
+                        'onclick="if (window._stashNumConsumeClick(this)) return; window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框 · 长按1秒删除该号码">' +
+                        '<span>' + n + '</span><span style="font-size:0.68rem;opacity:0.85;font-weight:500;">' + (nz(n) || '') + '</span></span>';
+                }).join('') +
                 '</div></div>';
         });
         return html;
