@@ -528,7 +528,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.47 · 2026-08-12 20:12</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.48 · 2026-08-12 22:01</div>
 
         </div>
     
@@ -5866,6 +5866,43 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const hasKillMark = /【杀死】/.test(str);
         if (hasPickMark || hasKillMark) {
             const isKill = !!hasKillMark;
+            // 类别词条识别（仅选入标记）：标题或正文含 琴棋书画/风雨雷电/春夏秋冬 时，
+            // 从正文括号取组字（组字间可有空格，如 【画 书 棋】），避免“必开【画 书 棋】”等被丢弃
+            if (!isKill) {
+                const markedGroupRules = [
+                    { keyword: '琴棋书画', cat: 'art', label: '琴棋书画', chars: { '琴': 'qin', '棋': 'qi', '书': 'shu', '画': 'hua' } },
+                    { keyword: '风雨雷电', cat: 'weather', label: '风雨雷电', chars: { '风': 'wind', '雨': 'rain', '雷': 'thunder', '电': 'electric' } },
+                    { keyword: '春夏秋冬', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } },
+                    { keyword: '四季', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } }
+                ];
+                const markedSearchText = (title ? String(title) : '') + '\u0001' + str;
+                markedGroupRules.forEach(gr => {
+                    if (!markedSearchText.includes(gr.keyword)) return;
+                    const found = [];
+                    const gSeen = new Set();
+                    const markedBracketRe = /[〖【]([^〗】]*)[〗】]/g;
+                    let mb;
+                    while ((mb = markedBracketRe.exec(str)) !== null) {
+                        if (inPlusBracket(mb.index)) continue;
+                        Array.from(mb[1]).forEach(ch => {
+                            if (gr.chars[ch] && !gSeen.has(ch)) { gSeen.add(ch); found.push(ch); }
+                        });
+                    }
+                    if (!found.length) { // 无括号时兼容 风雨雷电：风雨 等写法
+                        let ki = 0;
+                        while ((ki = str.indexOf(gr.keyword, ki)) > -1) {
+                            Array.from(str.slice(ki + gr.keyword.length, ki + gr.keyword.length + 16)).forEach(ch => {
+                                if (gr.chars[ch] && !gSeen.has(ch)) { gSeen.add(ch); found.push(ch); }
+                            });
+                            ki += gr.keyword.length;
+                        }
+                    }
+                    if (found.length) {
+                        found.forEach(ch => parts.push({ cat: gr.cat, label: gr.label, value: gr.chars[ch], display: ch, kind: 'effect' }));
+                        hits.push("<span style='color:#0d9488;'>筛选:</span> " + found.map(ch => gr.label + '·' + ch).join('、'));
+                    }
+                });
+            }
             // 尾类内容优先：绝杀二尾【7尾.5尾】/六尾 0.1.2.3.4.8尾 等按 杀尾/尾数 识别，
             // 而不是把 7、5 等误当成杀码/特码号码（尾部是集合语义，不是单个号码）
             const tailHead = str.match(/(?:绝杀|死杀|必杀)?(?:六尾|尾数|[一二三四五六七八九十]尾|杀尾)/);
@@ -5874,7 +5911,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const tailBracket = afterSeg.match(/[〖【]([^〗】]*)[〗】]/);
                 const seg = tailBracket ? tailBracket[1] : afterSeg;
                 const tailStr = seg.replace(/[^\d.]+/g, '.');
-                const tails = tailStr.split('.').filter(t => /^\d$/.test(t));
+                // 括号内如 【124679尾】 是连续数字串：逐位取尾；无括号仍按 点号/空格 分隔的单个数字识别
+                const tails = tailBracket
+                    ? (seg.match(/\d/g) || [])
+                    : tailStr.split('.').filter(t => /^\d$/.test(t));
                 if (tails.length) {
                     tails.forEach(t => parts.push({ cat: isKill ? 'frozen' : 'lastDigit', label: isKill ? '杀尾' : '尾数', value: t, display: t + '尾', kind: 'digit' }));
                     hits.push("<span style='color:" + (isKill ? '#ef4444' : '#0891b2') + ";'>" + (isKill ? '杀尾(标记):' : '尾数(标记):') + "</span> " + tails.join(','));
@@ -6032,11 +6072,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
         }
 
-        // 规则9：尾数（六尾⑱码等）如“六尾 1.4.5.6.7.9尾”
-        const tailMatch = str.match(/(?:六尾|尾数)\s*[:：]?\s*([\d\.]+)/);
+        // 规则9：尾数（六尾⑱码等）如“六尾 1.4.5.6.7.9尾”或“六尾【124679尾】”
+        const tailMatch = str.match(/(?:六尾|尾数)\s*[:：]?\s*(?:[〖【]([^〗】]*)[〗】]|([\d\.]+))/);
         if (tailMatch) {
-            tailMatch[1].split('.').forEach(t => { if (t !== '') parts.push({ cat: 'lastDigit', label: '尾数', value: t, display: t, kind: 'digit' }); });
-            hits.push("<span style='color:#0891b2;'>尾数:</span> " + tailMatch[1]);
+            const bracketContent = tailMatch[1];
+            const tailTokens = bracketContent !== undefined
+                ? (bracketContent.match(/\d/g) || [])
+                : tailMatch[2].split('.');
+            tailTokens.forEach(t => { if (t !== '') parts.push({ cat: 'lastDigit', label: '尾数', value: t, display: t, kind: 'digit' }); });
+            hits.push("<span style='color:#0891b2;'>尾数:</span> " + (bracketContent !== undefined ? bracketContent : tailMatch[2]));
         }
 
         // 规则9.4：杀尾（绝杀二尾/死杀尾等）如 绝杀二尾【7尾.5尾】 → 冻结对应尾数
