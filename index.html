@@ -138,6 +138,14 @@
             .input-action-btn { font-size: 10px; padding: 2px 6px; }
         }
 
+        /* 导出/导入历史条目按钮的成功/失败动画反馈 */
+        .hist-btn-flash { animation: histBtnFlash 0.4s ease; }
+        @keyframes histBtnFlash {
+            0% { transform: scale(1); }
+            40% { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+
         /* 输入框右上角的复制按钮 */
         .copy-icon {
             position: absolute;
@@ -526,9 +534,13 @@
                 </div>
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="把本地历史战绩复制为 JSON，可到另一台设备粘贴导入">导出历史条目</button>
+                    <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="粘贴另一台设备导出的历史战绩 JSON，合并到本机">导入历史条目</button>
+                </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.48 · 2026-08-12 22:01</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.51 · 2026-08-12 22:42</div>
 
         </div>
     
@@ -5427,6 +5439,162 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
     window.refreshImportHistories = refreshImportHistories;
 
+    // ========== v1.49：历史战绩自动补记 + 跨设备导出/导入 ==========
+    // 判断当前是否已有任何可用的开奖数据（会话缓存 / 内存 / 本地存储）
+    function hasAnyLotteryData() {
+        try {
+            if (window.__lotteryData && Object.keys(window.__lotteryData).some(k => Array.isArray(window.__lotteryData[k]) && window.__lotteryData[k].length)) return true;
+            if (window._rawKjData && Array.isArray(window._rawKjData) && window._rawKjData.length) return true;
+            const lotKeys = ['macau', 'hk'];
+            for (let i = 0; i < lotKeys.length; i++) {
+                const raw = localStorage.getItem('zdr_manual_data_' + lotKeys[i]);
+                if (raw) {
+                    const p = JSON.parse(raw);
+                    if (Array.isArray(p) && p.length) return true;
+                }
+            }
+        } catch (e) { /* ignore */ }
+        return false;
+    }
+
+    let __historyRefreshTimer = null;
+    let __historyRefreshTicks = 0;
+
+    // 导入条目后自动补记历史：每 8 秒检查一次，最长约 64 秒；
+    // 开奖数据一到就重算并刷新清单；首次检查无数据时后台再预取一次（Kiwi 上无油猴直连，数据常晚到）
+    function scheduleImportHistoryRefresh() {
+        if (__historyRefreshTimer) return;
+        __historyRefreshTicks = 0;
+        const tick = () => {
+            __historyRefreshTicks++;
+            if (__historyRefreshTicks === 1 && !hasAnyLotteryData() && typeof window.runPredict === 'function') {
+                try { window.runPredict(); } catch (e) { /* ignore */ }
+            }
+            ensureImportHistories();
+            if (typeof renderImportList === 'function') renderImportList();
+            const items = window.__importedStrategies || [];
+            const allRecorded = items.length > 0 && items.every(it => {
+                if (extractItemPeriod(it) == null) return true;
+                const h = loadImportHistories()[importHistoryKey(it)];
+                return h && Array.isArray(h.periods) && h.periods.length > 0;
+            });
+            if (allRecorded || __historyRefreshTicks >= 8) {
+                if (__historyRefreshTimer) { clearInterval(__historyRefreshTimer); __historyRefreshTimer = null; }
+            }
+        };
+        tick();
+        if (!__historyRefreshTimer) __historyRefreshTimer = setInterval(tick, 8000);
+    }
+    window.scheduleImportHistoryRefresh = scheduleImportHistoryRefresh;
+
+    // 历史导出/导入按钮的即时反馈：成功变绿+✓、失败变红+✗，文字整句替换（如 复制成功/复制失败），
+    // 带 0.4 秒弹跳动画，1.6 秒后恢复原样式
+    function flashHistoryAction(btn, ok, okText, failText) {
+        if (!btn) return;
+        const mark = ok
+            ? '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            : '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+        const orig = btn.innerHTML;
+        btn.innerHTML = mark + (ok ? okText : failText);
+        btn.style.background = ok ? '#16a34a' : '#dc2626';
+        btn.style.color = '#fff';
+        btn.style.borderColor = ok ? '#16a34a' : '#dc2626';
+        btn.classList.add('hist-btn-flash');
+        setTimeout(function() {
+            btn.innerHTML = orig;
+            btn.style.background = '';
+            btn.style.color = '';
+            btn.style.borderColor = '';
+            btn.classList.remove('hist-btn-flash');
+        }, 1600);
+    }
+
+    // 导出历史条目：把本地战绩序列化为 JSON 复制到剪贴板（跨设备迁移，Kiwi 粘贴回本机合并）
+    window.exportImportHistories = function(btn) {
+        const map = loadImportHistories();
+        const keys = Object.keys(map);
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        if (!keys.length) {
+            flashHistoryAction(btn, false, '复制成功', '复制失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可导出的历史战绩（需先加载开奖数据并导入条目）。</span>';
+            return;
+        }
+        const text = JSON.stringify(map, null, 2);
+        const totalPeriods = keys.reduce((s, k) => s + ((map[k] && map[k].periods) ? map[k].periods.length : 0), 0);
+        const done = () => {
+            flashHistoryAction(btn, true, '复制成功', '复制失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已复制历史战绩 ' + keys.length + ' 条策略 / ' + totalPeriods + ' 期，到另一台设备点「导入历史条目」粘贴即可。</span>';
+        };
+        const fallbackCopy = () => {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.left = '-999999px';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                done();
+            } catch (e) {
+                flashHistoryAction(btn, false, '复制成功', '复制失败');
+                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 复制失败，请手动复制。</span>';
+            }
+        };
+        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done).catch(fallbackCopy);
+        else fallbackCopy();
+    };
+
+    // 导入历史条目：粘贴 JSON 合并进本地战绩（按策略键合并、按期数去重、最多保留 10 期）
+    window.importImportHistories = async function(btn) {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        let text = '';
+        try {
+            text = await navigator.clipboard.readText();
+        } catch (e) {
+            text = await window.zdrPrompt('在下方粘贴历史战绩 JSON', { placeholder: '例如：{"macau|【琴棋书画】": {"periods": [...]}}' });
+        }
+        if (!text || !text.trim()) return;
+        let data;
+        try { data = JSON.parse(text); } catch (e) {
+            flashHistoryAction(btn, false, '导入成功', '导入失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ JSON 格式错误，请检查粘贴内容。</span>';
+            return;
+        }
+        // 兼容带版本包装的格式 {version:2, data:{...}} 与直接粘贴的战绩对象
+        if (data && data.version === 2 && data.data && typeof data.data === 'object') data = data.data;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            flashHistoryAction(btn, false, '导入成功', '导入失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 格式不正确：应为历史战绩 JSON 对象。</span>';
+            return;
+        }
+        const map = loadImportHistories();
+        let mergedKeys = 0, mergedPeriods = 0;
+        Object.keys(data).forEach(k => {
+            const h = data[k];
+            if (!h || typeof h !== 'object' || !Array.isArray(h.periods) || !h.periods.length) return;
+            const prev = map[k];
+            const byQ = {};
+            // 按期数数值去重：兼容 87 / 087 两种写法
+            ((prev && prev.periods) || []).forEach(p => { if (p && p.qishu != null && !isNaN(parseInt(p.qishu, 10))) byQ[parseInt(p.qishu, 10)] = p; });
+            let added = 0;
+            h.periods.forEach(p => {
+                if (!p || p.qishu == null || isNaN(parseInt(p.qishu, 10))) return;
+                const q = parseInt(p.qishu, 10);
+                if (!byQ[q]) { byQ[q] = p; added++; }
+            });
+            const merged = Object.keys(byQ).map(q => byQ[q]).sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10)).slice(-IMPORT_HISTORY_LIMIT);
+            map[k] = { lottery: h.lottery || String(k).split('|')[0] || 'macau', title: h.title || String(k).split('|')[1] || k, periods: merged, updatedAt: new Date().toISOString() };
+            mergedKeys++;
+            mergedPeriods += added;
+        });
+        saveImportHistories(map);
+        if (typeof renderImportList === 'function') renderImportList();
+        flashHistoryAction(btn, true, '导入成功', '导入失败');
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导入历史战绩 ' + mergedKeys + ' 条策略 / 新增 ' + mergedPeriods + ' 期。</span>';
+    };
+
     // 悬浮提示：属性值转义（在 escHtml 基础上再转双引号）
     function escAttr(s) {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -6365,7 +6533,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const h = histMap[importHistoryKey(it)];
         const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
         if (!periods.length) {
-            return '<div style="margin:2px 0 0 21px;font-size:0.72rem;color:#94a3b8;line-height:1.7;">暂无开奖数据</div>';
+            // 无战绩时区分“页面还没有任何开奖数据”与“该期数据缺失”：Kiwi 等无油猴直连的环境下
+            // 需先加载开奖数据（新澳门/香港特码页或插件穿透）历史才会补记
+            const noData = typeof hasAnyLotteryData === 'function' && !hasAnyLotteryData();
+            return '<div style="margin:2px 0 0 21px;font-size:0.72rem;color:#94a3b8;line-height:1.7;">' + (noData ? '暂无开奖数据 · 需先加载开奖数据（新澳门/香港特码页）' : '该期暂无开奖数据（可能未开奖）') + '</div>';
         }
         return '<div style="margin:3px 0 0 21px;display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">' +
             periods.map(p => '<span style="flex-shrink:0;display:inline-block;padding:1px 7px;border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';font-size:0.7rem;line-height:1.5;cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '" onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()">' + escHtml(String(p.qishu)) + '</span>').join('') +
@@ -6886,6 +7057,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`;
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
+                scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } else {
                 feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>';
@@ -6962,6 +7134,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         renderImportList();
         syncImportState();
         updateToggleAllButton();
+        scheduleImportHistoryRefresh(); // 页面恢复当天条目后自动补记历史（数据晚到也能补上）
       }
       renderCategoryButtons();
       scheduleMidnightClear();
