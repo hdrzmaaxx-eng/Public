@@ -105,23 +105,38 @@
         }
 		
        /* ============================================================
-           来源角标样式（香港/澳门水印）
+           输入框左下角操作按钮（清空集群状态 / 返回上一步）
            ============================================================ */
-        .source-badge {
+        .input-actions {
             position: absolute;
             bottom: 5px;
             left: 5px;
-            padding: 3px 8px;
+            display: flex;
+            gap: 4px;
+            z-index: 10;
+        }
+        .input-action-btn {
+            padding: 2px 8px;
             border-radius: 4px;
-            font-size: 11px; /* ★ 在这里调整水印文字大小 ★ */
+            font-size: 11px;
             font-weight: bold;
             color: #fff;
-            z-index: 10;
+            border: none;
+            cursor: pointer;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            pointer-events: none; /* 防止遮挡点击，纯视觉展示 */
+            white-space: nowrap;
+            line-height: 1.6;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
-        .source-badge.macau { background-color: #10b981; /* 翠绿 */ }
-        .source-badge.hk { background-color: #ef4444; /* 正红 */ }
+        .input-action-btn.clear-cluster { background-color: #f59e0b; }
+        .input-action-btn.undo { background-color: #007bff; }
+        .input-action-btn:hover { filter: brightness(0.92); }
+        .input-action-btn.disabled { opacity: 0.45; pointer-events: none; }
+        /* 手机端进一步压缩按钮，避免与数字标签挤压 */
+        @media (max-width: 600px) {
+            .input-action-btn { font-size: 10px; padding: 2px 6px; }
+        }
 
         /* 输入框右上角的复制按钮 */
         .copy-icon {
@@ -501,8 +516,8 @@
                     <button class="btn" id="btn-parse-hk" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('hk')">导入香港条目</button>
                 </div>
                 <div id="ext-strategy-cat-bar" style="display:none; gap:8px; margin-top:8px;">
-                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #1d4ed8; background:#dbeafe; color:#1d4ed8; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
-                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #b91c1c; background:#fee2e2; color:#b91c1c; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
                 </div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
@@ -513,7 +528,7 @@
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.42 · 2026-08-11 20:26</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.47 · 2026-08-12 20:12</div>
 
         </div>
     
@@ -644,6 +659,142 @@
 
         // 存储被冻结的所有选项（生肖及其他维度），格式为 "category:value"
         let frozenItems = new Set();
+
+        // ===================== 返回上一步（最多 5 步）历史快照 =====================
+        // 快照范围：全部手动维度选择、冻结项、黑名单、导入策略聚合、导入条目勾选/子选项、类别、数据来源
+        window.__zdrHistory = window.__zdrHistory || [];   // 最多保留 5 个快照
+        window.__zdrHistoryPaused = false;                 // 批量操作（如整组导入）期间暂停逐条压栈
+
+        function snapshotZdrState() {
+            const so = {};
+            Object.keys(selectedOptions).forEach(k => { so[k] = Array.from(selectedOptions[k]); });
+            const agg = window.__importedAgg ? {} : null;
+            if (agg) {
+                Object.keys(window.__importedAgg).forEach(k => { agg[k] = Array.from(window.__importedAgg[k]); });
+            }
+            return {
+                selectedOptions: so,
+                frozenItems: Array.from(frozenItems),
+                importedAgg: agg,
+                strategies: (window.__importedStrategies || []).map(it => ({
+                    checked: !!it.checked,
+                    parts: (it.parts || []).map(p => !!p.checked)
+                })),
+                activeCat: window.__importActiveCat || null,
+                catSnap: JSON.parse(JSON.stringify(window.__importCatSnap || {})),
+                source: window.currentSelectionSource || 'manual'
+            };
+        }
+
+        // 在每次会改变筛选结果的操作前调用（批量暂停时跳过）
+        function pushZdrHistory() {
+            if (window.__zdrHistoryPaused) return;
+            window.__zdrHistory = window.__zdrHistory || [];
+            window.__zdrHistory.push(snapshotZdrState());
+            if (window.__zdrHistory.length > 5) window.__zdrHistory.shift();
+        }
+
+        // 恢复指定快照并刷新全部相关 UI
+        function restoreZdrSnapshot(snap) {
+            if (!snap) return;
+            // 1. 手动维度选择（原地清空再写入，保持 selectedOptions 引用不变）
+            Object.keys(selectedOptions).forEach(k => {
+                selectedOptions[k].clear();
+                (snap.selectedOptions[k] || []).forEach(v => selectedOptions[k].add(v));
+            });
+            // 2. 冻结项（含手动长按冻结与导入策略冻结）
+            frozenItems = new Set(snap.frozenItems || []);
+            // 3. 导入条目勾选/子选项状态（effects 由 buildItemEffects 重算）
+            const items = window.__importedStrategies || [];
+            (snap.strategies || []).forEach((s, i) => {
+                if (!items[i]) return;
+                items[i].checked = !!s.checked;
+                (items[i].parts || []).forEach((p, pi) => { p.checked = !!(s.parts && s.parts[pi]); });
+                if (typeof window.buildItemEffects === 'function') {
+                    items[i].effects = window.buildItemEffects(items[i].parts || []);
+                }
+            });
+            // 4. 类别与来源
+            window.__importActiveCat = snap.activeCat || null;
+            window.__importCatSnap = snap.catSnap || {};
+            window.currentSelectionSource = snap.source || 'manual';
+            // 5. 重新聚合导入贡献（先置空旧聚合，避免差分逻辑误删已恢复的冻结项）
+            window.__importedAgg = null;
+            if (typeof window.syncImportState === 'function') {
+                window.syncImportState();
+            } else {
+                if (typeof syncUI === 'function') syncUI();
+                if (typeof updateDisplay === 'function') updateDisplay();
+            }
+            // 6. 刷新导入清单/类别按钮/本地持久化
+            if (typeof window.renderImportList === 'function') window.renderImportList();
+            if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
+            if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+        }
+
+        // 返回上一步：弹出最近一次快照并恢复（可连续回退，最多 5 步）
+        window.zdrUndo = function() {
+            window.__zdrHistory = window.__zdrHistory || [];
+            if (!window.__zdrHistory.length) return;
+            const snap = window.__zdrHistory.pop();
+            restoreZdrSnapshot(snap);
+        };
+
+        // 输入框左下角操作按钮 HTML（无历史时“返回上一步”置灰）
+        function getZdrActionButtonsHtml() {
+            const canUndo = (window.__zdrHistory || []).length > 0;
+            return '<div class="input-actions">' +
+                '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState()" title="清空集群状态">清集</div>' +
+                '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
+                '</div>';
+        }
+
+        // 清空集群状态：把当前输入框里显示的数字固化为普通号码（并集），
+        // 同时清空其它全部筛选/冻结/导入聚合状态；输入框为空时结果即“无交集”
+        window.clearClusterState = function() {
+            pushZdrHistory();
+            const container = document.getElementById('display-container');
+            const tags = container ? container.querySelectorAll('.num-tag') : [];
+            const currentNums = Array.from(tags).map(tag => (tag.textContent || '').trim().substring(0, 2));
+            window.currentSelectionSource = 'manual';
+            for (const key in selectedOptions) selectedOptions[key].clear();
+            frozenItems.clear();
+            document.querySelectorAll('.btn').forEach(b => { b.classList.remove('active'); b.classList.remove('frozen'); });
+            document.querySelectorAll('[data-category="zodiac"] .count-badge').forEach(badge => {
+                badge.textContent = '0';
+                badge.style.opacity = '0';
+            });
+            // 重置导入相关状态（保留导入清单，取消全部勾选与子选项）
+            if (window.__importedStrategies) {
+                window.__importedStrategies.forEach(it => {
+                    it.checked = false;
+                    (it.parts || []).forEach(p => { p.checked = false; });
+                });
+            }
+            window.__importedAgg = null;
+            window.__importActiveCat = null;
+            window.__importCatSnap = {};
+            // 重置预测页“选入/已合并”按钮（跳过 AI 预测 与 保存策略）
+            document.querySelectorAll('.btn-import').forEach(b => {
+                if (b.id === 'btn-ai-predict' || b.id === 'btn-save-strategy') return;
+                b.dataset.imported = 'false';
+                b.classList.remove('imported');
+                if (b.getAttribute('onclick') && b.getAttribute('onclick').includes('applyMergedToZdr')) {
+                    b.textContent = '合并预测';
+                    b.style.background = 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+                    b.style.boxShadow = '0 2px 4px rgba(139, 92, 246, 0.3)';
+                } else {
+                    b.textContent = '选入';
+                }
+            });
+            if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+            if (typeof window.renderImportList === 'function') window.renderImportList();
+            if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
+            // 固化当前数字：若原本有结果显示，清空后号码保留为普通并集；原本为空则呈现“无交集”
+            currentNums.forEach(n => selectedOptions.numbers.add(n));
+            if (typeof syncUI === 'function') syncUI();
+            updateDisplay();
+        };
 
         // 生成 01-49 的标准数字数组
         const allNumbers = Array.from({length: 49}, (_, i) => (i + 1).toString().padStart(2, '0'));
@@ -831,6 +982,7 @@
         
 		
         function toggleNumber(num) {
+            pushZdrHistory();
             window.currentSelectionSource = 'manual';
             if (selectedOptions.numbers.has(num)) {
                 selectedOptions.numbers.delete(num);
@@ -847,6 +999,7 @@
 
         // [新增] 专供输入框内号码点击调用的移除方法（只踢出，不反选）
         function removeNumberFromDisplay(num) {
+            pushZdrHistory();
             window.currentSelectionSource = 'manual';
             if (selectedOptions.numbers.has(num)) {
                 selectedOptions.numbers.delete(num); // 从手动选中集合中删除
@@ -867,6 +1020,7 @@
             }
             
 			
+            pushZdrHistory();
             const nums = zodiacMap[zodiac] || [];
             if (nums.length === 0) return;
             
@@ -918,6 +1072,7 @@
                     if (frozenItems.has(itemKey)) {
                         // 已冻结 → 解冻：延迟200毫秒清除冻结状态，保护手指抬起时产生的Click事件不造成反选
                         setTimeout(() => {
+                            pushZdrHistory();
                             frozenItems.delete(itemKey);
                             btn.classList.remove('frozen');
                             syncUI();
@@ -925,6 +1080,7 @@
                         }, 200);
                     } else {
                         // 未冻结 → 冻结，立即生效
+                        pushZdrHistory();
                         frozenItems.add(itemKey);
                         btn.classList.add('frozen');
                         // 冻结其他分组项时，强制清理它本身的选中状态
@@ -1124,7 +1280,8 @@
                 }
                 
                 // 为空状态时，在右上角显示粘贴按钮（传入 this 实现反馈动画）
-                displayContainer.innerHTML = '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="粘贴">' + SVG_PASTE + '</div>';
+                displayContainer.innerHTML = '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="粘贴">' + SVG_PASTE + '</div>' +
+                                             getZdrActionButtonsHtml();
                 return;
             }
 
@@ -1206,7 +1363,8 @@
             if (result.length === 0) {
                 displayContainer.innerHTML = '<div style="color:#999;">暂无符合条件的数字</div>' + 
                                              '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="一键粘贴">' + SVG_PASTE + '</div>' + 
-                                             '<div class="clear-icon" onclick="window.clearAllSelections()" title="一键清空">✕</div>';
+                                             '<div class="clear-icon" onclick="window.clearAllSelections()" title="一键清空">✕</div>' +
+                                             getZdrActionButtonsHtml();
                 if (displayContainerPredict) displayContainerPredict.style.display = 'none';
                 return;
             }
@@ -1244,17 +1402,12 @@
             const copyIconStr = '<div class="copy-icon" onclick="window.copySelections(this)" title="复制">' + SVG_COPY + '</div>';
             const saveIconStr = '<div class="save-icon" onclick="window.saveCurrentNumbersToStash(this)" title="暂存号码">存</div>';
             
-            // 构建来源角标
-            let badgeStr = '';
-            if (window.currentSelectionSource === 'macau') {
-                badgeStr = '<div class="source-badge macau">新澳门</div>';
-            } else if (window.currentSelectionSource === 'hk') {
-                badgeStr = '<div class="source-badge hk">香港</div>';
-            }
+            // 左下角操作按钮（清空集群状态 / 返回上一步）；新澳门/香港来源角标已移除
+            const actionBtnsStr = getZdrActionButtonsHtml();
 
-            displayContainer.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + badgeStr);
+            displayContainer.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + actionBtnsStr);
             if (displayContainerPredict) {
-                displayContainerPredict.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + badgeStr);
+                displayContainerPredict.insertAdjacentHTML('beforeend', clearIconStr + saveIconStr + copyIconStr + actionBtnsStr);
             }
         }
 
@@ -1289,6 +1442,7 @@
 				
                     toggleZodiac(val);
                 } else {
+                    pushZdrHistory();
                     if (btn.classList.toggle('active')) {
                         selectedOptions[cat].add(val);
                     } else {
@@ -1308,7 +1462,8 @@
 
 
         // 定义全局一键清空方法：供输入框内的小X调用，同时清空冻结状态与导入按钮状态
-        window.clearAllSelections = function() {
+        window.clearAllSelections = function(skipHistory) {
+            if (!skipHistory) pushZdrHistory();
             window.currentSelectionSource = 'manual';
             for (let key in selectedOptions) {
                 selectedOptions[key].clear();
@@ -1459,7 +1614,8 @@
                 return;
             }
             
-            window.clearAllSelections();
+            pushZdrHistory(); // 粘贴整体算一步，内部清空不再单独压栈
+            window.clearAllSelections(true);
             uniqueValidNumbers.forEach(n => selectedOptions.numbers.add(n));
             
             syncUI();
@@ -1923,6 +2079,7 @@ window.switchMainTab = function(tab) {
 
 
 window.applyToZdr = function(btn, type, vals1, vals2) {
+    pushZdrHistory();
     let arr = vals1 ? vals1.split(',') : [];
     const isImported = btn.dataset.imported === 'true';
     const lotteryType = document.getElementById('btnHk') && document.getElementById('btnHk').classList.contains('active') ? 'hk' : 'macau';
@@ -2021,6 +2178,7 @@ window.applyToZdr = function(btn, type, vals1, vals2) {
 
 window.applyMergedToZdr = function(btn, numsStr) {
     if (!numsStr) return;
+    pushZdrHistory();
     let arr = numsStr.split(',');
     
     const isImported = btn.dataset.imported === 'true';
@@ -2065,6 +2223,7 @@ window.applyMergedToZdr = function(btn, numsStr) {
 
    // 挂载全局方法：预测标签单点选入/取消
     window.toggleSinglePrediction = function(el, type, val) {
+        pushZdrHistory();
         const lotteryType = document.getElementById('btnHk') && document.getElementById('btnHk').classList.contains('active') ? 'hk' : 'macau';
         window.currentSelectionSource = lotteryType;
 
@@ -2123,6 +2282,7 @@ window.applyMergedToZdr = function(btn, numsStr) {
 
         // 状态判定：仅执行添加。如果输入框内已存在该号码，不做任何取消操作
         if (!selectedOptions.numbers.has(num)) {
+            pushZdrHistory();
             selectedOptions.numbers.add(num);
             // [新增] 洗脱黑名单状态，确保被选中号码强制展示
             if (selectedOptions.excludedNumbers) {
@@ -4409,6 +4569,7 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   window._importDynamicSet = function() {
       if (!window._currentDynamicSet || window._currentDynamicSet.length === 0) return;
       
+      pushZdrHistory();
       // 1. 清空输入框现有的所有特码数字选择
       selectedOptions.numbers.clear();
       
@@ -5494,9 +5655,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const data = loadSavedNumbers();
         const st = (data[currentLottery] || []).find(s => s.id === stashId);
         if (!st || !(st.nums || []).length) return;
+        pushZdrHistory(); // 整组导入整体算一步，内部逐号导入不再单独压栈
+        window.__zdrHistoryPaused = true;
         (st.nums || []).forEach(n => {
             if (typeof window.addSingleNumberToZdr === 'function') window.addSingleNumberToZdr(n);
         });
+        window.__zdrHistoryPaused = false;
         if (btn && typeof window.showBtnFeedback === 'function') window.showBtnFeedback(btn, true, '导入');
     };
 
@@ -6207,6 +6371,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.renderImportList = renderImportList; // 供 IIFE 外部的 clearAllSelections 调用
     window.saveImportedStrategies = saveImportedStrategies; // 供 IIFE 外部的 clearAllSelections 调用（一键清空需持久化）
     window.renderCategoryButtons = renderCategoryButtons; // 供 IIFE 外部的 clearAllSelections 调用
+    window.buildItemEffects = buildItemEffects; // 供 undo 恢复时重算条目效果
+    window.syncImportState = syncImportState;   // 供 undo 恢复时重新聚合导入贡献
 
     // 勾选/取消勾选某条导入；勾选时若条目内容全部停用则默认全部启用
     window.toggleImportItem = function(index, checked) {
@@ -6215,6 +6381,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const it = items[index];
         const activeCat = window.__importActiveCat;
         if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可选
+        pushZdrHistory();
         it.checked = !!checked;
         if (it.checked && it.parts && it.parts.length && it.parts.every(p => !p.checked)) {
             it.parts.forEach(p => { p.checked = true; });
@@ -6235,6 +6402,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!it || !it.parts || !it.parts[partIndex]) return;
         const activeCat = window.__importActiveCat;
         if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可选
+        pushZdrHistory();
         if (!it.checked) {
             it.checked = true;
             it.parts.forEach(p => { p.checked = false; });
@@ -6287,12 +6455,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const active = window.__importActiveCat;
         if (btnM) {
             // 新澳门：蓝色主题（边框/文字/选中底色均为蓝色系）
-            btnM.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #1d4ed8;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'macau' ? 'background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#dbeafe;color:#1d4ed8;cursor:pointer;');
+            btnM.style.cssText = 'flex:1;padding:6px 10px;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'macau' ? 'border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
             btnM.disabled = false;
         }
         if (btnH) {
             // 香港：红色主题（边框/文字/选中底色均为红色系）
-            btnH.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #b91c1c;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'hk' ? 'background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'background:#fee2e2;color:#b91c1c;cursor:pointer;');
+            btnH.style.cssText = 'flex:1;padding:6px 10px;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'hk' ? 'border:1px solid #b91c1c;background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
             btnH.disabled = false;
         }
     }
@@ -6357,6 +6525,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 再点一次当前按钮恢复显示全部（勾选不变，互斥已保证只有一类有勾选）
     window.setImportActiveCat = function(cat) {
         if (cat !== 'macau' && cat !== 'hk') return;
+        pushZdrHistory();
         if (window.__importActiveCat === cat) {
             window.__importActiveCat = null;
         } else {
@@ -6414,6 +6583,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.toggleAllImportItems = function() {
         const items = window.__importedStrategies || [];
         if (!items.length) return;
+        pushZdrHistory();
         const activeCat = window.__importActiveCat;
         // 取消全选/全部启用只作用于当前类别（未选类别时作用于全部）
         const anyEnabled = (activeCat ? items.filter(it => it.lottery === activeCat) : items).some(it => it.checked);
@@ -6450,6 +6620,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (items && items.length) {
             const target = activeCat ? items.filter(it => it.lottery === activeCat) : items.slice();
             if (target.length) {
+                pushZdrHistory();
                 target.forEach(it => { it.checked = false; });
                 syncImportState(); // 差分移除贡献并重算
                 target.forEach(it => { const idx = items.indexOf(it); if (idx > -1) items.splice(idx, 1); });
@@ -6636,6 +6807,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         try {
             const data = JSON.parse(text);
             if (!Array.isArray(data)) throw new Error();
+            pushZdrHistory(); // 解析导入整体算一步（仅成功解析 JSON 时压栈）
 
             let importCount = 0;
             window.__importedStrategies = window.__importedStrategies || [];
