@@ -116,26 +116,41 @@
             z-index: 10;
         }
         .input-action-btn {
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: bold;
+            min-height: 24px;
+            padding: 0 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: normal;
             color: #fff;
             border: none;
             cursor: pointer;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             white-space: nowrap;
-            line-height: 1.6;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.12s ease, filter 0.2s ease;
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
         }
         .input-action-btn.clear-cluster { background-color: #f59e0b; }
         .input-action-btn.undo { background-color: #007bff; }
         .input-action-btn:hover { filter: brightness(0.92); }
+        .input-action-btn:active { transform: scale(0.92); }
         .input-action-btn.disabled { opacity: 0.45; pointer-events: none; }
+        /* 清集成功反馈：变绿 + 弹跳显示 ✓ */
+        .input-action-btn.btn-ok-flash {
+            background-color: #16a34a;
+            animation: inputActionFlash 0.4s ease;
+        }
+        @keyframes inputActionFlash {
+            0% { transform: scale(1); }
+            40% { transform: scale(1.12); }
+            100% { transform: scale(1); }
+        }
         /* 手机端进一步压缩按钮，避免与数字标签挤压 */
         @media (max-width: 600px) {
-            .input-action-btn { font-size: 10px; padding: 2px 6px; }
+            .input-action-btn { font-size: 11px; padding: 0 7px; }
         }
 
         /* 导出/导入历史条目按钮的成功/失败动画反馈 */
@@ -524,8 +539,8 @@
                     <button class="btn" id="btn-parse-hk" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('hk')">导入香港条目</button>
                 </div>
                 <div id="ext-strategy-cat-bar" style="display:none; gap:8px; margin-top:8px;">
-                    <button id="ext-strategy-cat-macau" style="flex:1; padding:6px 10px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
-                    <button id="ext-strategy-cat-hk" style="flex:1; padding:6px 10px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.75rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+                    <button id="ext-strategy-cat-macau" style="flex:1; padding:8px 12px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.85rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                    <button id="ext-strategy-cat-hk" style="flex:1; padding:8px 12px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.85rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
                 </div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
@@ -540,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.51 · 2026-08-12 22:42</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.53 · 2026-08-13 19:45</div>
 
         </div>
     
@@ -756,14 +771,17 @@
         function getZdrActionButtonsHtml() {
             const canUndo = (window.__zdrHistory || []).length > 0;
             return '<div class="input-actions">' +
-                '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState()" title="清空集群状态">清集</div>' +
+                '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState(this)" title="清空集群状态">清集</div>' +
                 '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
                 '</div>';
         }
 
         // 清空集群状态：把当前输入框里显示的数字固化为普通号码（并集），
         // 同时清空其它全部筛选/冻结/导入聚合状态；输入框为空时结果即“无交集”
-        window.clearClusterState = function() {
+        window.clearClusterState = function(clickedBtn) {
+            // 记录点击按钮所在的输入框容器（特码筛选器 / 预测页），反馈定位到同一容器
+            const hostContainer = clickedBtn && clickedBtn.closest ?
+                (clickedBtn.closest('#display-container') || clickedBtn.closest('#display-container-predict')) : null;
             pushZdrHistory();
             const container = document.getElementById('display-container');
             const tags = container ? container.querySelectorAll('.num-tag') : [];
@@ -806,6 +824,18 @@
             currentNums.forEach(n => selectedOptions.numbers.add(n));
             if (typeof syncUI === 'function') syncUI();
             updateDisplay();
+            // 清集成功反馈：绿色 ✓ + 弹跳动画，1.6 秒后恢复“清集”（定位到点击所在的输入框，预测页/筛选页均可见）
+            const scope = hostContainer || document;
+            let okBtn = scope.querySelector('.input-action-btn.clear-cluster');
+            if (!okBtn) okBtn = document.querySelector('.input-action-btn.clear-cluster');
+            if (okBtn) {
+                okBtn.innerHTML = '✓';
+                okBtn.classList.add('btn-ok-flash');
+                setTimeout(function() {
+                    okBtn.innerHTML = '清集';
+                    okBtn.classList.remove('btn-ok-flash');
+                }, 1600);
+            }
         };
 
         // 生成 01-49 的标准数字数组
@@ -6670,12 +6700,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const active = window.__importActiveCat;
         if (btnM) {
             // 新澳门：蓝色主题（边框/文字/选中底色均为蓝色系）
-            btnM.style.cssText = 'flex:1;padding:6px 10px;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'macau' ? 'border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
+            btnM.style.cssText = 'flex:1;padding:8px 12px;border-radius:6px;font-size:0.85rem;white-space:nowrap;' + (active === 'macau' ? 'border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
             btnM.disabled = false;
         }
         if (btnH) {
             // 香港：红色主题（边框/文字/选中底色均为红色系）
-            btnH.style.cssText = 'flex:1;padding:6px 10px;border-radius:6px;font-size:0.75rem;white-space:nowrap;' + (active === 'hk' ? 'border:1px solid #b91c1c;background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
+            btnH.style.cssText = 'flex:1;padding:8px 12px;border-radius:6px;font-size:0.85rem;white-space:nowrap;' + (active === 'hk' ? 'border:1px solid #b91c1c;background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
             btnH.disabled = false;
         }
     }
