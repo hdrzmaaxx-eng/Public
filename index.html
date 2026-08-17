@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.53 · 2026-08-13 19:45</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.55 · 2026-08-17 22:37</div>
 
         </div>
     
@@ -5630,6 +5630,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    // 悬浮提示用：把条目子选项文本中与当期开奖对应的项标红
+    // （如 九肖 229期开 38/蛇 → 选肖里的“蛇”变红；男肖女肖、琴棋书画、大小单双等类别命中项同样标红）。
+    // 判断复用 expandComboToken 的“类别/词条 → 号码集合”映射：当期特码落在该集合即命中；
+    // 杀肖/杀尾/杀码等杀死类不标红（排除语义，开奖项本就不应出现在杀死列表里）
+    function tipValueMatched(label, v, tm, color) {
+        const tmStr = String(tm == null ? '' : tm);
+        if (!tmStr) return false;
+        if (/尾数/.test(label)) return v.replace(/尾$/, '') === tmStr.slice(-1);
+        if (/头数/.test(label)) return v === tmStr.charAt(0);
+        if (/波色/.test(label)) return !!color && v.indexOf(color) > -1;
+        const nums = (typeof expandComboToken === 'function') ? expandComboToken(v) : null;
+        return Array.isArray(nums) && nums.length > 0 && nums.indexOf(tmStr) > -1;
+    }
+    function highlightTipText(tipText, tm, color) {
+        if (!tipText) return '';
+        return String(tipText).split('；').map(seg => {
+            const colon = seg.indexOf(':');
+            if (colon < 0) return escHtml(seg);
+            const label = seg.slice(0, colon).trim();
+            const values = seg.slice(colon + 1).split(/\s+/).filter(Boolean);
+            if (/杀/.test(label)) return escHtml(seg); // 杀死类（杀肖/杀尾/杀码…）不标红
+            const rendered = values.map(v => {
+                const ev = escHtml(v);
+                return tipValueMatched(label, v, tm, color)
+                    ? '<span style="color:#ef4444;font-weight:600;">' + ev + '</span>'
+                    : ev;
+            }).join(' ');
+            return label + ':' + rendered;
+        }).join('；');
+    }
+
     // 悬浮历史期数 0.5 秒后显示该期条目的子选项
     let __periodTipTimer = null;
     function getPeriodTipEl() {
@@ -5659,7 +5690,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 html += '<span style="color:' + colorHex + ';">' + escHtml(tm) + '</span>' + (sx ? ' / ' + escHtml(sx) : '') + (wx ? ' / ' + escHtml(wx) : '');
             }
             html += '<span style="margin-left:8px;background:' + (hit ? '#ef4444' : '#f1f5f9') + ';color:' + (hit ? '#fff' : '#94a3b8') + ';padding:3px 8px;border-radius:4px;font-weight:600;' + (hit ? 'box-shadow:0 1px 2px rgba(239,68,68,0.3);' : '') + '">' + (hit ? '中' : '错') + '</span></div>';
-            html += tipText ? '<div style="line-height:1.6;">' + escHtml(tipText) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
+            html += tipText ? '<div style="line-height:1.6;">' + highlightTipText(tipText, tm, color) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
             tip.innerHTML = html;
             const r = el.getBoundingClientRect();
             const tw = tip.offsetWidth, th = tip.offsetHeight;
@@ -6407,9 +6438,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // 规则11：标题兜底解析（正文缺类型词但标题有，如“【兄弟九肖】”“【疯狂尾数】”）
         if (!hits.length && title) {
             const t = String(title);
-            // 选肖兜底：标题含 九肖/八肖/⑧肖 且非杀肖类 → 从正文括号取生肖串
+            // 选肖兜底：标题含 九肖/八肖/⑧肖 且非杀肖类 → 从正文取生肖串。
+            // 优先取括号内生肖串（【兔狗…】）；无括号时兼容「N期:兔狗蛇猪…」这种正文只有列表的写法
+            // （群英会一肖一码·九肖 提取条目），避免 九肖 解析为空
             if (/(?:九|八|⑧|兄弟)肖/.test(t) && !/(?:绝杀|死杀|杀肖|禁)/.test(t)) {
-                const zm2 = str.match(/[〖【]([鼠牛虎兔龙蛇马羊猴鸡狗猪]+)[〗】]/);
+                const zm2 = str.match(/[〖【]([鼠牛虎兔龙蛇马羊猴鸡狗猪]+)[〗】]/)
+                    || str.match(/(?:^|[^\d])\d{1,3}\s*期\s*[:：]?\s*([鼠牛虎兔龙蛇马羊猴鸡狗猪]{2,})/);
                 if (zm2) {
                     let added = 0;
                     Array.from(zm2[1]).forEach(z => { if (zodiacMap[z]) { parts.push({ cat: 'numbers', label: '选肖', value: z, display: z, kind: 'zodiac' }); added++; } });
