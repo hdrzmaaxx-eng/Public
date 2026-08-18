@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.57 · 2026-08-18 21:00</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.58 · 2026-08-18 21:47</div>
 
         </div>
     
@@ -2064,7 +2064,8 @@ function scrollToBottom(containerId) {
 .zdr-import-badge { font-size: 0.68rem; line-height: 1.5; padding: 0 5px; }
 .zdr-import-part-line { font-size: 0.75rem; }
 .zdr-import-chip { font-size: 0.72rem; padding: 1px 8px; }
-.zdr-import-period { font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; }
+.zdr-import-history-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 3px 0 0 21px; }
+.zdr-import-period { flex-shrink: 0; display: inline-block; font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; white-space: nowrap; text-align: center; }
 .zdr-import-hint { font-size: 0.72rem; }
 #ext-strategy-list input[type="checkbox"] { width: 15px; height: 15px; }
 @media (max-width: 600px) {
@@ -2073,9 +2074,16 @@ function scrollToBottom(containerId) {
     .zdr-import-badge { font-size: 0.78rem; padding: 0 6px; }
     .zdr-import-part-line { font-size: 0.85rem; }
     .zdr-import-chip { font-size: 0.82rem; padding: 2px 9px; }
-    .zdr-import-period { font-size: 0.8rem; padding: 2px 8px; }
+    /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
+    .zdr-import-history-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; overflow: hidden; margin-left: 6px; }
+    .zdr-import-period { font-size: 0.8rem; padding: 2px 0; min-width: 0; }
     .zdr-import-hint { font-size: 0.82rem; }
     #ext-strategy-list input[type="checkbox"] { width: 17px; height: 17px; }
+}
+/* 超窄屏（≤360px）：再压缩间距与字号，保证 3 位期数也完整放下不溢出 */
+@media (max-width: 360px) {
+    .zdr-import-history-row { gap: 3px; margin-left: 3px; }
+    .zdr-import-period { font-size: 0.72rem; }
 }
 </style>
 
@@ -6731,8 +6739,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const noData = typeof hasAnyLotteryData === 'function' && !hasAnyLotteryData();
             return '<div class="zdr-import-hint" style="margin:2px 0 0 21px;color:#94a3b8;line-height:1.7;">' + (noData ? '暂无开奖数据 · 需先加载开奖数据（新澳门/香港特码页）' : '该期暂无开奖数据（可能未开奖）') + '</div>';
         }
-        return '<div style="margin:3px 0 0 21px;display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">' +
-            periods.map(p => '<span class="zdr-import-period" style="flex-shrink:0;display:inline-block;border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '" onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()">' + escHtml(String(p.qishu)) + '</span>').join('') +
+        return '<div class="zdr-import-history-row">' +
+            periods.map(p => '<span class="zdr-import-period" style="border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '" onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()">' + escHtml(String(p.qishu)) + '</span>').join('') +
             '</div>';
     }
 
