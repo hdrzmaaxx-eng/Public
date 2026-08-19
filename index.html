@@ -550,12 +550,12 @@
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="把本地历史战绩复制为 JSON，可到另一台设备粘贴导入">导出历史条目</button>
-                    <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="粘贴另一台设备导出的历史战绩 JSON，合并到本机">导入历史条目</button>
+                    <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="导出历史战绩：复制 JSON 或下载 JSON 文件，可到另一台设备导入">导出历史条目</button>
+                    <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="导入历史战绩：粘贴 JSON 或选择 JSON 文件，合并到本机">导入历史条目</button>
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.58 · 2026-08-18 21:47</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.60 · 2026-08-19 22:48</div>
 
         </div>
     
@@ -5662,7 +5662,48 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }, 1600);
     }
 
-    // 导出历史条目：把本地战绩序列化为 JSON 复制到剪贴板（跨设备迁移，Kiwi 粘贴回本机合并）
+    // 历史导出/导入方式小弹窗：固定在按钮附近（优先下方，放不下则上方），
+    // 点击小窗以外空白处取消，不使用全屏遮罩（移动端也不遮挡整页）
+    function showHistoryActionPicker(btn, options) {
+        hideHistoryActionPicker();
+        const pop = document.createElement('div');
+        pop.id = 'zdr-history-picker';
+        pop.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.15);padding:6px;display:flex;flex-direction:column;gap:4px;min-width:122px;';
+        options.forEach(o => {
+            const b = document.createElement('button');
+            b.innerText = o.text;
+            b.style.cssText = 'display:block;width:100%;padding:8px 12px;border:none;border-radius:8px;cursor:pointer;font-size:0.8rem;font-weight:700;color:#fff;background:' + (o.color || '#1d4ed8') + ';';
+            b.onclick = function(e) {
+                e.stopPropagation();
+                hideHistoryActionPicker();
+                o.action();
+            };
+            pop.appendChild(b);
+        });
+        document.body.appendChild(pop);
+        const r = btn.getBoundingClientRect();
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        let left = r.left + r.width / 2 - pw / 2;
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        let top = r.bottom + 6;
+        if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+        pop.style.left = left + 'px';
+        pop.style.top = top + 'px';
+        // 点击小窗以外的空白处取消（延迟绑定，避免打开瞬间被同一事件关闭）
+        window._historyPickerOutsideHandler = function(e) {
+            const p = document.getElementById('zdr-history-picker');
+            if (p && !p.contains(e.target)) hideHistoryActionPicker();
+        };
+        setTimeout(function() { document.addEventListener('click', window._historyPickerOutsideHandler); }, 0);
+    }
+    function hideHistoryActionPicker() {
+        const p = document.getElementById('zdr-history-picker');
+        if (p) p.remove();
+        if (window._historyPickerOutsideHandler) { document.removeEventListener('click', window._historyPickerOutsideHandler); window._historyPickerOutsideHandler = null; }
+    }
+    window._historyPickerCancel = hideHistoryActionPicker;
+
+    // 导出历史条目：点击弹小窗选择方式（复制导出 / 导出JSON文件）
     window.exportImportHistories = function(btn) {
         const map = loadImportHistories();
         const keys = Object.keys(map);
@@ -5672,8 +5713,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可导出的历史战绩（需先加载开奖数据并导入条目）。</span>';
             return;
         }
-        const text = JSON.stringify(map, null, 2);
         const totalPeriods = keys.reduce((s, k) => s + ((map[k] && map[k].periods) ? map[k].periods.length : 0), 0);
+        showHistoryActionPicker(btn, [
+            { text: '复制导出', color: '#1d4ed8', action: function() { copyImportHistories(btn, map, keys, totalPeriods, feedbackEl); } },
+            { text: '导出JSON文件', color: '#059669', action: function() { downloadImportHistories(btn, map, keys, totalPeriods, feedbackEl); } }
+        ]);
+    };
+
+    // 复制导出（原逻辑）：把本地战绩序列化为 JSON 复制到剪贴板（跨设备迁移，Kiwi 粘贴回本机合并）
+    function copyImportHistories(btn, map, keys, totalPeriods, feedbackEl) {
+        const text = JSON.stringify(map, null, 2);
         const done = () => {
             flashHistoryAction(btn, true, '复制成功', '复制失败');
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已复制历史战绩 ' + keys.length + ' 条策略 / ' + totalPeriods + ' 期，到另一台设备点「导入历史条目」粘贴即可。</span>';
@@ -5697,11 +5746,44 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         };
         if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done).catch(fallbackCopy);
         else fallbackCopy();
+    }
+
+    // 文件导出：把本地战绩 JSON 下载为文件（跨设备迁移，另一台设备选择文件导入合并）
+    function downloadImportHistories(btn, map, keys, totalPeriods, feedbackEl) {
+        try {
+            const text = JSON.stringify(map, null, 2);
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const d = new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            a.href = url;
+            a.download = '历史条目_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.json';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            flashHistoryAction(btn, true, '导出成功', '导出失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导出历史战绩文件 ' + keys.length + ' 条策略 / ' + totalPeriods + ' 期，到另一台设备点「导入历史条目」选择文件导入即可。</span>';
+        } catch (e) {
+            flashHistoryAction(btn, false, '导出成功', '导出失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 文件导出失败，请改用「复制导出」。</span>';
+        }
+    }
+
+    // 导入历史条目：点击弹小窗选择方式（粘贴导入 / 导入JSON文件）
+    window.importImportHistories = function(btn) {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        showHistoryActionPicker(btn, [
+            { text: '粘贴导入', color: '#15803d', action: function() { pasteImportHistories(btn, feedbackEl); } },
+            { text: '导入JSON文件', color: '#1d4ed8', action: function() { importImportHistoriesFile(btn, feedbackEl); } }
+        ]);
     };
 
-    // 导入历史条目：粘贴 JSON 合并进本地战绩（按策略键合并、按期数去重、最多保留 10 期）
-    window.importImportHistories = async function(btn) {
-        const feedbackEl = document.getElementById('ext-strategy-feedback');
+    // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
+    async function pasteImportHistories(btn, feedbackEl) {
         let text = '';
         try {
             text = await navigator.clipboard.readText();
@@ -5709,10 +5791,40 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             text = await window.zdrPrompt('在下方粘贴历史战绩 JSON', { placeholder: '例如：{"macau|【琴棋书画】": {"periods": [...]}}' });
         }
         if (!text || !text.trim()) return;
+        applyImportHistoriesText(text, btn, feedbackEl);
+    }
+
+    // 文件导入：选择 .json 文件读取后合并（粘贴与文件共用合并逻辑）
+    function importImportHistoriesFile(btn, feedbackEl) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.style.display = 'none';
+        input.addEventListener('change', function() {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function() {
+                applyImportHistoriesText(String(reader.result || ''), btn, feedbackEl, file.name);
+            };
+            reader.onerror = function() {
+                flashHistoryAction(btn, false, '导入成功', '导入失败');
+                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 文件读取失败。</span>';
+            };
+            reader.readAsText(file, 'utf-8');
+        });
+        document.body.appendChild(input);
+        input.click();
+        setTimeout(function() { if (input.parentNode) input.parentNode.removeChild(input); }, 1000);
+    }
+
+    // 共用合并：解析并合并历史战绩 JSON（粘贴 / 文件两条路径共用）
+    function applyImportHistoriesText(text, btn, feedbackEl, fileName) {
+        const fromFile = !!fileName;
         let data;
         try { data = JSON.parse(text); } catch (e) {
             flashHistoryAction(btn, false, '导入成功', '导入失败');
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ JSON 格式错误，请检查粘贴内容。</span>';
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ ' + (fromFile ? '文件' : '粘贴') + '内容 JSON 格式错误，请检查。</span>';
             return;
         }
         // 兼容带版本包装的格式 {version:2, data:{...}} 与直接粘贴的战绩对象
@@ -5745,8 +5857,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         saveImportHistories(map);
         if (typeof renderImportList === 'function') renderImportList();
         flashHistoryAction(btn, true, '导入成功', '导入失败');
-        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导入历史战绩 ' + mergedKeys + ' 条策略 / 新增 ' + mergedPeriods + ' 期。</span>';
-    };
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导入历史战绩 ' + mergedKeys + ' 条策略 / 新增 ' + mergedPeriods + ' 期' + (fromFile ? '（文件：' + escHtml(fileName) + '）' : '') + '。</span>';
+    }
 
     // 悬浮提示：属性值转义（在 escHtml 基础上再转双引号）
     function escAttr(s) {
@@ -6317,8 +6429,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return { parts: parts, hits: hits };
         }
 
-        // 规则1：死杀/绝杀生肖（兼容【】与〖〗；内容非生肖（如“更新中”）不计入）
-        const killMatch = str.match(/(?:绝杀|死杀).*?肖\s*[〖【]([^〗】]*)[〗】]/);
+        // 规则1：死杀/绝杀生肖（兼容【】〖〗与『』；内容非生肖（如“更新中”）不计入）
+        const killMatch = str.match(/(?:绝杀|死杀).*?肖\s*[〖【『]([^〗】』]*)[〗】』]/);
         if (killMatch) {
             const zods = killMatch[1].split('');
             let added = 0;
@@ -6347,6 +6459,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 }
             });
             if (validNums.length > 0) hits.push("<span style='color:#10b981;'>特码:</span> " + validNums.join(','));
+        }
+
+        // 规则3.5：绝杀N码（杀码冻结）如“绝杀10码【27.36.12.06.45.03.18.21.30.32】”
+        const killNumsMatch = str.match(/(?:绝杀|死杀|必杀)\s*(?:⑩|十|\d{1,2})\s*码\s*[:：]?\s*[〖【]([^〗】]*)[〗】]/);
+        if (killNumsMatch) {
+            const validNums = [];
+            killNumsMatch[1].split(/[\.\s、]+/).forEach(n => {
+                const numInt = parseInt(n, 10);
+                if (!isNaN(numInt) && numInt >= 1 && numInt <= 49) {
+                    const formatNum = numInt.toString().padStart(2, '0');
+                    parts.push({ cat: 'frozen', label: '杀码', value: formatNum, display: formatNum, kind: 'num' });
+                    validNums.push(formatNum);
+                }
+            });
+            if (validNums.length > 0) hits.push("<span style='color:#ef4444;'>杀码:</span> " + validNums.join(','));
         }
 
         // 规则4：头数
