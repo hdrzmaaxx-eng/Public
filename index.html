@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.62 · 2026-08-20 22:16</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.63 · 2026-08-20 22:40</div>
 
         </div>
     
@@ -7101,7 +7101,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         });
         const renderItem = (it) => {
             const realIndex = items.indexOf(it);
-            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="长按置顶/取消置顶">' +
+            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="长按弹出置顶菜单">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
                 '<span class="zdr-import-title" title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
@@ -7143,8 +7143,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         t._tm = setTimeout(function() { t.classList.remove('show'); }, 1600);
     }
 
-    // 长按置顶/取消置顶（最多 IMPORT_PIN_LIMIT 条；置顶条目排在全部条目最上方）
-    window.toggleImportPin = function(index) {
+    // 置顶/取消置顶（最多 IMPORT_PIN_LIMIT 条；置顶条目排在全部条目最上方）
+    // v1.63：pinTo 显式指定 true=置顶 / false=取消置顶（长按改弹小菜单后由菜单按钮调用）
+    window.toggleImportPin = function(index, pinTo) {
         const items = window.__importedStrategies;
         if (!items || !items[index]) return;
         const it = items[index];
@@ -7152,15 +7153,71 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可操作
         pushZdrHistory();
         const totalPinned = items.filter(x => x.pinned).length;
-        if (!it.pinned && totalPinned >= IMPORT_PIN_LIMIT) {
+        const want = pinTo === undefined ? !it.pinned : !!pinTo;
+        if (want === !!it.pinned) return; // 目标状态已达成
+        if (want && totalPinned >= IMPORT_PIN_LIMIT) {
             showPinToast('最多置顶 ' + IMPORT_PIN_LIMIT + ' 条，请先取消其他置顶');
             return;
         }
-        it.pinned = !it.pinned;
+        it.pinned = want;
         saveImportedStrategies();
         renderImportList();
-        showPinToast(it.pinned ? '已置顶（' + (totalPinned + 1) + '/' + IMPORT_PIN_LIMIT + '）' : '已取消置顶');
+        showPinToast(want ? '已置顶（' + (totalPinned + 1) + '/' + IMPORT_PIN_LIMIT + '）' : '已取消置顶');
     };
+
+    // v1.63：长按条目弹出的置顶小菜单（非全屏，锚定在条目旁，点空白处关闭）
+    // 样式与「暂存号码」彩种选择小窗一致：横排两个彩色按钮（置顶橙 / 取消置顶灰）
+    function showImportPinPicker(index, px, py) {
+        hideImportPinPicker();
+        const items = window.__importedStrategies;
+        if (!items || !items[index]) return;
+        const pop = document.createElement('div');
+        pop.id = 'zdr-pin-picker';
+        pop.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.15);padding:8px;display:flex;gap:6px;';
+        pop.innerHTML = '<button onclick="window._pinPick(true)" style="padding:8px 14px;border:none;border-radius:8px;background:#d97706;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">置顶</button>' +
+            '<button onclick="window._pinPick(false)" style="padding:8px 14px;border:none;border-radius:8px;background:#64748b;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">取消置顶</button>';
+        document.body.appendChild(pop);
+        // 定位在条目附近（优先下方，放不下则上方）。
+        // v1.63 修复：长按期间清单可能被重渲染（如历史自动补记），旧行元素已分离导致
+        // getBoundingClientRect 全 0、弹窗跑到左上角；这里按 data-pin-index 重新查询当前行，
+        // 查不到（或宽高为 0）时用长按按下位置的坐标就近弹出兜底。
+        const row = document.querySelector('#ext-strategy-list .zdr-import-item[data-pin-index="' + index + '"]');
+        const r = row ? row.getBoundingClientRect() : null;
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        let left, top;
+        if (r && (r.width || r.height)) {
+            left = r.left + r.width / 2 - pw / 2;
+            top = r.bottom + 6;
+            if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+        } else {
+            left = (px != null ? px : 0) + 6;
+            top = (py != null ? py : 0) + 10;
+            if (top + ph > window.innerHeight - 4) top = Math.max(4, (py != null ? py : 0) - ph - 10);
+        }
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        pop.style.left = left + 'px';
+        pop.style.top = top + 'px';
+        window._pinPickIndex = index;
+        // 点击小窗以外空白处取消（延迟绑定，避免打开瞬间被同一事件关闭）
+        window._pinPickerOutsideHandler = function(e) {
+            const p = document.getElementById('zdr-pin-picker');
+            if (p && !p.contains(e.target)) hideImportPinPicker();
+        };
+        setTimeout(function() { document.addEventListener('click', window._pinPickerOutsideHandler); }, 0);
+    }
+    function hideImportPinPicker() {
+        const p = document.getElementById('zdr-pin-picker');
+        if (p) p.remove();
+        if (window._pinPickerOutsideHandler) { document.removeEventListener('click', window._pinPickerOutsideHandler); window._pinPickerOutsideHandler = null; }
+        window._pinPickIndex = null;
+    }
+    window._pinPick = function(pinTo) {
+        const index = window._pinPickIndex;
+        hideImportPinPicker();
+        if (index == null) return;
+        window.toggleImportPin(index, pinTo);
+    };
+    window._hidePinPicker = hideImportPinPicker;
     window.saveImportedStrategies = saveImportedStrategies; // 供 IIFE 外部的 clearAllSelections 调用（一键清空需持久化）
     window.renderCategoryButtons = renderCategoryButtons; // 供 IIFE 外部的 clearAllSelections 调用
     window.buildItemEffects = buildItemEffects; // 供 undo 恢复时重算条目效果
@@ -7715,7 +7772,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                   const idx = parseInt(__pinTarget.getAttribute('data-pin-index'), 10);
                   if (!isNaN(idx)) {
                       __pinFired = true; __pinFiredAt = Date.now();
-                      if (typeof window.toggleImportPin === 'function') window.toggleImportPin(idx);
+                      // v1.63：长按不再直接置顶/取消，改为弹出小菜单（置顶 / 取消置顶）
+                      // 传入按下位置坐标：若长按期间清单被重渲染导致行元素分离，也能就近弹出
+                      if (typeof showImportPinPicker === 'function') showImportPinPicker(idx, __pinStartX, __pinStartY);
                   }
                   __pinTarget = null; __pinTimer = null;
               }, 600);
