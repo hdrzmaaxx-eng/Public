@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.63 · 2026-08-20 22:40</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.64 · 2026-08-20 22:53</div>
 
         </div>
     
@@ -5288,7 +5288,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
     window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
     const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
-    const IMPORT_PIN_LIMIT = 8; // 条目置顶上限（v1.62）
+    const IMPORT_PIN_LIMIT = 10; // 条目置顶上限（v1.64 起最多 10 条）
 
     function importTodayStr() {
         const d = new Date();
@@ -7174,27 +7174,31 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const pop = document.createElement('div');
         pop.id = 'zdr-pin-picker';
         pop.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.15);padding:8px;display:flex;gap:6px;';
-        pop.innerHTML = '<button onclick="window._pinPick(true)" style="padding:8px 14px;border:none;border-radius:8px;background:#d97706;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">置顶</button>' +
-            '<button onclick="window._pinPick(false)" style="padding:8px 14px;border:none;border-radius:8px;background:#64748b;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">取消置顶</button>';
+        // v1.64：蓝色 / 浅蓝色两个按钮，第二个按钮文案「取消」（取消置顶）
+        pop.innerHTML = '<button onclick="window._pinPick(true)" style="padding:8px 14px;border:none;border-radius:8px;background:#1d4ed8;color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;">置顶</button>' +
+            '<button onclick="window._pinPick(false)" style="padding:8px 14px;border:none;border-radius:8px;background:#dbeafe;color:#1d4ed8;font-weight:700;cursor:pointer;font-size:0.8rem;">取消</button>';
         document.body.appendChild(pop);
-        // 定位在条目附近（优先下方，放不下则上方）。
-        // v1.63 修复：长按期间清单可能被重渲染（如历史自动补记），旧行元素已分离导致
-        // getBoundingClientRect 全 0、弹窗跑到左上角；这里按 data-pin-index 重新查询当前行，
-        // 查不到（或宽高为 0）时用长按按下位置的坐标就近弹出兜底。
-        const row = document.querySelector('#ext-strategy-list .zdr-import-item[data-pin-index="' + index + '"]');
-        const r = row ? row.getBoundingClientRect() : null;
         const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        // v1.64：就近锚定到长按按下位置（手指/鼠标附近），下方放不下自动翻到上方、
+        // 左右越界自动内收，弹窗贴着按压点不再与条目割裂；长按期间清单重渲染也不影响定位
+        // （直接用按下坐标，不依赖行元素，顺带避免旧版左上角 bug）
         let left, top;
-        if (r && (r.width || r.height)) {
-            left = r.left + r.width / 2 - pw / 2;
-            top = r.bottom + 6;
-            if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+        if (px != null && py != null) {
+            left = px + 10;
+            top = py + 12;
+            if (left + pw > window.innerWidth - 4) left = Math.max(4, px - pw - 10);
+            if (top + ph > window.innerHeight - 4) top = Math.max(4, py - ph - 12);
         } else {
-            left = (px != null ? px : 0) + 6;
-            top = (py != null ? py : 0) + 10;
-            if (top + ph > window.innerHeight - 4) top = Math.max(4, (py != null ? py : 0) - ph - 10);
+            // 兜底：按条目当前位置定位（优先下方，放不下则上方）
+            const row = document.querySelector('#ext-strategy-list .zdr-import-item[data-pin-index="' + index + '"]');
+            const r = row ? row.getBoundingClientRect() : null;
+            if (r && (r.width || r.height)) {
+                left = r.left + r.width / 2 - pw / 2;
+                top = r.bottom + 6;
+                if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+                left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+            } else { left = 4; top = 4; }
         }
-        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
         pop.style.left = left + 'px';
         pop.style.top = top + 'px';
         window._pinPickIndex = index;
@@ -7772,7 +7776,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                   const idx = parseInt(__pinTarget.getAttribute('data-pin-index'), 10);
                   if (!isNaN(idx)) {
                       __pinFired = true; __pinFiredAt = Date.now();
-                      // v1.63：长按不再直接置顶/取消，改为弹出小菜单（置顶 / 取消置顶）
+                      // v1.64：长按弹出就近小菜单（置顶 / 取消）
                       // 传入按下位置坐标：若长按期间清单被重渲染导致行元素分离，也能就近弹出
                       if (typeof showImportPinPicker === 'function') showImportPinPicker(idx, __pinStartX, __pinStartY);
                   }
