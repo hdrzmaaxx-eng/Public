@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.60 · 2026-08-19 22:48</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.61 · 2026-08-20 19:33</div>
 
         </div>
     
@@ -2062,6 +2062,7 @@ function scrollToBottom(containerId) {
 .zdr-import-head { font-size: 0.95rem; }
 .zdr-import-title { font-size: 0.9rem; }
 .zdr-import-badge { font-size: 0.68rem; line-height: 1.5; padding: 0 5px; }
+.zdr-import-site-head { font-size: 0.78rem; }
 .zdr-import-part-line { font-size: 0.75rem; }
 .zdr-import-chip { font-size: 0.72rem; padding: 1px 8px; }
 .zdr-import-history-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 3px 0 0 21px; }
@@ -2072,6 +2073,7 @@ function scrollToBottom(containerId) {
     .zdr-import-head { font-size: 1rem; }
     .zdr-import-title { font-size: 0.95rem; }
     .zdr-import-badge { font-size: 0.78rem; padding: 0 6px; }
+    .zdr-import-site-head { font-size: 0.85rem; }
     .zdr-import-part-line { font-size: 0.85rem; }
     .zdr-import-chip { font-size: 0.82rem; padding: 2px 9px; }
     /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
@@ -5352,6 +5354,81 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return (it.lottery || 'macau') + '|' + title;
     }
 
+    // 归一化标题用于新旧标题模糊匹配：去期数前缀、网站标签、域名与标点
+    // （如 【六尾必中特】 → 奥霸网【六尾必中特】、一肖一码·九肖 → 群英会一肖一码·九肖 都能对上）
+    function normalizeHistoryTitle(s) {
+        return String(s || '')
+            .replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '')
+            .replace(/铁算盘→|澳门九龙网|澳門九龙网|澳门群英会|澳门九龙|澳门群英|群英会|奥霸网|澳霸网|九龙网|九龍网|新澳门/g, '')
+            .replace(/599507\.com|599508\.com|56949\.com|99444(\.com)?/g, '')
+            .replace(/[【】『』〔〕「」《》（）()\s·→：:，,。.!！?？\-_★☆]/g, '')
+            .trim();
+    }
+
+    // 历史记录与当前导入条目的匹配度：标题核心（主）+ 子选项文本（辅）
+    function historyMatchScore(recordTitle, recordParts, it) {
+        const nRec = normalizeHistoryTitle(recordTitle);
+        const nCur = normalizeHistoryTitle(it.title || '');
+        if (!nRec || !nCur) return 0;
+        let score = 0;
+        if (nRec === nCur) score += 2;
+        else if (nRec.length >= 2 && nCur.length >= 2 && (nRec.includes(nCur) || nCur.includes(nRec))) score += 1;
+        if (recordParts) {
+            const curParts = normalizeHistoryTitle(summarizeItemParts(it.parts || []));
+            const recParts = normalizeHistoryTitle(recordParts);
+            if (curParts && recParts && (recParts === curParts || recParts.includes(curParts) || curParts.includes(recParts))) score += 2;
+        }
+        return score;
+    }
+
+    // 在当前导入清单中找旧标题记录应归属的条目：唯一最优匹配才迁移（避免同名不同站误并）
+    function findHistoryTarget(recordTitle, lottery, recordParts, items) {
+        let best = null, bestScore = 0, tied = false;
+        (items || []).forEach(it => {
+            if (it.lottery && lottery && it.lottery !== lottery) return;
+            const sc = historyMatchScore(recordTitle, recordParts, it);
+            if (sc > bestScore) { best = it; bestScore = sc; tied = false; }
+            else if (sc > 0 && sc === bestScore) tied = true;
+        });
+        return (bestScore > 0 && !tied) ? best : null;
+    }
+
+    // 标题规范化后迁移旧历史键到当前条目（如无标签旧键 → 带网站标签的新键），按期数去重合并
+    function migrateHistoryKeys(map) {
+        const items = window.__importedStrategies || [];
+        if (!items.length) return false;
+        let changed = false;
+        Object.keys(map).forEach(k => {
+            const h = map[k];
+            if (!h) return;
+            const keyTitle = String(h.title || String(k).split('|')[1] || '');
+            const lottery = h.lottery || String(k).split('|')[0] || 'macau';
+            const parts = (h.periods && h.periods.length) ? h.periods[h.periods.length - 1].partsText : '';
+            // 已与当前某条目同键（标题完全一致）则无需迁移
+            const exact = items.some(it => importHistoryKey(it) === k);
+            if (exact) return;
+            const target = findHistoryTarget(keyTitle, lottery, parts, items);
+            if (!target) return;
+            const newKey = importHistoryKey(target);
+            if (newKey === k) return;
+            if (map[newKey]) {
+                const byQ = {};
+                (map[newKey].periods || []).forEach(p => { if (p && p.qishu != null) byQ[parseInt(p.qishu, 10)] = p; });
+                (h.periods || []).forEach(p => { if (p && p.qishu != null && !byQ[parseInt(p.qishu, 10)]) byQ[parseInt(p.qishu, 10)] = p; });
+                map[newKey].periods = Object.keys(byQ).map(q => byQ[q]).sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10)).slice(-IMPORT_HISTORY_LIMIT);
+                map[newKey].updatedAt = new Date().toISOString();
+            } else {
+                map[newKey] = Object.assign({}, h, {
+                    title: String(target.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, ''),
+                    updatedAt: new Date().toISOString()
+                });
+            }
+            delete map[k];
+            changed = true;
+        });
+        return changed;
+    }
+
     function loadImportHistories() {
         try {
             const raw = localStorage.getItem(IMPORT_HISTORY_KEY);
@@ -5567,6 +5644,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const items = window.__importedStrategies || [];
         const map = loadImportHistories();
         let changed = false;
+        // 标题规范化/改名后：把旧标题的历史记录迁移到当前条目的新键（唯一匹配才迁移）
+        if (migrateHistoryKeys(map)) changed = true;
         items.forEach(it => {
             if (updateEntryHistory(map, it)) changed = true;
         });
@@ -5835,11 +5914,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return;
         }
         const map = loadImportHistories();
+        const items = window.__importedStrategies || [];
         let mergedKeys = 0, mergedPeriods = 0;
         Object.keys(data).forEach(k => {
             const h = data[k];
             if (!h || typeof h !== 'object' || !Array.isArray(h.periods) || !h.periods.length) return;
-            const prev = map[k];
+            // 旧标题智能匹配：老 JSON（如 macau|【六尾必中特】）合并到当前已带网站标签的条目键下
+            const keyLottery = String(h.lottery || String(k).split('|')[0] || 'macau');
+            const keyTitle = String(h.title || String(k).split('|')[1] || '');
+            const parts = h.periods[h.periods.length - 1].partsText || '';
+            const target = items.some(it => importHistoryKey(it) === k) ? null : findHistoryTarget(keyTitle, keyLottery, parts, items);
+            const k2 = target ? importHistoryKey(target) : k;
+            const prev = map[k2];
             const byQ = {};
             // 按期数数值去重：兼容 87 / 087 两种写法
             ((prev && prev.periods) || []).forEach(p => { if (p && p.qishu != null && !isNaN(parseInt(p.qishu, 10))) byQ[parseInt(p.qishu, 10)] = p; });
@@ -5850,7 +5936,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (!byQ[q]) { byQ[q] = p; added++; }
             });
             const merged = Object.keys(byQ).map(q => byQ[q]).sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10)).slice(-IMPORT_HISTORY_LIMIT);
-            map[k] = { lottery: h.lottery || String(k).split('|')[0] || 'macau', title: h.title || String(k).split('|')[1] || k, periods: merged, updatedAt: new Date().toISOString() };
+            map[k2] = { lottery: keyLottery, title: target ? String(target.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '') : (h.title || String(k).split('|')[1] || k), periods: merged, updatedAt: new Date().toISOString() };
             mergedKeys++;
             mergedPeriods += added;
         });
@@ -6208,12 +6294,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         list.forEach(s => {
             const marked = !!s.marked;
             html += '<div style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 6px;margin-bottom:6px;">' +
                 '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;">' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
-                '<div style="display:flex;gap:4px;">' +
-                '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:2px 8px;font-size:0.7rem;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
-                '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:2px 8px;font-size:0.7rem;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;cursor:pointer;">导入</button>' +
-                '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:2px 8px;font-size:0.7rem;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:5px;cursor:pointer;">删除</button>' +
+                '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">' +
+                '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
+                '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;cursor:pointer;">导入</button>' +
+                '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:5px;cursor:pointer;">删除</button>' +
                 '</div>' +
                 '</div>' +
                 '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
@@ -6872,6 +6958,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     // 渲染导入条目清单（条目级勾选保留；条目内子选项直接点击切换）
+    // 按网站识别导入条目来源（用于分组显示；群英会旧标题可能只带 599507.com/599508.com 域名）
+    function detectImportSite(it) {
+        const t = String(it && it.title || '');
+        if (/奥霸网|澳霸网/.test(t)) return '奥霸网';
+        if (/铁算盘/.test(t)) return '铁算盘';
+        if (/九龙网|九龍网/.test(t)) return '澳门九龙网';
+        if (/群英会/.test(t) || /599507\.com|599508\.com/.test(t)) return '群英会';
+        return '其他';
+    }
+    function siteHeadColor(site) {
+        return site === '铁算盘' ? '#0e7490'
+            : site === '澳门九龙网' ? '#1d4ed8'
+            : site === '群英会' ? '#059669'
+            : site === '奥霸网' ? '#c2410c' : '#64748b';
+    }
+
     function renderImportList() {
         const listEl = document.getElementById('ext-strategy-list');
         if (!listEl) return;
@@ -6895,11 +6997,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             ? '<span style="color:' + (activeCat === 'hk' ? '#b91c1c' : '#1d4ed8') + ';">当前条目仅显示「' + catName + '」' + visibleItems.length + ' 条。</span>'
             : '已导入条目（共 ' + items.length + ' 条。）';
         const histMap = ensureImportHistories();
-        listEl.innerHTML =
-            '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>' +
-            visibleItems.map((it) => {
+        // 按网站分组：相同网站的条目集中显示，不再东一个西一个
+        const siteOrder = ['铁算盘', '澳门九龙网', '群英会', '奥霸网', '其他'];
+        const groups = {};
+        visibleItems.forEach(it => {
+            const s = detectImportSite(it);
+            (groups[s] = groups[s] || []).push(it);
+        });
+        let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>';
+        siteOrder.forEach(site => {
+            const group = groups[site];
+            if (!group || !group.length) return;
+            listHtml += '<div class="zdr-import-site-head" style="margin:8px 0 2px;font-weight:700;color:#334155;border-left:3px solid ' + siteHeadColor(site) + ';padding-left:6px;">' + escHtml(site) + '（' + group.length + '）</div>';
+            group.forEach((it) => {
                 const realIndex = items.indexOf(it);
-                return '<div style="padding:4px 0;border-bottom:1px dashed #fde68a;">' +
+                listHtml += '<div style="padding:4px 0;border-bottom:1px dashed #fde68a;">' +
                     '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
                     '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;">' +
                     '<span class="zdr-import-title" title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + badge(it) + escHtml(it.title) + '</span>' +
@@ -6907,7 +7019,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     renderItemParts(realIndex, it) +
                     renderImportHistory(realIndex, it, histMap) +
                     '</div>';
-            }).join('');
+            });
+        });
+        listEl.innerHTML = listHtml;
         updateToggleAllButton();
         renderCategoryButtons();
     }
@@ -7372,6 +7486,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             });
 
             if (importCount > 0) {
+                // 导入后按网站分组排序，保证清单与「复制全部」导出顺序一致（同网站条目集中）
+                const siteRank = { '铁算盘': 0, '澳门九龙网': 1, '群英会': 2, '奥霸网': 3, '其他': 4 };
+                window.__importedStrategies.sort((a, b) => (siteRank[detectImportSite(a)] != null ? siteRank[detectImportSite(a)] : 4) - (siteRank[detectImportSite(b)] != null ? siteRank[detectImportSite(b)] : 4));
                 // 导入类别成为当前视图，并取消另一类别的全部选中（严格互斥）
                 window.__importActiveCat = lottery;
                 enforceImportMutex(lottery);
