@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.61 · 2026-08-20 19:33</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.62 · 2026-08-20 22:16</div>
 
         </div>
     
@@ -2068,6 +2068,18 @@ function scrollToBottom(containerId) {
 .zdr-import-history-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 3px 0 0 21px; }
 .zdr-import-period { flex-shrink: 0; display: inline-block; font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; white-space: nowrap; text-align: center; }
 .zdr-import-hint { font-size: 0.72rem; }
+/* v1.62：按网站分组的低饱和底色容器 + 置顶条目 + 条目行间距（桌面基准，移动端在下方再放宽） */
+.zdr-import-site-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; }
+.zdr-import-site-group .zdr-import-site-head { margin: 2px 0 4px; }
+.zdr-import-pinned-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; background: #fffbeb; border: 1px solid #fde68a; }
+.zdr-import-pinned-head { font-size: 0.8rem; font-weight: 700; color: #b45309; margin: 2px 0 4px; padding-left: 6px; border-left: 3px solid #f59e0b; }
+.zdr-import-item { padding: 7px 8px 8px; margin-bottom: 6px; border-radius: 8px; background: #fff; border: 1px solid #f1f5f9; }
+.zdr-import-item.zdr-pinned { background: #fffbeb; border-color: #fde68a; }
+.zdr-import-item .zdr-import-title { line-height: 1.55; }
+.zdr-import-pin-icon { display: inline-block; margin-right: 3px; font-size: 0.85em; }
+#ext-strategy-list .zdr-import-item { cursor: default; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.zdr-pin-toast { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 99999; background: rgba(30,41,59,.92); color: #fff; border-radius: 999px; padding: 8px 16px; font-size: 0.8rem; box-shadow: 0 4px 14px rgba(0,0,0,.2); pointer-events: none; opacity: 0; transition: opacity .25s; }
+.zdr-pin-toast.show { opacity: 1; }
 #ext-strategy-list input[type="checkbox"] { width: 15px; height: 15px; }
 @media (max-width: 600px) {
     .zdr-import-head { font-size: 1rem; }
@@ -2076,6 +2088,12 @@ function scrollToBottom(containerId) {
     .zdr-import-site-head { font-size: 0.85rem; }
     .zdr-import-part-line { font-size: 0.85rem; }
     .zdr-import-chip { font-size: 0.82rem; padding: 2px 9px; }
+    .zdr-import-site-group { padding: 10px 8px 12px; }
+    .zdr-import-pinned-group { padding: 10px 8px 12px; }
+    .zdr-import-pinned-head { font-size: 0.85rem; }
+    .zdr-import-item { padding: 9px 8px 10px; margin-bottom: 8px; }
+    .zdr-import-item .zdr-import-title { line-height: 1.6; }
+    .zdr-import-part-line { margin-top: 4px; }
     /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
     .zdr-import-history-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; overflow: hidden; margin-left: 6px; }
     .zdr-import-period { font-size: 0.8rem; padding: 2px 0; min-width: 0; }
@@ -5171,6 +5189,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                               localData.push(pRecord); // 不存在则自动补充
                           }
                       });
+                      localData = trimLotteryData(localData); // v1.62：只保留最近 120 条，防止无限累积
+                      invalidateLocalRecordsCache(currentLottery);
                       localStorage.setItem(storageKey, JSON.stringify(localData));
                       // 记录缓存写入日期：本地缓存仅当天有效（每天都是最新一期）
                       var todayStr = new Date();
@@ -5268,18 +5288,39 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
     window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
     const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
+    const IMPORT_PIN_LIMIT = 8; // 条目置顶上限（v1.62）
 
     function importTodayStr() {
         const d = new Date();
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     }
 
+    // 超过 10 期的历史条目自动删除：以清单内最大期数为基准只保留最近 10 期
+    // （无期数条目无法判定新旧，一律保留；历史战绩存在独立存储 zdr_import_history_v2，不受清理影响）
+    function pruneImportedStrategies(items) {
+        if (!Array.isArray(items) || !items.length) return items;
+        const periods = [];
+        items.forEach(function(it) { const p = extractItemPeriod(it); if (p != null) periods.push(p); });
+        if (!periods.length) return items;
+        const keepMin = Math.max.apply(null, periods) - 9;
+        return items.filter(function(it) {
+            const p = extractItemPeriod(it);
+            return p == null || p >= keepMin;
+        });
+    }
+
     // 保存导入条目到本地（含当天日期标记；非当天数据一律作废 = 23:59 自动清空）
     function saveImportedStrategies() {
         try {
+            const pruned = pruneImportedStrategies(window.__importedStrategies || []);
+            if (pruned.length !== (window.__importedStrategies || []).length) {
+                window.__importedStrategies = pruned;
+                if (typeof syncImportState === 'function') syncImportState(); // 被清理条目的聚合贡献同步移除
+                if (typeof renderImportList === 'function') renderImportList();
+            }
             localStorage.setItem(IMPORT_STORAGE_KEY, JSON.stringify({
                 date: importTodayStr(),
-                items: window.__importedStrategies || [],
+                items: pruned,
                 activeCat: window.__importActiveCat,
                 catSnap: window.__importCatSnap || {}
             }));
@@ -5300,9 +5341,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             data.items.forEach(it => {
                 if (it.lottery !== 'hk' && it.lottery !== 'macau') it.lottery = 'macau'; // 旧数据兜底为新澳门
                 if (Array.isArray(it.parts)) it.parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+                it.pinned = !!it.pinned; // 置顶标记持久化（旧数据默认不置顶）
                 it.effects = buildItemEffects(it.parts || []);
             });
-            window.__importedStrategies = data.items;
+            window.__importedStrategies = pruneImportedStrategies(data.items); // 加载时同步清理超 10 期历史条目
             if (data.activeCat === 'macau' || data.activeCat === 'hk') window.__importActiveCat = data.activeCat;
             window.__importCatSnap = (data.catSnap && typeof data.catSnap === 'object') ? data.catSnap : {};
             // 兼容无快照的旧数据：先把两类当前状态存快照，再强制类别互斥
@@ -5429,12 +5471,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return changed;
     }
 
+    let __histMapCache = null; // v1.62：会话内缓存历史战绩表，避免每次渲染都重新解析 localStorage
     function loadImportHistories() {
+        if (__histMapCache) return __histMapCache;
         try {
             const raw = localStorage.getItem(IMPORT_HISTORY_KEY);
             const data = raw ? JSON.parse(raw) : null;
-            return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
-        } catch (e) { return {}; }
+            __histMapCache = (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+        } catch (e) { __histMapCache = {}; }
+        return __histMapCache;
     }
 
     // 保存历史：每条只保留最近 10 期（超出的自动删除），历史条目总量设上限防止无限增长
@@ -5450,8 +5495,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 keys.sort((a, b) => (map[a].updatedAt || '').localeCompare(map[b].updatedAt || ''));
                 keys.slice(0, keys.length - 1000).forEach(k => delete map[k]);
             }
+            __histMapCache = map;
             localStorage.setItem(IMPORT_HISTORY_KEY, JSON.stringify(map));
         } catch (e) { /* ignore */ }
+    }
+
+    // v1.62：本地开奖数据只保留最近 LOTTERY_DATA_LIMIT 条（历史版本无限累积导致打开页面卡顿）
+    const LOTTERY_DATA_LIMIT = 120;
+    function trimLotteryData(list) {
+        if (!Array.isArray(list) || list.length <= LOTTERY_DATA_LIMIT) return list;
+        return list.slice().sort(function(a, b) { return (b.id || 0) - (a.id || 0); }).slice(0, LOTTERY_DATA_LIMIT);
+    }
+    let __localRecordsCache = { macau: null, hk: null }; // 会话内缓存本地开奖记录解析结果
+    let __localTrimDone = { macau: false, hk: false };   // 存量超大数据的惰性裁剪只做一次
+    function invalidateLocalRecordsCache(lottery) {
+        if (lottery) { __localRecordsCache[lottery] = null; }
+        else { __localRecordsCache = { macau: null, hk: null }; }
     }
 
     // 把某类别开奖数据合并写入本地持久存储（按 id 覆盖/追加），供历史战绩离线使用（跨标签/刷新后仍可用）
@@ -5467,13 +5526,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const idx = localData.findIndex(d => d && d.id === r.id);
                 if (idx > -1) localData[idx] = r; else localData.push(r);
             });
+            localData = trimLotteryData(localData); // 只保留最近 120 条，防止无限增长
             localStorage.setItem(storageKey, JSON.stringify(localData));
+            invalidateLocalRecordsCache(lottery);
             // 记录当日缓存日期标记，网络失败时可作今日离线兜底
             const d = new Date();
             localStorage.setItem('zdr_cache_date_' + lottery, d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
         } catch (e) { /* ignore */ }
     }
     window.persistLotteryData = persistLotteryData; // 供 runPredict / ps 在数据到达时调用
+    window.invalidateLocalRecordsCache = invalidateLocalRecordsCache; // 供外部手动补数据时同步失效会话缓存
 
     // 悬浮提示用：汇总条目的子选项文本（如「选肖:羊 狗 龙 …；杀肖:虎 牛」）
     function summarizeItemParts(parts) {
@@ -5499,11 +5561,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             list = window._rawKjData;
         } else {
             try {
-                const raw = localStorage.getItem('zdr_manual_data_' + lottery);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed) && parsed.length) { list = parsed; fromLocal = true; }
+                let parsed = __localRecordsCache[lottery];
+                if (parsed == null) {
+                    const raw = localStorage.getItem('zdr_manual_data_' + lottery);
+                    if (raw) {
+                        parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            // 历史存量超大数据的惰性一次性裁剪（旧版本无上限累积，本次加载即收敛）
+                            if (parsed.length > LOTTERY_DATA_LIMIT && !__localTrimDone[lottery]) {
+                                __localTrimDone[lottery] = true;
+                                const trimmed = trimLotteryData(parsed);
+                                try { localStorage.setItem('zdr_manual_data_' + lottery, JSON.stringify(trimmed)); } catch (e) { /* ignore */ }
+                                parsed = trimmed;
+                            }
+                        }
+                    }
                 }
+                if (Array.isArray(parsed) && parsed.length) { list = parsed; fromLocal = true; }
+                if (Array.isArray(parsed)) __localRecordsCache[lottery] = parsed;
             } catch (e) { /* ignore */ }
         }
         if (freshOnly && list && list.length) {
@@ -5673,20 +5748,27 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // ========== v1.49：历史战绩自动补记 + 跨设备导出/导入 ==========
     // 判断当前是否已有任何可用的开奖数据（会话缓存 / 内存 / 本地存储）
+    let __hasDataCache = { at: 0, value: false }; // v1.62：2 秒内复用结果，避免每次渲染都解析两个彩种的大数组
     function hasAnyLotteryData() {
+        const now = Date.now();
+        if (now - __hasDataCache.at < 2000) return __hasDataCache.value;
+        let found = false;
         try {
-            if (window.__lotteryData && Object.keys(window.__lotteryData).some(k => Array.isArray(window.__lotteryData[k]) && window.__lotteryData[k].length)) return true;
-            if (window._rawKjData && Array.isArray(window._rawKjData) && window._rawKjData.length) return true;
-            const lotKeys = ['macau', 'hk'];
-            for (let i = 0; i < lotKeys.length; i++) {
-                const raw = localStorage.getItem('zdr_manual_data_' + lotKeys[i]);
-                if (raw) {
-                    const p = JSON.parse(raw);
-                    if (Array.isArray(p) && p.length) return true;
+            if (!found && window.__lotteryData && Object.keys(window.__lotteryData).some(k => Array.isArray(window.__lotteryData[k]) && window.__lotteryData[k].length)) found = true;
+            if (!found && window._rawKjData && Array.isArray(window._rawKjData) && window._rawKjData.length) found = true;
+            if (!found) {
+                const lotKeys = ['macau', 'hk'];
+                for (let i = 0; i < lotKeys.length; i++) {
+                    const raw = localStorage.getItem('zdr_manual_data_' + lotKeys[i]);
+                    if (raw) {
+                        const p = JSON.parse(raw);
+                        if (Array.isArray(p) && p.length) { found = true; break; }
+                    }
                 }
             }
         } catch (e) { /* ignore */ }
-        return false;
+        __hasDataCache = { at: now, value: found };
+        return found;
     }
 
     let __historyRefreshTimer = null;
@@ -5714,7 +5796,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (__historyRefreshTimer) { clearInterval(__historyRefreshTimer); __historyRefreshTimer = null; }
             }
         };
-        tick();
+        setTimeout(tick, 600); // v1.62：首帧后再开始自动补记，避免打开页面时同步整表重算阻塞首屏（移动端卡顿优化）
         if (!__historyRefreshTimer) __historyRefreshTimer = setInterval(tick, 8000);
     }
     window.scheduleImportHistoryRefresh = scheduleImportHistoryRefresh;
@@ -6974,6 +7056,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             : site === '奥霸网' ? '#c2410c' : '#64748b';
     }
 
+    // v1.62：按网站分组的低饱和底色（铁算盘浅青 / 澳门九龙网浅蓝 / 群英会浅绿 / 奥霸网浅橙 / 其他浅灰）
+    const siteTheme = {
+        '铁算盘':    { bg: '#e8f4f7', border: '#0e7490', text: '#155e75' },
+        '澳门九龙网': { bg: '#eaf1fe', border: '#1d4ed8', text: '#1e40af' },
+        '群英会':    { bg: '#e9f7f1', border: '#059669', text: '#047857' },
+        '奥霸网':    { bg: '#fff3e6', border: '#c2410c', text: '#9a3412' },
+        '其他':      { bg: '#f1f5f9', border: '#64748b', text: '#475569' }
+    };
+
     function renderImportList() {
         const listEl = document.getElementById('ext-strategy-list');
         if (!listEl) return;
@@ -6997,35 +7088,79 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             ? '<span style="color:' + (activeCat === 'hk' ? '#b91c1c' : '#1d4ed8') + ';">当前条目仅显示「' + catName + '」' + visibleItems.length + ' 条。</span>'
             : '已导入条目（共 ' + items.length + ' 条。）';
         const histMap = ensureImportHistories();
-        // 按网站分组：相同网站的条目集中显示，不再东一个西一个
+        // v1.62：置顶条目排在全部条目最上方（不分网站；上限 IMPORT_PIN_LIMIT 条）
+        const totalPinned = items.filter(x => x.pinned).length;
+        const pinned = visibleItems.filter(it => it.pinned);
+        const rest = visibleItems.filter(it => !it.pinned);
+        // 按网站分组：相同网站的条目集中显示（置顶条目已单独抽出，不重复展示）
         const siteOrder = ['铁算盘', '澳门九龙网', '群英会', '奥霸网', '其他'];
         const groups = {};
-        visibleItems.forEach(it => {
+        rest.forEach(it => {
             const s = detectImportSite(it);
             (groups[s] = groups[s] || []).push(it);
         });
+        const renderItem = (it) => {
+            const realIndex = items.indexOf(it);
+            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="长按置顶/取消置顶">' +
+                '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
+                '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
+                '<span class="zdr-import-title" title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
+                '</label>' +
+                renderItemParts(realIndex, it) +
+                renderImportHistory(realIndex, it, histMap) +
+                '</div>';
+        };
         let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>';
+        if (pinned.length) {
+            listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT + '）</div>' + pinned.map(renderItem).join('') + '</div>';
+        }
         siteOrder.forEach(site => {
             const group = groups[site];
             if (!group || !group.length) return;
-            listHtml += '<div class="zdr-import-site-head" style="margin:8px 0 2px;font-weight:700;color:#334155;border-left:3px solid ' + siteHeadColor(site) + ';padding-left:6px;">' + escHtml(site) + '（' + group.length + '）</div>';
-            group.forEach((it) => {
-                const realIndex = items.indexOf(it);
-                listHtml += '<div style="padding:4px 0;border-bottom:1px dashed #fde68a;">' +
-                    '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
-                    '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;">' +
-                    '<span class="zdr-import-title" title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + badge(it) + escHtml(it.title) + '</span>' +
-                    '</label>' +
-                    renderItemParts(realIndex, it) +
-                    renderImportHistory(realIndex, it, histMap) +
-                    '</div>';
-            });
+            const th = siteTheme[site] || siteTheme['其他'];
+            listHtml += '<div class="zdr-import-site-group" style="background:' + th.bg + ';border:1px solid ' + th.bg + ';">' +
+                '<div class="zdr-import-site-head" style="margin:2px 0 4px;font-weight:700;color:' + th.text + ';border-left:3px solid ' + th.border + ';padding-left:6px;">' + escHtml(site) + '（' + group.length + '）</div>' +
+                group.map(renderItem).join('') +
+                '</div>';
         });
         listEl.innerHTML = listHtml;
         updateToggleAllButton();
         renderCategoryButtons();
     }
     window.renderImportList = renderImportList; // 供 IIFE 外部的 clearAllSelections 调用
+    // 置顶反馈 toast（轻量浮层，不遮挡操作）
+    function showPinToast(text) {
+        let t = document.getElementById('zdr-pin-toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = 'zdr-pin-toast';
+            t.className = 'zdr-pin-toast';
+            document.body.appendChild(t);
+        }
+        t.textContent = text;
+        t.classList.add('show');
+        clearTimeout(t._tm);
+        t._tm = setTimeout(function() { t.classList.remove('show'); }, 1600);
+    }
+
+    // 长按置顶/取消置顶（最多 IMPORT_PIN_LIMIT 条；置顶条目排在全部条目最上方）
+    window.toggleImportPin = function(index) {
+        const items = window.__importedStrategies;
+        if (!items || !items[index]) return;
+        const it = items[index];
+        const activeCat = window.__importActiveCat;
+        if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可操作
+        pushZdrHistory();
+        const totalPinned = items.filter(x => x.pinned).length;
+        if (!it.pinned && totalPinned >= IMPORT_PIN_LIMIT) {
+            showPinToast('最多置顶 ' + IMPORT_PIN_LIMIT + ' 条，请先取消其他置顶');
+            return;
+        }
+        it.pinned = !it.pinned;
+        saveImportedStrategies();
+        renderImportList();
+        showPinToast(it.pinned ? '已置顶（' + (totalPinned + 1) + '/' + IMPORT_PIN_LIMIT + '）' : '已取消置顶');
+    };
     window.saveImportedStrategies = saveImportedStrategies; // 供 IIFE 外部的 clearAllSelections 调用（一键清空需持久化）
     window.renderCategoryButtons = renderCategoryButtons; // 供 IIFE 外部的 clearAllSelections 调用
     window.buildItemEffects = buildItemEffects; // 供 undo 恢复时重算条目效果
@@ -7202,7 +7337,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const activeCat = window.__importActiveCat;
         const allItems = window.__importedStrategies || [];
         // 复制全部只作用于当前类别（未选类别时复制全部）
-        const items = activeCat ? allItems.filter(it => it.lottery === activeCat) : allItems;
+        // v1.62：置顶条目排在最前，与清单显示顺序一致
+        const items = (activeCat ? allItems.filter(it => it.lottery === activeCat) : allItems).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
         const feedbackEl = document.getElementById('ext-strategy-feedback');
         if (!items.length) {
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可复制的导入条目。</span>';
@@ -7485,6 +7621,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 window.__importedStrategies.push({ title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) });
             });
 
+            // v1.62：导入后自动清理超过 10 期的历史条目（以清单内最大期数为基准保留最近 10 期）
+            const beforePrune = window.__importedStrategies.length;
+            window.__importedStrategies = pruneImportedStrategies(window.__importedStrategies);
+            const prunedCount = beforePrune - window.__importedStrategies.length;
+
             if (importCount > 0) {
                 // 导入后按网站分组排序，保证清单与「复制全部」导出顺序一致（同网站条目集中）
                 const siteRank = { '铁算盘': 0, '澳门九龙网': 1, '群英会': 2, '奥霸网': 3, '其他': 4 };
@@ -7499,7 +7640,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
             if (importCount > 0) {
                 const catName = lottery === 'hk' ? '香港' : '新澳门';
-                feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`;
+                feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。` + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
                 scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
@@ -7554,6 +7695,46 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         window.addEventListener('drop', (e) => e.preventDefault());
       }
 
+      // v1.62：长按条目置顶/取消置顶（触屏与鼠标通用：按住 0.6 秒触发，移动/松开取消；
+      // 避开勾选框 / 子选项 / 期数等可点击控件，长按触发后吞掉松开手的那次 click 防止误触发）
+      const zdrImportListEl = document.getElementById('ext-strategy-list');
+      let __pinTimer = null, __pinTarget = null, __pinFired = false, __pinFiredAt = 0, __pinStartX = 0, __pinStartY = 0;
+      const zdrPinCancel = () => {
+          clearTimeout(__pinTimer); __pinTimer = null; __pinTarget = null;
+      };
+      if (zdrImportListEl) {
+          zdrImportListEl.addEventListener('pointerdown', (evt) => {
+              const row = evt.target && evt.target.closest ? evt.target.closest('.zdr-import-item') : null;
+              if (!row) return;
+              if (evt.target.closest('input[type="checkbox"], .zdr-import-chip, .zdr-import-period, button, a')) return;
+              zdrPinCancel();
+              __pinTarget = row;
+              __pinStartX = evt.clientX; __pinStartY = evt.clientY;
+              __pinTimer = setTimeout(function() {
+                  if (!__pinTarget) return;
+                  const idx = parseInt(__pinTarget.getAttribute('data-pin-index'), 10);
+                  if (!isNaN(idx)) {
+                      __pinFired = true; __pinFiredAt = Date.now();
+                      if (typeof window.toggleImportPin === 'function') window.toggleImportPin(idx);
+                  }
+                  __pinTarget = null; __pinTimer = null;
+              }, 600);
+          });
+          zdrImportListEl.addEventListener('pointermove', (evt) => {
+              if (__pinTarget && (Math.abs(evt.clientX - __pinStartX) > 10 || Math.abs(evt.clientY - __pinStartY) > 10)) zdrPinCancel();
+          });
+          zdrImportListEl.addEventListener('click', (evt) => {
+              if (__pinFired && Date.now() - __pinFiredAt < 800) {
+                  evt.preventDefault();
+                  evt.stopPropagation();
+              }
+              __pinFired = false;
+          }, true);
+      }
+      window.addEventListener('pointerup', zdrPinCancel);
+      window.addEventListener('pointercancel', zdrPinCancel);
+      window.addEventListener('scroll', zdrPinCancel, true);
+
 
 
       // 恢复刷新前的页面状态：主标签页（特码筛选器/新澳门特码/香港特码）
@@ -7576,10 +7757,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       updateParseButtonsVisibility();
       extInput.addEventListener('input', updateParseButtonsVisibility);
       if ((window.__importedStrategies || []).length) {
-        renderImportList();
-        syncImportState();
-        updateToggleAllButton();
-        scheduleImportHistoryRefresh(); // 页面恢复当天条目后自动补记历史（数据晚到也能补上）
+        // v1.62：首帧后再渲染导入清单，避免打开页面时同步整表渲染阻塞首屏（移动端卡顿优化）
+        setTimeout(function() {
+          renderImportList();
+          syncImportState();
+          updateToggleAllButton();
+          scheduleImportHistoryRefresh(); // 页面恢复当天条目后自动补记历史（数据晚到也能补上）
+        }, 30);
       }
       renderCategoryButtons();
       scheduleMidnightClear();
@@ -7971,6 +8155,8 @@ window.saveSuppData = function() {
     manualData.push(record);
     
     localStorage.setItem(storageKey, JSON.stringify(manualData));
+    // v1.62：手动补充数据后同步失效本地记录会话缓存，保证历史战绩/预测立刻读到新数据
+    if (typeof window.invalidateLocalRecordsCache === 'function') window.invalidateLocalRecordsCache();
 
     window.zdrAlert("✅ 数据补充成功！系统已自动为您匹配：\n生肖：" + sxs.join(',') + "\n五行：" + wxs.join(',') + "\n\n弹窗关闭后系统将自动重新获取并应用数据。", { type: "success", title: "补充成功" });
     
