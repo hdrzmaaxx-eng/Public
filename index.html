@@ -555,7 +555,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.64 · 2026-08-20 22:53</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.65 · 2026-08-21 19:27</div>
 
         </div>
     
@@ -5305,7 +5305,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const keepMin = Math.max.apply(null, periods) - 9;
         return items.filter(function(it) {
             const p = extractItemPeriod(it);
-            return p == null || p >= keepMin;
+            return !!it.pinned || p == null || p >= keepMin; // v1.65：置顶条目不受超期清理影响
         });
     }
 
@@ -5334,16 +5334,26 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (!raw) return;
             const data = JSON.parse(raw);
             if (!data || !Array.isArray(data.items)) return;
-            if (data.date !== importTodayStr()) {
-                localStorage.removeItem(IMPORT_STORAGE_KEY);
-                return;
-            }
             data.items.forEach(it => {
                 if (it.lottery !== 'hk' && it.lottery !== 'macau') it.lottery = 'macau'; // 旧数据兜底为新澳门
                 if (Array.isArray(it.parts)) it.parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
                 it.pinned = !!it.pinned; // 置顶标记持久化（旧数据默认不置顶）
                 it.effects = buildItemEffects(it.parts || []);
             });
+            if (data.date !== importTodayStr()) {
+                // v1.65：过期（非当天）数据清空但保留置顶条目——置顶跨天仍可见，其余状态不恢复
+                const pinned = data.items.filter(it => it.pinned);
+                if (!pinned.length) {
+                    localStorage.removeItem(IMPORT_STORAGE_KEY);
+                    return;
+                }
+                window.__importedStrategies = pinned;
+                window.__importedAgg = null;
+                window.__importActiveCat = null;
+                window.__importCatSnap = {};
+                saveImportedStrategies(); // 以当天日期重存，保证置顶条目后续加载不因日期过期被清
+                return;
+            }
             window.__importedStrategies = pruneImportedStrategies(data.items); // 加载时同步清理超 10 期历史条目
             if (data.activeCat === 'macau' || data.activeCat === 'hk') window.__importActiveCat = data.activeCat;
             window.__importCatSnap = (data.catSnap && typeof data.catSnap === 'object') ? data.catSnap : {};
@@ -5361,15 +5371,29 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 30, 0);
         const delay = Math.max(0, next.getTime() - now.getTime());
         setTimeout(() => {
-            try { localStorage.removeItem(IMPORT_STORAGE_KEY); } catch (e) { /* ignore */ }
-            if ((window.__importedStrategies || []).length || window.__importActiveCat) {
-                window.__importedStrategies.length = 0;
+            // v1.65：23:59 自动清空时保留置顶条目（置顶跨天持续可见），仅清除普通条目
+            const items = window.__importedStrategies || [];
+            const pinned = items.filter(it => it.pinned);
+            if (pinned.length) {
+                window.__importedStrategies = pinned;
                 window.__importedAgg = null;
-                window.__importActiveCat = null;
+                if (window.__importActiveCat && !pinned.some(it => it.lottery === window.__importActiveCat)) window.__importActiveCat = null;
                 window.__importCatSnap = {};
+                saveImportedStrategies(); // 以当天日期重存，保证次日加载不因日期过期清掉置顶
                 if (typeof renderImportList === 'function') renderImportList();
                 if (typeof syncImportState === 'function') syncImportState();
                 if (typeof renderCategoryButtons === 'function') renderCategoryButtons();
+            } else {
+                try { localStorage.removeItem(IMPORT_STORAGE_KEY); } catch (e) { /* ignore */ }
+                if (items.length || window.__importActiveCat) {
+                    window.__importedStrategies.length = 0;
+                    window.__importedAgg = null;
+                    window.__importActiveCat = null;
+                    window.__importCatSnap = {};
+                    if (typeof renderImportList === 'function') renderImportList();
+                    if (typeof syncImportState === 'function') syncImportState();
+                    if (typeof renderCategoryButtons === 'function') renderCategoryButtons();
+                }
             }
             scheduleMidnightClear();
         }, delay);
@@ -7472,7 +7496,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const activeCat = (cat === 'macau' || cat === 'hk') ? cat : window.__importActiveCat;
         const items = window.__importedStrategies;
         if (items && items.length) {
-            const target = activeCat ? items.filter(it => it.lottery === activeCat) : items.slice();
+            // v1.65：清空时保留置顶条目（置顶跨清空持续可见），仅移除未置顶条目
+            const target = (activeCat ? items.filter(it => it.lottery === activeCat) : items.slice()).filter(it => !it.pinned);
             if (target.length) {
                 pushZdrHistory();
                 target.forEach(it => { it.checked = false; });
