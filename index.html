@@ -552,10 +552,11 @@
                 <div style="display:flex; gap:8px; margin-top:8px;">
                     <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="导出历史战绩：复制 JSON 或下载 JSON 文件，可到另一台设备导入">导出历史条目</button>
                     <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="导入历史战绩：粘贴 JSON 或选择 JSON 文件，合并到本机">导入历史条目</button>
+                    <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史战绩（zdr_import_history_v2），清空后需重新导入 JSON 恢复">重置历史战绩</button>
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.65 · 2026-08-21 19:27</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.67 · 2026-08-21 20:49</div>
 
         </div>
     
@@ -5424,21 +5425,42 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // （如 【六尾必中特】 → 奥霸网【六尾必中特】、一肖一码·九肖 → 群英会一肖一码·九肖 都能对上）
     function normalizeHistoryTitle(s) {
         return String(s || '')
-            .replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '')
             .replace(/铁算盘→|澳门九龙网|澳門九龙网|澳门群英会|澳门九龙|澳门群英|群英会|奥霸网|澳霸网|九龙网|九龍网|新澳门/g, '')
+            // v1.66：先剥站名前缀、再剥期数前缀——「新澳门 233期·奥霸网【九肖18码】」剥掉
+            // 「新澳门」后期数才变成开头，期数前缀才能被去掉，规范化结果与键「奥霸网【九肖18码】」相等
+            .replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '')
             .replace(/599507\.com|599508\.com|56949\.com|99444(\.com)?/g, '')
             .replace(/[【】『』〔〕「」《》（）()\s·→：:，,。.!！?？\-_★☆]/g, '')
             .trim();
     }
 
+    // 网站标签族（简繁合并）：用于防止带站名旧记录迁移到异站条目
+    function zdrSiteFamily(s) {
+        const t = String(s || '');
+        if (/铁算盘/.test(t)) return '铁算盘';
+        if (/九龙网|九龍网/.test(t)) return '九龙网';
+        if (/群英会|群英/.test(t)) return '群英会';
+        if (/奥霸网|澳霸网/.test(t)) return '奥霸网';
+        if (/新澳门/.test(t)) return '新澳门';
+        return '';
+    }
+
     // 历史记录与当前导入条目的匹配度：标题核心（主）+ 子选项文本（辅）
     function historyMatchScore(recordTitle, recordParts, it) {
+        // v1.66：带网站标签的旧记录只迁移到同站条目——如「奥霸网『绝杀三肖』」只能并入带「奥霸网」的条目，
+        // 避免 normalize 剥掉站名后（→「绝杀三肖」）被包含匹配误并进任何标题带「绝杀三肖」的其它条目
+        const recSite = zdrSiteFamily(recordTitle);
+        const curSite = zdrSiteFamily(it && it.title);
+        if (recSite && recSite !== curSite) return 0;
         const nRec = normalizeHistoryTitle(recordTitle);
         const nCur = normalizeHistoryTitle(it.title || '');
         if (!nRec || !nCur) return 0;
         let score = 0;
         if (nRec === nCur) score += 2;
-        else if (nRec.length >= 2 && nCur.length >= 2 && (nRec.includes(nCur) || nCur.includes(nRec))) score += 1;
+        // v1.66：标题包含匹配仅限较长规范名（≥5 字）——「绝杀三肖」(4字)这类通用短名不再
+        // 被包含进「高手绝杀三肖」等更长策略名；「九肖18码」「高手绝杀三肖」等完整策略名
+        // 仍可把「新澳门 233期·」前缀的条目与历史键匹配上
+        else if (Math.min(nRec.length, nCur.length) >= 5 && (nRec.includes(nCur) || nCur.includes(nRec))) score += 1;
         if (recordParts) {
             const curParts = normalizeHistoryTitle(summarizeItemParts(it.parts || []));
             const recParts = normalizeHistoryTitle(recordParts);
@@ -5965,6 +5987,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             { text: '粘贴导入', color: '#15803d', action: function() { pasteImportHistories(btn, feedbackEl); } },
             { text: '导入JSON文件', color: '#1d4ed8', action: function() { importImportHistoriesFile(btn, feedbackEl); } }
         ]);
+    };
+
+    // 重置历史战绩：清空本机 zdr_import_history_v2（v1.67 新增；确认后清空，
+    // 误操作可重新「导入历史条目」JSON 恢复，建议先「导出历史条目」备份）
+    window.resetImportHistories = async function(btn) {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        const ok = await window.zdrConfirm('确定要清空本机全部历史战绩吗？\n\n清空后需重新「导入历史条目」JSON 才能恢复（建议先「导出历史条目」备份一份）。', { danger: true, okText: '清空', cancelText: '取消' });
+        if (!ok) return;
+        try {
+            localStorage.removeItem(IMPORT_HISTORY_KEY);
+            __histMapCache = null; // 会话内历史表缓存同步失效
+        } catch (e) { /* ignore */ }
+        if (typeof renderImportList === 'function') renderImportList();
+        flashHistoryAction(btn, true, '清空成功', '清空失败');
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史战绩已清空，请重新导入历史条目 JSON。</span>';
     };
 
     // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
