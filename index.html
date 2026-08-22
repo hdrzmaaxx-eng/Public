@@ -552,11 +552,11 @@
                 <div style="display:flex; gap:8px; margin-top:8px;">
                     <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="导出历史战绩：复制 JSON 或下载 JSON 文件，可到另一台设备导入">导出历史条目</button>
                     <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="导入历史战绩：粘贴 JSON 或选择 JSON 文件，合并到本机">导入历史条目</button>
-                    <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史条目（zdr_import_history_v2），清空后需重新导入 JSON 恢复">清空历史条目</button>
+                    <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史战绩（zdr_import_history_v2），清空后需重新导入 JSON 恢复">重置历史战绩</button>
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.68 · 2026-08-21 23:35</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.71 · 2026-08-22 17:58</div>
 
         </div>
     
@@ -5305,7 +5305,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const keepMin = {};
         items.forEach(function(it) {
             const p = extractItemPeriod(it);
-            if (p == null) return;
+            // 置顶条目可跨年保留，不能参与普通条目的期数窗口计算；否则旧 365 期会把新年 1 期误删。
+            if (p == null || it.pinned) return;
             const lot = it.lottery === 'hk' ? 'hk' : 'macau';
             keepMin[lot] = Math.max(keepMin[lot] != null ? keepMin[lot] : 0, p);
         });
@@ -5364,6 +5365,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 return;
             }
             window.__importedStrategies = pruneImportedStrategies(data.items); // 加载时同步清理超 10 期历史条目
+            const mergedPinnedOnLoad = consolidatePinnedImportedStrategies(window.__importedStrategies); // v1.69：修复旧数据中“置顶旧期 + 分组新期”的同策略副本
             if (data.activeCat === 'macau' || data.activeCat === 'hk') window.__importActiveCat = data.activeCat;
             window.__importCatSnap = (data.catSnap && typeof data.catSnap === 'object') ? data.catSnap : {};
             // 兼容无快照的旧数据：先把两类当前状态存快照，再强制类别互斥
@@ -5371,6 +5373,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (typeof snapshotImportCategory === 'function') { snapshotImportCategory('macau'); snapshotImportCategory('hk'); }
             }
             if (typeof enforceImportMutex === 'function') enforceImportMutex(window.__importActiveCat);
+            if (mergedPinnedOnLoad > 0) saveImportedStrategies(); // 合并结果立即落盘，避免刷新后旧副本再次出现
         } catch (e) { /* ignore */ }
     }
 
@@ -5423,10 +5426,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return m ? parseInt(m[1], 10) : null;
     }
 
-    // 策略历史键：类别 + 去掉期数前缀的标题（同一策略跨期累积，内容每期不同不影响累积）
+    // 策略历史键：彩种 + 网站族 + 规范化标题核心。
+    // v1.70：不再直接使用标题原文，避免空格/标点/期数格式变化把同一策略拆成多份历史。
     function importHistoryKey(it) {
-        const title = String(it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '');
-        return (it.lottery || 'macau') + '|' + title;
+        const lottery = it && it.lottery === 'hk' ? 'hk' : 'macau';
+        const title = String(it && it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '');
+        const site = zdrSiteFamily(title) || '其他';
+        const core = normalizeHistoryTitle(title);
+        return core ? (lottery + '|@' + site + '|' + core) : (lottery + '|' + title);
+    }
+
+    function historyTitleFromKey(k) {
+        const text = String(k || '');
+        const firstSep = text.indexOf('|');
+        if (firstSep < 0) return text;
+        const rest = text.slice(firstSep + 1);
+        if (rest.charAt(0) !== '@') return rest;
+        const siteSep = rest.indexOf('|');
+        return siteSep < 0 ? rest.slice(1) : rest.slice(siteSep + 1);
     }
 
     // 归一化标题用于新旧标题模糊匹配：去期数前缀、网站标签、域名与标点
@@ -5441,6 +5458,89 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             .replace(/599507\.com|599508\.com|56949\.com|99444(\.com)?/g, '')
             .replace(/[【】『』〔〕「」《》（）()\s·→：:，,。.!！?？\-_★☆]/g, '')
             .trim();
+    }
+
+    // 置顶条目的策略身份：同彩种 + 同网站 + 去期数后的标题核心才视为同一条。
+    // v1.69：用于导入新期时更新已置顶条目，并清理同策略副本，避免取消置顶后出现重复。
+    function importStrategyIdentityKey(it) {
+        if (!it) return '';
+        const lottery = it.lottery === 'hk' ? 'hk' : 'macau';
+        const site = zdrSiteFamily((it.title || '') + ' ' + (it.latest_data || '')) || '其他';
+        let core = normalizeHistoryTitle(it.title || '');
+        if (!core && Array.isArray(it.parts)) core = normalizeHistoryTitle(summarizeItemParts(it.parts || []));
+        return core ? (lottery + '|' + site + '|' + core) : '';
+    }
+
+    function importPartIdentity(p) {
+        return [p && p.cat, p && p.label, p && p.value, p && p.display, p && p.kind].join('|');
+    }
+
+    function preserveImportedPartChecks(newParts, oldParts) {
+        if (!Array.isArray(newParts) || !Array.isArray(oldParts)) return;
+        const checkedMap = {};
+        oldParts.forEach(function(p) {
+            checkedMap[importPartIdentity(p)] = p && p.checked !== false;
+        });
+        newParts.forEach(function(p) {
+            const key = importPartIdentity(p);
+            if (Object.prototype.hasOwnProperty.call(checkedMap, key)) p.checked = checkedMap[key];
+            else if (p.checked === undefined) p.checked = true;
+        });
+    }
+
+    function updateImportedStrategyRecord(target, source) {
+        if (!target || !source) return;
+        const wasPinned = !!target.pinned;
+        const wasChecked = target.checked !== false;
+        preserveImportedPartChecks(source.parts || [], target.parts || []);
+        target.title = source.title;
+        target.latest_data = source.latest_data;
+        target.lottery = source.lottery === 'hk' ? 'hk' : 'macau';
+        target.checked = wasChecked;
+        target.parts = source.parts || [];
+        target.effects = buildItemEffects(target.parts || []);
+        target.pinned = wasPinned;
+    }
+
+    function isImportedStrategyNewer(candidate, current, candidateIndex, currentIndex) {
+        const cp = extractItemPeriod(candidate);
+        const bp = extractItemPeriod(current);
+        if (cp != null && bp != null && cp !== bp) return cp > bp;
+        if (cp != null && bp == null) return true;
+        if (cp == null && bp != null) return false;
+        return candidateIndex > currentIndex;
+    }
+
+    function consolidatePinnedImportedStrategies(items) {
+        if (!Array.isArray(items) || !items.length) return 0;
+        const groups = {};
+        items.forEach(function(it, idx) {
+            const key = importStrategyIdentityKey(it);
+            if (!key) return;
+            (groups[key] = groups[key] || []).push({ item: it, order: idx });
+        });
+        let removed = 0;
+        Object.keys(groups).forEach(function(key) {
+            // 使用对象引用而非数组下标：前一组 splice 后，后一组的原始下标已经失效。
+            const entries = groups[key].filter(function(entry) { return items.indexOf(entry.item) >= 0; });
+            if (entries.length < 2) return;
+            const pinnedEntries = entries.filter(function(entry) { return entry.item && entry.item.pinned; });
+            if (!pinnedEntries.length) return;
+            const targetEntry = pinnedEntries[0];
+            let bestEntry = targetEntry;
+            entries.forEach(function(entry) {
+                if (isImportedStrategyNewer(entry.item, bestEntry.item, entry.order, bestEntry.order)) bestEntry = entry;
+            });
+            if (bestEntry.item !== targetEntry.item) updateImportedStrategyRecord(targetEntry.item, bestEntry.item);
+            targetEntry.item.pinned = true;
+            const removeItems = new Set(entries.filter(function(entry) { return entry.item !== targetEntry.item; }).map(function(entry) { return entry.item; }));
+            for (let i = items.length - 1; i >= 0; i--) {
+                if (!removeItems.has(items[i])) continue;
+                items.splice(i, 1);
+                removed++;
+            }
+        });
+        return removed;
     }
 
     // 网站标签族（简繁合并）：用于防止带站名旧记录迁移到异站条目
@@ -5466,15 +5566,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const nCur = normalizeHistoryTitle(it.title || '');
         if (!nRec || !nCur) return 0;
         let score = 0;
-        if (nRec === nCur) score += 2;
+        // 标题是迁移的必要条件且占主导权；子选项内容可能在不同策略间碰巧相同，只能用于同标题候选的细分。
+        if (nRec === nCur) score = 100;
         // v1.66：标题包含匹配仅限较长规范名（≥5 字）——「绝杀三肖」(4字)这类通用短名不再
         // 被包含进「高手绝杀三肖」等更长策略名；「九肖18码」「高手绝杀三肖」等完整策略名
         // 仍可把「新澳门 233期·」前缀的条目与历史键匹配上
-        else if (Math.min(nRec.length, nCur.length) >= 5 && (nRec.includes(nCur) || nCur.includes(nRec))) score += 1;
+        else if (Math.min(nRec.length, nCur.length) >= 5 && (nRec.includes(nCur) || nCur.includes(nRec))) score = 50;
+        else return 0;
         if (recordParts) {
             const curParts = normalizeHistoryTitle(summarizeItemParts(it.parts || []));
             const recParts = normalizeHistoryTitle(recordParts);
-            if (curParts && recParts && (recParts === curParts || recParts.includes(curParts) || curParts.includes(recParts))) score += 2;
+            if (curParts && recParts && (recParts === curParts || recParts.includes(curParts) || curParts.includes(recParts))) score += 1;
         }
         return score;
     }
@@ -5486,7 +5588,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (it.lottery && lottery && it.lottery !== lottery) return;
             const sc = historyMatchScore(recordTitle, recordParts, it);
             if (sc > bestScore) { best = it; bestScore = sc; tied = false; }
-            else if (sc > 0 && sc === bestScore) tied = true;
+            // 同一策略的多期条目会同时命中；只要稳定历史键一致，就不是歧义。
+            else if (sc > 0 && sc === bestScore && importHistoryKey(it) !== importHistoryKey(best)) tied = true;
         });
         return (bestScore > 0 && !tied) ? best : null;
     }
@@ -5499,7 +5602,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         Object.keys(map).forEach(k => {
             const h = map[k];
             if (!h) return;
-            const keyTitle = String(h.title || String(k).split('|')[1] || '');
+            const keyTitle = String(h.title || historyTitleFromKey(k) || '');
             const lottery = h.lottery || String(k).split('|')[0] || 'macau';
             const parts = (h.periods && h.periods.length) ? h.periods[h.periods.length - 1].partsText : '';
             // 已与当前某条目同键（标题完全一致）则无需迁移
@@ -5553,7 +5656,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
             __histMapCache = map;
             localStorage.setItem(IMPORT_HISTORY_KEY, JSON.stringify(map));
-        } catch (e) { /* ignore */ }
+            return true;
+        } catch (e) { return false; }
     }
 
     // v1.62：本地开奖数据只保留最近 LOTTERY_DATA_LIMIT 条（历史版本无限累积导致打开页面卡顿）
@@ -5837,9 +5941,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (typeof renderImportList === 'function') renderImportList();
             const items = window.__importedStrategies || [];
             const allRecorded = items.length > 0 && items.every(it => {
-                if (extractItemPeriod(it) == null) return true;
+                const period = extractItemPeriod(it);
+                if (period == null) return true;
                 const h = loadImportHistories()[importHistoryKey(it)];
-                return h && Array.isArray(h.periods) && h.periods.length > 0;
+                return h && Array.isArray(h.periods) && h.periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period);
             });
             if (allRecorded || __historyRefreshTicks >= 8) {
                 if (__historyRefreshTimer) { clearInterval(__historyRefreshTimer); __historyRefreshTimer = null; }
@@ -5996,7 +6101,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 误操作可重新「导入历史条目」JSON 恢复，建议先「导出历史条目」备份）
     window.resetImportHistories = async function(btn) {
         const feedbackEl = document.getElementById('ext-strategy-feedback');
-        const ok = await window.zdrConfirm('确定要清空全部历史条目吗？\n\n清空后需重新「导入历史条目」JSON 才能恢复（建议先「导出历史条目」备份一份）。', { danger: true, okText: '清空', cancelText: '取消' });
+        const ok = await window.zdrConfirm('确定要清空本机全部历史战绩吗？\n\n清空后需重新「导入历史条目」JSON 才能恢复（建议先「导出历史条目」备份一份）。', { danger: true, okText: '清空', cancelText: '取消' });
         if (!ok) return;
         try {
             localStorage.removeItem(IMPORT_HISTORY_KEY);
@@ -6004,7 +6109,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         } catch (e) { /* ignore */ }
         if (typeof renderImportList === 'function') renderImportList();
         flashHistoryAction(btn, true, '清空成功', '清空失败');
-        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史条目已清空，请重新导入历史条目 JSON。</span>';
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史战绩已清空，请重新导入历史条目 JSON。</span>';
     };
 
     // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
@@ -6025,22 +6130,53 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         input.type = 'file';
         input.accept = '.json,application/json';
         input.style.display = 'none';
+        const cleanup = function() { if (input.parentNode) input.parentNode.removeChild(input); };
+        input.addEventListener('cancel', cleanup, { once: true });
         input.addEventListener('change', function() {
             const file = input.files && input.files[0];
-            if (!file) return;
+            if (!file) { cleanup(); return; }
             const reader = new FileReader();
             reader.onload = function() {
                 applyImportHistoriesText(String(reader.result || ''), btn, feedbackEl, file.name);
+                cleanup();
             };
             reader.onerror = function() {
                 flashHistoryAction(btn, false, '导入成功', '导入失败');
                 if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 文件读取失败。</span>';
+                cleanup();
             };
             reader.readAsText(file, 'utf-8');
         });
         document.body.appendChild(input);
         input.click();
-        setTimeout(function() { if (input.parentNode) input.parentNode.removeChild(input); }, 1000);
+        // 旧浏览器不支持 cancel 事件时兜底清理；保留足够时间，避免移动端选文件稍慢就失效。
+        setTimeout(cleanup, 5 * 60 * 1000);
+    }
+
+    function resolveImportedHistoryLottery(k, h) {
+        const fromKey = String(k || '').split('|')[0];
+        const fromRecord = String(h && h.lottery || '');
+        const keyValid = fromKey === 'macau' || fromKey === 'hk';
+        const recordValid = fromRecord === 'macau' || fromRecord === 'hk';
+        if (keyValid && recordValid && fromKey !== fromRecord) return '';
+        return recordValid ? fromRecord : (keyValid ? fromKey : '');
+    }
+
+    function normalizeImportedHistoryPeriod(p) {
+        if (!p || typeof p !== 'object') return null;
+        const rawQishu = String(p.qishu == null ? '' : p.qishu).trim();
+        if (!/^\d{1,4}$/.test(rawQishu)) return null;
+        const qishu = parseInt(rawQishu, 10);
+        if (!qishu) return null;
+        let hit;
+        if (p.hit === true || p.hit === 1 || p.hit === '1' || p.hit === 'true') hit = true;
+        else if (p.hit === false || p.hit === 0 || p.hit === '0' || p.hit === 'false') hit = false;
+        else return null;
+        const clean = Object.assign({}, p, { qishu: String(qishu), hit: hit });
+        ['partsText', 'tm', 'sx', 'wx', 'color'].forEach(function(field) {
+            clean[field] = clean[field] == null ? '' : String(clean[field]);
+        });
+        return clean;
     }
 
     // 共用合并：解析并合并历史战绩 JSON（粘贴 / 文件两条路径共用）
@@ -6061,35 +6197,57 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         const map = loadImportHistories();
         const items = window.__importedStrategies || [];
-        let mergedKeys = 0, mergedPeriods = 0;
+        let mergedKeys = 0, mergedPeriods = 0, skippedKeys = 0, skippedPeriods = 0, pendingKeys = 0;
         Object.keys(data).forEach(k => {
             const h = data[k];
-            if (!h || typeof h !== 'object' || !Array.isArray(h.periods) || !h.periods.length) return;
+            if (!h || typeof h !== 'object' || !Array.isArray(h.periods) || !h.periods.length) { skippedKeys++; return; }
+            const keyLottery = resolveImportedHistoryLottery(k, h);
+            if (!keyLottery) { skippedKeys++; return; }
+            const validPeriods = [];
+            h.periods.forEach(function(p) {
+                const clean = normalizeImportedHistoryPeriod(p);
+                if (clean) validPeriods.push(clean); else skippedPeriods++;
+            });
+            if (!validPeriods.length) { skippedKeys++; return; }
             // 旧标题智能匹配：老 JSON（如 macau|【六尾必中特】）合并到当前已带网站标签的条目键下
-            const keyLottery = String(h.lottery || String(k).split('|')[0] || 'macau');
-            const keyTitle = String(h.title || String(k).split('|')[1] || '');
-            const parts = h.periods[h.periods.length - 1].partsText || '';
+            const keyTitle = String(h.title || historyTitleFromKey(k) || '');
+            const parts = validPeriods[validPeriods.length - 1].partsText || '';
             const target = items.some(it => importHistoryKey(it) === k) ? null : findHistoryTarget(keyTitle, keyLottery, parts, items);
+            if (!target && !items.some(it => importHistoryKey(it) === k)) pendingKeys++;
             const k2 = target ? importHistoryKey(target) : k;
             const prev = map[k2];
             const byQ = {};
             // 按期数数值去重：兼容 87 / 087 两种写法
             ((prev && prev.periods) || []).forEach(p => { if (p && p.qishu != null && !isNaN(parseInt(p.qishu, 10))) byQ[parseInt(p.qishu, 10)] = p; });
             let added = 0;
-            h.periods.forEach(p => {
-                if (!p || p.qishu == null || isNaN(parseInt(p.qishu, 10))) return;
+            validPeriods.forEach(p => {
                 const q = parseInt(p.qishu, 10);
                 if (!byQ[q]) { byQ[q] = p; added++; }
             });
             const merged = Object.keys(byQ).map(q => byQ[q]).sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10)).slice(-IMPORT_HISTORY_LIMIT);
-            map[k2] = { lottery: keyLottery, title: target ? String(target.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '') : (h.title || String(k).split('|')[1] || k), periods: merged, updatedAt: new Date().toISOString() };
+            map[k2] = { lottery: keyLottery, title: target ? String(target.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, '') : (h.title || historyTitleFromKey(k) || k), periods: merged, updatedAt: new Date().toISOString() };
             mergedKeys++;
             mergedPeriods += added;
         });
-        saveImportHistories(map);
+        if (!mergedKeys) {
+            flashHistoryAction(btn, false, '导入成功', '导入失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 文件中没有可导入的有效历史记录。</span>';
+            return;
+        }
+        if (!saveImportHistories(map)) {
+            flashHistoryAction(btn, false, '导入成功', '导入失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 历史记录写入本机存储失败，请检查浏览器存储空间。</span>';
+            return;
+        }
         if (typeof renderImportList === 'function') renderImportList();
         flashHistoryAction(btn, true, '导入成功', '导入失败');
-        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导入历史战绩 ' + mergedKeys + ' 条策略 / 新增 ' + mergedPeriods + ' 期' + (fromFile ? '（文件：' + escHtml(fileName) + '）' : '') + '。</span>';
+        if (feedbackEl) {
+            const warnings = [];
+            if (pendingKeys) warnings.push('其中 ' + pendingKeys + ' 条暂未关联当前清单，已保留待对应条目出现后自动匹配');
+            if (skippedKeys || skippedPeriods) warnings.push('跳过无效策略 ' + skippedKeys + ' 条 / 无效期数 ' + skippedPeriods + ' 条');
+            feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已导入历史战绩 ' + mergedKeys + ' 条策略 / 新增 ' + mergedPeriods + ' 期' + (fromFile ? '（文件：' + escHtml(fileName) + '）' : '') + '。</span>'
+                + (warnings.length ? '<br><span style="color:#b45309;">⚠️ ' + warnings.join('；') + '。</span>' : '');
+        }
     }
 
     // 悬浮提示：属性值转义（在 escHtml 基础上再转双引号）
@@ -7168,7 +7326,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="长按弹出置顶菜单">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
-                '<span class="zdr-import-title" title="' + escHtml(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
+                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
                 '</label>' +
                 renderItemParts(realIndex, it) +
                 renderImportHistory(realIndex, it, histMap) +
@@ -7535,17 +7693,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.clearImportStrategies = function(cat) {
         const activeCat = (cat === 'macau' || cat === 'hk') ? cat : window.__importActiveCat;
         const items = window.__importedStrategies;
+        let changed = false;
         if (items && items.length) {
             // v1.65：清空时保留置顶条目（置顶跨清空持续可见），仅移除未置顶条目
             const target = (activeCat ? items.filter(it => it.lottery === activeCat) : items.slice()).filter(it => !it.pinned);
             if (target.length) {
                 pushZdrHistory();
-                target.forEach(it => { it.checked = false; });
-                syncImportState(); // 差分移除贡献并重算
                 target.forEach(it => { const idx = items.indexOf(it); if (idx > -1) items.splice(idx, 1); });
+                changed = true;
             }
         }
-        window.__importedAgg = null;
         // 当前类别已清空则回到显示全部（另一类别仍有条目时保留当前视图）
         if (window.__importActiveCat && !(window.__importedStrategies || []).some(it => it.lottery === window.__importActiveCat)) {
             window.__importActiveCat = null;
@@ -7555,6 +7712,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (activeCat) delete window.__importCatSnap[activeCat];
             else window.__importCatSnap = {};
         }
+        // 删除完成后再按剩余条目重算；不能把聚合直接置空，否则保留的置顶条目会失去筛选/杀号贡献。
+        if (changed) syncImportState();
         renderImportList();
         saveImportedStrategies();
         const feedbackEl = document.getElementById('ext-strategy-feedback');
@@ -7729,6 +7888,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             pushZdrHistory(); // 解析导入整体算一步（仅成功解析 JSON 时压栈）
 
             let importCount = 0;
+            let updatedPinnedCount = 0;
             window.__importedStrategies = window.__importedStrategies || [];
 
             data.forEach(item => {
@@ -7741,18 +7901,31 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const title = item.title || '未命名策略';
                 // 复制按钮带 lottery 时按原分类导入，否则按点击的按钮分类
                 const itemLottery = (item.lottery === 'hk' || item.lottery === 'macau') ? item.lottery : lottery;
+                const incoming = { title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) };
                 // 按“标题+内容+分类”去重：重复粘贴不再堆积清单
                 if ((window.__importedStrategies || []).some(it => it.title === title && it.latest_data === str && it.lottery === itemLottery)) return;
+                // v1.69：置顶是“关注某个策略”，不是复制一条固定旧记录。导入同彩种/同网站/同策略的新期时，
+                // 直接更新已置顶条目，并在后续合并中移除旧副本，取消置顶后不会在网站分组里出现重复。
+                const incomingKey = importStrategyIdentityKey(incoming);
+                const pinnedIndex = incomingKey
+                    ? (window.__importedStrategies || []).findIndex(it => it.pinned && importStrategyIdentityKey(it) === incomingKey)
+                    : -1;
+                if (pinnedIndex >= 0) {
+                    updateImportedStrategyRecord(window.__importedStrategies[pinnedIndex], incoming);
+                    updatedPinnedCount++;
+                    return;
+                }
                 importCount++;
-                window.__importedStrategies.push({ title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) });
+                window.__importedStrategies.push(incoming);
             });
 
+            const mergedPinnedCount = consolidatePinnedImportedStrategies(window.__importedStrategies);
             // v1.62：导入后自动清理超过 10 期的历史条目（以清单内最大期数为基准保留最近 10 期）
             const beforePrune = window.__importedStrategies.length;
             window.__importedStrategies = pruneImportedStrategies(window.__importedStrategies);
             const prunedCount = beforePrune - window.__importedStrategies.length;
 
-            if (importCount > 0) {
+            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0) {
                 // 导入后按网站分组排序，保证清单与「复制全部」导出顺序一致（同网站条目集中）
                 const siteRank = { '铁算盘': 0, '澳门九龙网': 1, '群英会': 2, '奥霸网': 3, '其他': 4 };
                 window.__importedStrategies.sort((a, b) => (siteRank[detectImportSite(a)] != null ? siteRank[detectImportSite(a)] : 4) - (siteRank[detectImportSite(b)] != null ? siteRank[detectImportSite(b)] : 4));
@@ -7764,9 +7937,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             renderImportList();
             saveImportedStrategies();
 
-            if (importCount > 0) {
+            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0) {
                 const catName = lottery === 'hk' ? '香港' : '新澳门';
-                feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。` + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
+                feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`
+                    + (updatedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已更新置顶条目 ${updatedPinnedCount} 条）</span>` : '')
+                    + (mergedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已合并置顶重复条目 ${mergedPinnedCount} 条）</span>` : '')
+                    + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
                 scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
