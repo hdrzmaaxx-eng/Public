@@ -552,11 +552,11 @@
                 <div style="display:flex; gap:8px; margin-top:8px;">
                     <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="导出历史战绩：复制 JSON 或下载 JSON 文件，可到另一台设备导入">导出历史条目</button>
                     <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="导入历史战绩：粘贴 JSON 或选择 JSON 文件，合并到本机">导入历史条目</button>
-                    <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史战绩（zdr_import_history_v2），清空后需重新导入 JSON 恢复">重置历史战绩</button>
+                    <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史条目（zdr_import_history_v2），清空后需重新导入 JSON 恢复">清空历史条目</button>
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.71 · 2026-08-22 17:58</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.74 · 2026-08-23 01:54</div>
 
         </div>
     
@@ -5337,6 +5337,76 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         } catch (e) { /* ignore */ }
     }
 
+    // v1.72：置顶条目跨天进入下一期时，只推进条目本身，不动独立历史战绩。
+    // 新澳门按每日周期兜底推进；香港必须有新的开奖期数，不能按自然日强制 +1。
+    function replaceImportedItemPeriod(title, period) {
+        const text = String(title || '');
+        const m = text.match(/(\d{1,4})期/);
+        if (!m) return text;
+        const width = m[1].length;
+        const next = String(period).padStart(width, '0');
+        return text.slice(0, m.index) + next + text.slice(m.index + m[1].length);
+    }
+
+    function daysBetweenImportDates(fromDate, toDate) {
+        const from = String(fromDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const to = String(toDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!from || !to) return 1;
+        const a = Date.UTC(+from[1], +from[2] - 1, +from[3]);
+        const b = Date.UTC(+to[1], +to[2] - 1, +to[3]);
+        return Math.max(1, Math.round((b - a) / 86400000));
+    }
+
+    function advancePinnedStrategiesForDateChange(items, previousDate, targetDate) {
+        if (!Array.isArray(items) || !items.length) return false;
+        const today = targetDate || importTodayStr();
+        let changed = false;
+        items.forEach(function(it) {
+            if (!it || !it.pinned) return;
+            const lottery = it.lottery === 'hk' ? 'hk' : 'macau';
+            const oldPeriod = extractItemPeriod(it);
+            if (oldPeriod == null) return;
+            let nextPeriod = null;
+            let hasFresh = false;
+            try {
+                const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery, true) : [];
+                hasFresh = Array.isArray(records) && records.length > 0;
+                const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod(lottery) : null;
+                if (predicted != null && predicted > oldPeriod && hasFresh) nextPeriod = predicted;
+            } catch (e) { /* data may not be ready during the first page tick */ }
+            if (nextPeriod == null && lottery === 'macau' && String(it.pinnedResetDate || previousDate || '') !== today && !hasFresh) {
+                nextPeriod = oldPeriod + daysBetweenImportDates(it.pinnedResetDate || previousDate, today);
+            }
+            if (nextPeriod == null || nextPeriod <= oldPeriod) return;
+            it.title = replaceImportedItemPeriod(it.title, nextPeriod);
+            it.latest_data = '请先获取数据';
+            it.parts = [];
+            it.effects = buildItemEffects([]);
+            it.pinnedResetDate = today;
+            changed = true;
+        });
+        return changed;
+    }
+
+    function schedulePinnedDayAdvance() {
+        const now = new Date();
+        const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5, 0);
+        setTimeout(function() {
+            const items = window.__importedStrategies || [];
+            const pinned = items.filter(function(it) { return it && it.pinned; });
+            if (pinned.length) {
+                const changed = advancePinnedStrategiesForDateChange(pinned, null, importTodayStr());
+                if (changed) {
+                    window.__importedAgg = null;
+                    syncImportState();
+                    renderImportList();
+                    saveImportedStrategies();
+                }
+            }
+            schedulePinnedDayAdvance();
+        }, Math.max(1000, next.getTime() - now.getTime()));
+    }
+
     // 页面加载时恢复当天导入条目；过期（非当天）则清空
     function loadImportedStrategies() {
         try {
@@ -5358,6 +5428,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     return;
                 }
                 window.__importedStrategies = pinned;
+                advancePinnedStrategiesForDateChange(pinned, data.date, importTodayStr());
                 window.__importedAgg = null;
                 window.__importActiveCat = null;
                 window.__importCatSnap = {};
@@ -5426,6 +5497,25 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return m ? parseInt(m[1], 10) : null;
     }
 
+    // v1.73：导入新澳门策略时，若本地已有当天开奖数据，则只接受当前预测期及之后的内容。
+    // 数据源页面可能仍停在上一期（例如今天应为 235 期却返回 234 期），此时旧条目不能覆盖置顶条目。
+    // 香港不是每日开奖，导入不做自然日期数过滤。
+    function getFreshMacauImportPeriod() {
+        try {
+            const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords('macau', true) : [];
+            if (!Array.isArray(records) || !records.length) return null;
+            const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod('macau') : null;
+            return predicted != null && isFinite(predicted) ? parseInt(predicted, 10) : null;
+        } catch (e) { return null; }
+    }
+
+    function isStaleImportedPeriod(item, lottery) {
+        if (lottery !== 'macau') return false;
+        const period = extractItemPeriod(item);
+        const current = getFreshMacauImportPeriod();
+        return period != null && current != null && period < current;
+    }
+
     // 策略历史键：彩种 + 网站族 + 规范化标题核心。
     // v1.70：不再直接使用标题原文，避免空格/标点/期数格式变化把同一策略拆成多份历史。
     function importHistoryKey(it) {
@@ -5492,6 +5582,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!target || !source) return;
         const wasPinned = !!target.pinned;
         const wasChecked = target.checked !== false;
+        const pinnedResetDate = target.pinnedResetDate;
         preserveImportedPartChecks(source.parts || [], target.parts || []);
         target.title = source.title;
         target.latest_data = source.latest_data;
@@ -5500,6 +5591,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         target.parts = source.parts || [];
         target.effects = buildItemEffects(target.parts || []);
         target.pinned = wasPinned;
+        if (pinnedResetDate) target.pinnedResetDate = pinnedResetDate;
     }
 
     function isImportedStrategyNewer(candidate, current, candidateIndex, currentIndex) {
@@ -5894,6 +5986,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 开奖数据刷新后重算并刷新清单（数据到达时由 render 调用；无导入条目时为空操作）
     function refreshImportHistories() {
+        const pinned = (window.__importedStrategies || []).filter(function(it) { return it && it.pinned; });
+        if (pinned.length && advancePinnedStrategiesForDateChange(pinned, null, importTodayStr())) {
+            window.__importedAgg = null;
+            saveImportedStrategies();
+            syncImportState();
+        }
         ensureImportHistories();
         if (typeof renderImportList === 'function') renderImportList();
     }
@@ -6101,7 +6199,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 误操作可重新「导入历史条目」JSON 恢复，建议先「导出历史条目」备份）
     window.resetImportHistories = async function(btn) {
         const feedbackEl = document.getElementById('ext-strategy-feedback');
-        const ok = await window.zdrConfirm('确定要清空本机全部历史战绩吗？\n\n清空后需重新「导入历史条目」JSON 才能恢复（建议先「导出历史条目」备份一份）。', { danger: true, okText: '清空', cancelText: '取消' });
+        const ok = await window.zdrConfirm('确定要清空全部历史条目吗？\n\n清空后需重新「导入历史条目」JSON 才能恢复（建议先「导出历史条目」备份一份）。', { danger: true, okText: '清空', cancelText: '取消' });
         if (!ok) return;
         try {
             localStorage.removeItem(IMPORT_HISTORY_KEY);
@@ -6109,7 +6207,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         } catch (e) { /* ignore */ }
         if (typeof renderImportList === 'function') renderImportList();
         flashHistoryAction(btn, true, '清空成功', '清空失败');
-        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史战绩已清空，请重新导入历史条目 JSON。</span>';
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史条目已清空，请重新导入历史条目 JSON。</span>';
     };
 
     // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
@@ -7222,7 +7320,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 渲染单条条目内可按类别点击启用的子选项（直接点击选项切换，不显示勾选框）
     function renderItemParts(itemIndex, it) {
         const parts = it.parts || [];
-        if (!parts.length) return '';
+        if (!parts.length) return '<div class="zdr-import-part-line" style="margin:2px 0 0 21px;color:#94a3b8;line-height:1.7;">（请先获取数据）</div>';
         const activeCat = window.__importActiveCat;
         const locked = !!activeCat && it.lottery !== activeCat; // 已选类别时另一类条目不可选
         const groups = [];
@@ -7726,7 +7824,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     const PAGE_FETCH_SOURCES = [
         { url: 'https://wicyb.58345mr.app:5852/wz/thaothao.html', cmd: 'TSP_EXTRACT_CMD', name: '铁算盘', action: 'TSP_DATA_RETURN', key: 'TSP' },
         { url: 'https://mv3-k7p0n4x.n6q1x9p3h.dev:2028/yjjy/index.html', cmd: 'MACAU_EXTRACT_CMD', name: '澳门九龙网', action: 'MACAU_DATA_RETURN', key: 'MACAU' },
-        { url: 'https://baiduaipa.559992ldkka10.top:40154/baidu/yjjy/', cmd: 'QYH_EXTRACT_CMD', name: '群英会', action: 'QYH_DATA_RETURN', key: 'QYH' }
+        { url: 'https://baiduaipa.559992ldkka10.top:40154/baidu/yjjy/', cmd: 'QYH_EXTRACT_CMD', name: '群英会', action: 'QYH_DATA_RETURN', key: 'QYH' },
+        { url: 'https://m1260814.61392g.com:8080/?id=1786964565', cmd: 'AOB_EXTRACT_CMD', name: '奥霸网', action: 'AOB_DATA_RETURN', key: 'AOB' }
     ];
 
     window.__pageAutoFetch = function(feedbackEl) {
@@ -7783,7 +7882,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (failed.length) feedbackEl.innerHTML += '<br><span style="color:#d97706;">⚠️ ' + failed.join('、') + ' 未获取到数据。</span>';
         }
 
-        feedbackEl.innerHTML = '<span style="color:#b45309;">⏳ 页面内置兜底拉取中（铁算盘/澳门九龙网/群英会），请稍候…</span>';
+        feedbackEl.innerHTML = '<span style="color:#b45309;">⏳ 页面内置兜底拉取中（铁算盘/澳门九龙网/群英会/奥霸网），请稍候…</span>';
         const frames = [];
         PAGE_FETCH_SOURCES.forEach(s => {
             const frame = document.createElement('iframe');
@@ -7889,6 +7988,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
             let importCount = 0;
             let updatedPinnedCount = 0;
+            let staleCount = 0;
             window.__importedStrategies = window.__importedStrategies || [];
 
             data.forEach(item => {
@@ -7902,6 +8002,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 // 复制按钮带 lottery 时按原分类导入，否则按点击的按钮分类
                 const itemLottery = (item.lottery === 'hk' || item.lottery === 'macau') ? item.lottery : lottery;
                 const incoming = { title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) };
+                if (isStaleImportedPeriod(incoming, itemLottery)) {
+                    staleCount++;
+                    return;
+                }
                 // 按“标题+内容+分类”去重：重复粘贴不再堆积清单
                 if ((window.__importedStrategies || []).some(it => it.title === title && it.latest_data === str && it.lottery === itemLottery)) return;
                 // v1.69：置顶是“关注某个策略”，不是复制一条固定旧记录。导入同彩种/同网站/同策略的新期时，
@@ -7941,6 +8045,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const catName = lottery === 'hk' ? '香港' : '新澳门';
                 feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`
                     + (updatedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已更新置顶条目 ${updatedPinnedCount} 条）</span>` : '')
+                    + (staleCount > 0 ? `<span style="color:#b45309;">（已过滤旧期条目 ${staleCount} 条）</span>` : '')
                     + (mergedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已合并置顶重复条目 ${mergedPinnedCount} 条）</span>` : '')
                     + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
@@ -7948,7 +8053,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } else {
-                feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>';
+                feedbackEl.innerHTML = staleCount > 0
+                    ? '<span style="color:#b45309;">⏭️ 已过滤旧期条目 ' + staleCount + ' 条，未导入。</span>'
+                    : '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>';
                 inputEl.value = ""; // 无论是否识别都清空输入框，避免残留整段 JSON 显示为“乱码”
                 updateParseButtonsVisibility();
             }
@@ -8071,6 +8178,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       }
       renderCategoryButtons();
       scheduleMidnightClear();
+      schedulePinnedDayAdvance();
     });
 
 
