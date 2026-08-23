@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.80 · 2026-08-23 22:13</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.82 · 2026-08-23 22:27</div>
 
         </div>
     
@@ -5449,7 +5449,23 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return Math.max(1, Math.round((b - a) / 86400000));
     }
 
-    function advancePinnedStrategiesForDateChange(items, previousDate, targetDate) {
+    // 最新已确认开奖期，不使用“预测期 = 最新开奖 + 1”，避免午夜把未来期数写进置顶条目。
+    function getLatestConfirmedPeriod(lottery) {
+        let max = 0;
+        const year = new Date().getFullYear();
+        try {
+            const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery, true) : [];
+            records.forEach(function(r) {
+                const rYear = r && r.year != null ? parseInt(r.year, 10) : (r && r.id ? Math.floor(r.id / 1000) : year);
+                if (rYear !== year) return;
+                const q = r && r.qishu != null ? parseInt(r.qishu, 10) : 0;
+                if (isFinite(q) && q > max) max = q;
+            });
+        } catch (e) { /* data may not be ready */ }
+        return max || null;
+    }
+
+    function advancePinnedStrategiesForDateChange(items, previousDate, targetDate, normalizeToConfirmed) {
         if (!Array.isArray(items) || !items.length) return false;
         const today = targetDate || importTodayStr();
         let changed = false;
@@ -5459,17 +5475,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const oldPeriod = extractItemPeriod(it);
             if (oldPeriod == null) return;
             let nextPeriod = null;
+            if (normalizeToConfirmed) {
+                const confirmed = getLatestConfirmedPeriod(lottery);
+                if (confirmed != null && confirmed !== oldPeriod) nextPeriod = confirmed;
+            }
             let hasFresh = false;
             try {
                 const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery, true) : [];
                 hasFresh = Array.isArray(records) && records.length > 0;
                 const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod(lottery) : null;
-                if (predicted != null && predicted > oldPeriod && hasFresh) nextPeriod = predicted;
+                if (!normalizeToConfirmed && predicted != null && predicted > oldPeriod && hasFresh) nextPeriod = predicted;
             } catch (e) { /* data may not be ready during the first page tick */ }
             if (nextPeriod == null && lottery === 'macau' && String(it.pinnedResetDate || previousDate || '') !== today && !hasFresh) {
                 nextPeriod = oldPeriod + daysBetweenImportDates(it.pinnedResetDate || previousDate, today);
             }
-            if (nextPeriod == null || nextPeriod <= oldPeriod) return;
+            if (nextPeriod == null || (!normalizeToConfirmed && nextPeriod <= oldPeriod)) return;
             it.title = replaceImportedItemPeriod(it.title, nextPeriod);
             it.latest_data = '请先获取数据';
             it.pendingRefresh = true;
@@ -5509,7 +5529,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const pinned = items.filter(function(it) { return it && it.pinned; });
             if (pinned.length) {
                 ensureImportHistories();
-                const changed = advancePinnedStrategiesForDateChange(pinned, null, importTodayStr());
+                const changed = advancePinnedStrategiesForDateChange(pinned, null, importTodayStr(), true);
                 if (changed) {
                     window.__importedAgg = null;
                     syncImportState();
@@ -5563,7 +5583,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 }
                 window.__importedStrategies = pinned;
                 ensureImportHistories();
-                advancePinnedStrategiesForDateChange(pinned, data.date, importTodayStr());
+                advancePinnedStrategiesForDateChange(pinned, data.date, importTodayStr(), true);
                 window.__importedAgg = null;
                 window.__importActiveCat = null;
                 window.__importCatSnap = {};
@@ -6077,7 +6097,6 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 累积/更新单条条目的本期战绩：只对自身期数一一对应判定（无期数或该期未开奖则跳过；有变化才返回 true）
     function updateEntryHistory(map, it) {
-        if (it && it.pendingRefresh) return false;
         const period = extractItemPeriod(it);
         if (period == null) return false;
         const rec = findDrawRecordByPeriod(it.lottery, period);
