@@ -135,6 +135,14 @@
         }
         .input-action-btn.clear-cluster { background-color: #f59e0b; }
         .input-action-btn.undo { background-color: #007bff; }
+        .input-action-btn.combine { background-color: #0f766e; }
+        .input-action-btn.combine.intersection { background-color: #7c3aed; }
+        .input-action-btn.combine.active {
+            outline: 2px solid rgba(15, 118, 110, 0.3);
+            outline-offset: 1px;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 5px rgba(0,0,0,0.25);
+        }
+        .input-action-btn.combine.intersection.active { outline-color: rgba(124, 58, 237, 0.3); }
         .input-action-btn:hover { filter: brightness(0.92); }
         .input-action-btn:active { transform: scale(0.92); }
         .input-action-btn.disabled { opacity: 0.45; pointer-events: none; }
@@ -556,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.75 · 2026-08-23 15:46</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.76 · 2026-08-23 21:17</div>
 
         </div>
     
@@ -692,6 +700,7 @@
         // 快照范围：全部手动维度选择、冻结项、黑名单、导入策略聚合、导入条目勾选/子选项、类别、数据来源
         window.__zdrHistory = window.__zdrHistory || [];   // 最多保留 5 个快照
         window.__zdrHistoryPaused = false;                 // 批量操作（如整组导入）期间暂停逐条压栈
+        window.__zdrPendingCombineMode = null;             // 下一次号码操作的一次性并集/交集模式
 
         function snapshotZdrState() {
             const so = {};
@@ -710,7 +719,8 @@
                 })),
                 activeCat: window.__importActiveCat || null,
                 catSnap: JSON.parse(JSON.stringify(window.__importCatSnap || {})),
-                source: window.currentSelectionSource || 'manual'
+                source: window.currentSelectionSource || 'manual',
+                combineMode: window.__zdrPendingCombineMode || null
             };
         }
 
@@ -746,6 +756,7 @@
             window.__importActiveCat = snap.activeCat || null;
             window.__importCatSnap = snap.catSnap || {};
             window.currentSelectionSource = snap.source || 'manual';
+            window.__zdrPendingCombineMode = snap.combineMode || null;
             // 5. 重新聚合导入贡献（先置空旧聚合，避免差分逻辑误删已恢复的冻结项）
             window.__importedAgg = null;
             if (typeof window.syncImportState === 'function') {
@@ -758,6 +769,7 @@
             if (typeof window.renderImportList === 'function') window.renderImportList();
             if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
             if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+            refreshZdrCombineButtons();
         }
 
         // 返回上一步：弹出最近一次快照并恢复（可连续回退，最多 5 步）
@@ -768,12 +780,31 @@
             restoreZdrSnapshot(snap);
         };
 
+        function refreshZdrCombineButtons() {
+            const mode = window.__zdrPendingCombineMode || null;
+            document.querySelectorAll('.input-action-btn.combine').forEach(btn => {
+                const active = btn.dataset.combine === mode;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+        }
+
+        // 选择一次性并集/交集模式；再次点击同一按钮可取消待执行模式
+        window.setZdrCombineMode = function(mode) {
+            if (mode !== 'union' && mode !== 'intersection') return;
+            pushZdrHistory();
+            window.__zdrPendingCombineMode = window.__zdrPendingCombineMode === mode ? null : mode;
+            refreshZdrCombineButtons();
+        };
+
         // 输入框左下角操作按钮 HTML（无历史时“返回上一步”置灰）
         function getZdrActionButtonsHtml() {
             const canUndo = (window.__zdrHistory || []).length > 0;
             return '<div class="input-actions">' +
                 '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState(this)" title="清空集群状态">清集</div>' +
                 '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
+                '<div class="input-action-btn combine union' + (window.__zdrPendingCombineMode === 'union' ? ' active' : '') + '" data-combine="union" aria-pressed="' + (window.__zdrPendingCombineMode === 'union' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'union\')" title="下一次操作与当前输入框号码取并集">并集</div>' +
+                '<div class="input-action-btn combine intersection' + (window.__zdrPendingCombineMode === 'intersection' ? ' active' : '') + '" data-combine="intersection" aria-pressed="' + (window.__zdrPendingCombineMode === 'intersection' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'intersection\')" title="下一次操作与当前输入框号码取交集">交集</div>' +
                 '</div>';
         }
 
@@ -784,6 +815,7 @@
             const hostContainer = clickedBtn && clickedBtn.closest ?
                 (clickedBtn.closest('#display-container') || clickedBtn.closest('#display-container-predict')) : null;
             pushZdrHistory();
+            window.__zdrPendingCombineMode = null;
             const container = document.getElementById('display-container');
             const tags = container ? container.querySelectorAll('.num-tag') : [];
             const currentNums = Array.from(tags).map(tag => (tag.textContent || '').trim().substring(0, 2));
@@ -1254,6 +1286,51 @@
             return [...new Set(union)];
         }
 
+        function getDisplayedNumbers() {
+            const tags = displayContainer ? displayContainer.querySelectorAll('.num-tag') : [];
+            return Array.from(tags)
+                .map(tag => (tag.textContent || '').trim().substring(0, 2))
+                .filter(num => allNumbers.includes(num));
+        }
+
+        // 将一次性组合结果固化为普通号码，避免下一次重绘丢失组合结果
+        function materializeCombinedNumbers(numbers) {
+            Object.keys(selectedOptions).forEach(key => selectedOptions[key].clear());
+            frozenItems.clear();
+            window.currentSelectionSource = 'manual';
+            (numbers || []).forEach(num => selectedOptions.numbers.add(num));
+
+            if (window.__importedStrategies) {
+                window.__importedStrategies.forEach(item => {
+                    item.checked = false;
+                    (item.parts || []).forEach(part => { part.checked = false; });
+                });
+            }
+            window.__importedAgg = null;
+            window.__importActiveCat = null;
+            window.__importCatSnap = {};
+
+            document.querySelectorAll('.btn').forEach(btn => {
+                btn.classList.remove('active', 'frozen');
+            });
+            document.querySelectorAll('.btn-import').forEach(btn => {
+                if (btn.id === 'btn-ai-predict' || btn.id === 'btn-save-strategy') return;
+                btn.dataset.imported = 'false';
+                btn.classList.remove('imported');
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes('applyMergedToZdr')) {
+                    btn.textContent = '合并预测';
+                    btn.style.background = 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+                    btn.style.boxShadow = '0 2px 4px rgba(139, 92, 246, 0.3)';
+                } else {
+                    btn.textContent = '选入';
+                }
+            });
+            if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+            if (typeof window.renderImportList === 'function') window.renderImportList();
+            if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
+            if (typeof syncUI === 'function') syncUI();
+        }
+
 
 
 
@@ -1303,6 +1380,8 @@
         }
 
         function updateDisplay() {
+            const pendingCombineMode = window.__zdrPendingCombineMode || null;
+            const pendingCombineBase = pendingCombineMode ? getDisplayedNumbers() : [];
             displayContainer.innerHTML = '';
             const displayContainerPredict = document.getElementById('display-container-predict');
             if (displayContainerPredict) {
@@ -1313,10 +1392,10 @@
             // [修改] 判断是否有选中的条件时，必须排除 excludedNumbers（黑名单）
             // 否则当正向选择都清空，只剩下黑名单时，系统会错误地调出全部49个数字进行过滤
             // 导入策略的选入类贡献也算作正向条件（冻结/杀肖不产生正向结果，不计数）
-            const hasSelection = Object.entries(selectedOptions).some(([key, s]) => key !== 'excludedNumbers' && s.size > 0) ||
+            let hasSelection = Object.entries(selectedOptions).some(([key, s]) => key !== 'excludedNumbers' && s.size > 0) ||
                 !!(window.__importedAgg && Object.entries(window.__importedAgg).some(([k, s]) => k !== 'frozen' && s.size > 0));
-            
-            if (!hasSelection) {
+
+            if (!hasSelection && !pendingCombineMode) {
                 // [新增] 当没有任何正向条件时（退回空状态），同步清空黑名单，防止幽灵数据干扰下次选号
                 if (selectedOptions.excludedNumbers) {
                     selectedOptions.excludedNumbers.clear();
@@ -1329,7 +1408,7 @@
             }
 
 
-            let result = allNumbers;
+            let result = hasSelection ? allNumbers : [];
             
             result = result.filter(n => getCategoryUnion('numbers').includes(n));
             
@@ -1401,6 +1480,18 @@
                 }
                 result = result.filter(n => !numsToExclude.includes(n));
             });
+
+            if (pendingCombineMode) {
+                const operationNumbers = new Set(result);
+                const baseNumbers = new Set(pendingCombineBase);
+                const combined = pendingCombineMode === 'union'
+                    ? [...new Set([...baseNumbers, ...operationNumbers])]
+                    : [...operationNumbers].filter(num => baseNumbers.has(num));
+                window.__zdrPendingCombineMode = null;
+                materializeCombinedNumbers(combined);
+                result = combined;
+                hasSelection = true;
+            }
 			
 
             if (result.length === 0) {
@@ -1505,8 +1596,9 @@
 
 
         // 定义全局一键清空方法：供输入框内的小X调用，同时清空冻结状态与导入按钮状态
-        window.clearAllSelections = function(skipHistory) {
+        window.clearAllSelections = function(skipHistory, preserveCombine) {
             if (!skipHistory) pushZdrHistory();
+            if (!preserveCombine) window.__zdrPendingCombineMode = null;
             window.currentSelectionSource = 'manual';
             for (let key in selectedOptions) {
                 selectedOptions[key].clear();
@@ -1658,7 +1750,7 @@
             }
             
             pushZdrHistory(); // 粘贴整体算一步，内部清空不再单独压栈
-            window.clearAllSelections(true);
+            window.clearAllSelections(true, true);
             uniqueValidNumbers.forEach(n => selectedOptions.numbers.add(n));
             
             syncUI();
