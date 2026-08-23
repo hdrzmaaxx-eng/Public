@@ -556,7 +556,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.74 · 2026-08-23 01:54</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.75 · 2026-08-23 15:46</div>
 
         </div>
     
@@ -3582,8 +3582,8 @@ function predict(raw) {
       return Object.keys(obj).sort((a,b) => obj[b] - obj[a]).slice(0, n);
     }
 
-    var predSX_arr = topNKeys(scores.sx, 8);
-    var predLD_arr = topNKeys(scores.ld, 7);
+    var predSX_arr = topNKeys(scores.sx, 9);
+    var predLD_arr = topNKeys(scores.ld, 8);
     var predFD_arr = topNKeys(scores.fd, 4);
     var predWX_arr = topNKeys(scores.wx, 4);
     var predColor_arr = topNKeys(scores.color, 2);
@@ -3722,7 +3722,7 @@ function predict(raw) {
 
     // =========================================================================
     // 👑 新增：纯净版 5 维度独立打分，提取最强 10 码（专供 AI 寻优注入）
-    // 彻底脱离八码风控，纯凭 [八肖, 七尾, 四头, 四行, 波色] 的交集实力硬刚！
+    // 彻底脱离八码风控，纯凭 [九肖, 八尾, 四头, 四行, 波色] 的交集实力硬刚！
     // =========================================================================
     var pureAiCandidates = [];
     for (var i = 0; i < allNumbers.length; i++) {
@@ -4306,13 +4306,13 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
 
   otherHtml += '<div class="predict-list">';
   
-  // 八肖
-  otherHtml += '<div class="info-card"><div class="title" style="display:flex; justify-content:space-between; align-items:center;"><span>第' + n + '期 八肖推荐<br><span style="font-size:0.8rem; font-weight:normal; color:#ea580c; display:inline-block; margin-top:2px;">历史命中率: ' + rateSX + '</span></span><button class="btn-import" onclick="applyToZdr(this, \'sx\', \'' + r.predSX.join(',') + '\')">选入</button></div><div class="info-list">';
+  // 九肖
+  otherHtml += '<div class="info-card"><div class="title" style="display:flex; justify-content:space-between; align-items:center;"><span>第' + n + '期 九肖推荐<br><span style="font-size:0.8rem; font-weight:normal; color:#ea580c; display:inline-block; margin-top:2px;">历史命中率: ' + rateSX + '</span></span><button class="btn-import" onclick="applyToZdr(this, \'sx\', \'' + r.predSX.join(',') + '\')">选入</button></div><div class="info-list">';
   r.predSX.forEach(z => { otherHtml += '<span class="info-chip" style="cursor: pointer; transition: transform 0.1s; display: inline-block;" onclick="window.toggleSinglePrediction(this, \'sx\', \'' + z + '\')" title="点击单点选入" data-pred-type="sx" data-pred-val="' + z + '">' + z + '</span>'; });
   otherHtml += '</div>' + getStrategySliderHtml('sx') + getHistoryHtml('sx') + '</div>';
   
-  // 七尾
-  otherHtml += '<div class="info-card"><div class="title" style="display:flex; justify-content:space-between; align-items:center;"><span>第' + n + '期 七尾推荐<br><span style="font-size:0.8rem; font-weight:normal; color:#ea580c; display:inline-block; margin-top:2px;">历史命中率: ' + rateLD + '</span></span><button class="btn-import" onclick="applyToZdr(this, \'ld\', \'' + r.predLD.join(',') + '\')">选入</button></div><div class="info-list">';
+  // 八尾
+  otherHtml += '<div class="info-card"><div class="title" style="display:flex; justify-content:space-between; align-items:center;"><span>第' + n + '期 八尾推荐<br><span style="font-size:0.8rem; font-weight:normal; color:#ea580c; display:inline-block; margin-top:2px;">历史命中率: ' + rateLD + '</span></span><button class="btn-import" onclick="applyToZdr(this, \'ld\', \'' + r.predLD.join(',') + '\')">选入</button></div><div class="info-list">';
   r.predLD.forEach(v => { otherHtml += '<span class="info-chip" style="cursor: pointer; transition: transform 0.1s; display: inline-block;" onclick="window.toggleSinglePrediction(this, \'ld\', \'' + v + '\')" title="点击单点选入" data-pred-type="ld" data-pred-val="' + v + '">' + v + '</span>'; });
   otherHtml += '</div>' + getStrategySliderHtml('ld') + getHistoryHtml('ld') + '</div>';
   
@@ -4364,7 +4364,7 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   dwHtml += '<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-bottom: 12px; border-bottom: 1px dashed #e2e8f0; font-size: 14px; text-align: center; color:#334155;">';
   
   var options = [
-      {key: 'sx', label: '八肖'}, {key: 'ld', label: '七尾'}, {key: 'fd', label: '四头'}, {key: 'wx', label: '四行'},
+      {key: 'sx', label: '九肖'}, {key: 'ld', label: '八尾'}, {key: 'fd', label: '四头'}, {key: 'wx', label: '四行'},
       {key: 'color', label: '波色'}, {key: 'size', label: '大小'}, {key: 'parity', label: '单双'}
   ];
   
