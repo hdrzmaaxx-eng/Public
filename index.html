@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.77 · 2026-08-23 21:31</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.80 · 2026-08-23 22:13</div>
 
         </div>
     
@@ -5472,10 +5472,31 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (nextPeriod == null || nextPeriod <= oldPeriod) return;
             it.title = replaceImportedItemPeriod(it.title, nextPeriod);
             it.latest_data = '请先获取数据';
-            it.parts = [];
-            it.effects = buildItemEffects([]);
+            it.pendingRefresh = true;
+            // 历史补记在调用本函数前完成；推进期数时保留子条目但取消勾选，真正清空只在每天 23:29 执行。
+            it.parts = (it.parts || []).map(function(part) {
+                return Object.assign({}, part, { checked: false });
+            });
+            it.effects = buildItemEffects(it.parts);
             it.pinnedResetDate = today;
             changed = true;
+        });
+        return changed;
+    }
+
+    // 23:29 的兜底清理：再次开奖前先由调用方补记历史，再清空置顶条目子选项。
+    function clearPinnedStrategyParts(items) {
+        if (!Array.isArray(items) || !items.length) return false;
+        let changed = false;
+        items.forEach(function(it) {
+            if (!it || !it.pinned) return;
+            if ((it.parts && it.parts.length) || it.latest_data !== '请先获取数据') {
+                it.latest_data = '请先获取数据';
+                it.parts = [];
+                it.effects = buildItemEffects([]);
+                it.pendingRefresh = true;
+                changed = true;
+            }
         });
         return changed;
     }
@@ -5487,6 +5508,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const items = window.__importedStrategies || [];
             const pinned = items.filter(function(it) { return it && it.pinned; });
             if (pinned.length) {
+                ensureImportHistories();
                 const changed = advancePinnedStrategiesForDateChange(pinned, null, importTodayStr());
                 if (changed) {
                     window.__importedAgg = null;
@@ -5496,6 +5518,26 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 }
             }
             schedulePinnedDayAdvance();
+        }, Math.max(1000, next.getTime() - now.getTime()));
+    }
+
+    function schedulePinnedPreDrawClear() {
+        const now = new Date();
+        let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 29, 0, 0);
+        if (next.getTime() <= now.getTime()) next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 29, 0, 0);
+        setTimeout(function() {
+            const items = window.__importedStrategies || [];
+            const pinned = items.filter(function(it) { return it && it.pinned; });
+            if (pinned.length) {
+                ensureImportHistories();
+                if (clearPinnedStrategyParts(pinned)) {
+                    window.__importedAgg = null;
+                    saveImportedStrategies();
+                    syncImportState();
+                    renderImportList();
+                }
+            }
+            schedulePinnedPreDrawClear();
         }, Math.max(1000, next.getTime() - now.getTime()));
     }
 
@@ -5520,6 +5562,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     return;
                 }
                 window.__importedStrategies = pinned;
+                ensureImportHistories();
                 advancePinnedStrategiesForDateChange(pinned, data.date, importTodayStr());
                 window.__importedAgg = null;
                 window.__importActiveCat = null;
@@ -5683,6 +5726,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         target.parts = source.parts || [];
         target.effects = buildItemEffects(target.parts || []);
         target.pinned = wasPinned;
+        target.pendingRefresh = false;
         if (pinnedResetDate) target.pinnedResetDate = pinnedResetDate;
     }
 
@@ -6033,6 +6077,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 累积/更新单条条目的本期战绩：只对自身期数一一对应判定（无期数或该期未开奖则跳过；有变化才返回 true）
     function updateEntryHistory(map, it) {
+        if (it && it.pendingRefresh) return false;
         const period = extractItemPeriod(it);
         if (period == null) return false;
         const rec = findDrawRecordByPeriod(it.lottery, period);
@@ -6079,6 +6124,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 开奖数据刷新后重算并刷新清单（数据到达时由 render 调用；无导入条目时为空操作）
     function refreshImportHistories() {
         const pinned = (window.__importedStrategies || []).filter(function(it) { return it && it.pinned; });
+        // 先按推进前的期数补记历史，再更新置顶条目的当前期数。
+        ensureImportHistories();
         if (pinned.length && advancePinnedStrategiesForDateChange(pinned, null, importTodayStr())) {
             window.__importedAgg = null;
             saveImportedStrategies();
@@ -8271,6 +8318,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       renderCategoryButtons();
       scheduleMidnightClear();
       schedulePinnedDayAdvance();
+      schedulePinnedPreDrawClear();
     });
 
 
