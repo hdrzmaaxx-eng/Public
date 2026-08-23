@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.76 · 2026-08-23 21:17</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.77 · 2026-08-23 21:31</div>
 
         </div>
     
@@ -802,9 +802,9 @@
             const canUndo = (window.__zdrHistory || []).length > 0;
             return '<div class="input-actions">' +
                 '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState(this)" title="清空集群状态">清集</div>' +
-                '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
                 '<div class="input-action-btn combine union' + (window.__zdrPendingCombineMode === 'union' ? ' active' : '') + '" data-combine="union" aria-pressed="' + (window.__zdrPendingCombineMode === 'union' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'union\')" title="下一次操作与当前输入框号码取并集">并集</div>' +
                 '<div class="input-action-btn combine intersection' + (window.__zdrPendingCombineMode === 'intersection' ? ' active' : '') + '" data-combine="intersection" aria-pressed="' + (window.__zdrPendingCombineMode === 'intersection' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'intersection\')" title="下一次操作与当前输入框号码取交集">交集</div>' +
+                '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
                 '</div>';
         }
 
