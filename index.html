@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.82 · 2026-08-23 22:27</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.83 · 2026-08-24 22:03</div>
 
         </div>
     
@@ -6140,16 +6140,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return map;
     }
 
-    // 开奖数据刷新后重算并刷新清单（数据到达时由 render 调用；无导入条目时为空操作）
+    // 开奖数据刷新后登记历史并刷新清单；置顶条目期数只由午夜确认任务推进。
     function refreshImportHistories() {
-        const pinned = (window.__importedStrategies || []).filter(function(it) { return it && it.pinned; });
-        // 先按推进前的期数补记历史，再更新置顶条目的当前期数。
-        ensureImportHistories();
-        if (pinned.length && advancePinnedStrategiesForDateChange(pinned, null, importTodayStr())) {
-            window.__importedAgg = null;
-            saveImportedStrategies();
-            syncImportState();
-        }
         ensureImportHistories();
         if (typeof renderImportList === 'function') renderImportList();
     }
