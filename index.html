@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.83 · 2026-08-24 22:03</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.84 · 2026-08-25 19:52</div>
 
         </div>
     
@@ -701,6 +701,7 @@
         window.__zdrHistory = window.__zdrHistory || [];   // 最多保留 5 个快照
         window.__zdrHistoryPaused = false;                 // 批量操作（如整组导入）期间暂停逐条压栈
         window.__zdrPendingCombineMode = null;             // 下一次号码操作的一次性并集/交集模式
+        window.__zdrRestoringSnapshot = false;             // 撤回恢复期间不消费待执行的并集/交集模式
 
         function snapshotZdrState() {
             const so = {};
@@ -735,41 +736,48 @@
         // 恢复指定快照并刷新全部相关 UI
         function restoreZdrSnapshot(snap) {
             if (!snap) return;
-            // 1. 手动维度选择（原地清空再写入，保持 selectedOptions 引用不变）
-            Object.keys(selectedOptions).forEach(k => {
-                selectedOptions[k].clear();
-                (snap.selectedOptions[k] || []).forEach(v => selectedOptions[k].add(v));
-            });
-            // 2. 冻结项（含手动长按冻结与导入策略冻结）
-            frozenItems = new Set(snap.frozenItems || []);
-            // 3. 导入条目勾选/子选项状态（effects 由 buildItemEffects 重算）
-            const items = window.__importedStrategies || [];
-            (snap.strategies || []).forEach((s, i) => {
-                if (!items[i]) return;
-                items[i].checked = !!s.checked;
-                (items[i].parts || []).forEach((p, pi) => { p.checked = !!(s.parts && s.parts[pi]); });
-                if (typeof window.buildItemEffects === 'function') {
-                    items[i].effects = window.buildItemEffects(items[i].parts || []);
+            // 恢复期间同步触发 updateDisplay 时不得消费待执行模式，否则撤回后第一次刷新
+            // 会用残留 DOM 号码重新组合并固化，导致第一次“撤回”看起来无效。
+            window.__zdrRestoringSnapshot = true;
+            try {
+                // 1. 手动维度选择（原地清空再写入，保持 selectedOptions 引用不变）
+                Object.keys(selectedOptions).forEach(k => {
+                    selectedOptions[k].clear();
+                    (snap.selectedOptions[k] || []).forEach(v => selectedOptions[k].add(v));
+                });
+                // 2. 冻结项（含手动长按冻结与导入策略冻结）
+                frozenItems = new Set(snap.frozenItems || []);
+                // 3. 导入条目勾选/子选项状态（effects 由 buildItemEffects 重算）
+                const items = window.__importedStrategies || [];
+                (snap.strategies || []).forEach((s, i) => {
+                    if (!items[i]) return;
+                    items[i].checked = !!s.checked;
+                    (items[i].parts || []).forEach((p, pi) => { p.checked = !!(s.parts && s.parts[pi]); });
+                    if (typeof window.buildItemEffects === 'function') {
+                        items[i].effects = window.buildItemEffects(items[i].parts || []);
+                    }
+                });
+                // 4. 类别与来源
+                window.__importActiveCat = snap.activeCat || null;
+                window.__importCatSnap = snap.catSnap || {};
+                window.currentSelectionSource = snap.source || 'manual';
+                window.__zdrPendingCombineMode = snap.combineMode || null;
+                // 5. 重新聚合导入贡献（先置空旧聚合，避免差分逻辑误删已恢复的冻结项）
+                window.__importedAgg = null;
+                if (typeof window.syncImportState === 'function') {
+                    window.syncImportState();
+                } else {
+                    if (typeof syncUI === 'function') syncUI();
+                    if (typeof updateDisplay === 'function') updateDisplay();
                 }
-            });
-            // 4. 类别与来源
-            window.__importActiveCat = snap.activeCat || null;
-            window.__importCatSnap = snap.catSnap || {};
-            window.currentSelectionSource = snap.source || 'manual';
-            window.__zdrPendingCombineMode = snap.combineMode || null;
-            // 5. 重新聚合导入贡献（先置空旧聚合，避免差分逻辑误删已恢复的冻结项）
-            window.__importedAgg = null;
-            if (typeof window.syncImportState === 'function') {
-                window.syncImportState();
-            } else {
-                if (typeof syncUI === 'function') syncUI();
-                if (typeof updateDisplay === 'function') updateDisplay();
+                // 6. 刷新导入清单/类别按钮/本地持久化
+                if (typeof window.renderImportList === 'function') window.renderImportList();
+                if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
+                if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+            } finally {
+                window.__zdrRestoringSnapshot = false;
+                refreshZdrCombineButtons();
             }
-            // 6. 刷新导入清单/类别按钮/本地持久化
-            if (typeof window.renderImportList === 'function') window.renderImportList();
-            if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
-            if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
-            refreshZdrCombineButtons();
         }
 
         // 返回上一步：弹出最近一次快照并恢复（可连续回退，最多 5 步）
@@ -1481,7 +1489,7 @@
                 result = result.filter(n => !numsToExclude.includes(n));
             });
 
-            if (pendingCombineMode) {
+            if (pendingCombineMode && !window.__zdrRestoringSnapshot) {
                 const operationNumbers = new Set(result);
                 const baseNumbers = new Set(pendingCombineBase);
                 const combined = pendingCombineMode === 'union'
@@ -5475,25 +5483,38 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const oldPeriod = extractItemPeriod(it);
             if (oldPeriod == null) return;
             let nextPeriod = null;
-            if (normalizeToConfirmed) {
-                const confirmed = getLatestConfirmedPeriod(lottery);
-                if (confirmed != null && confirmed !== oldPeriod) nextPeriod = confirmed;
-            }
             let hasFresh = false;
             try {
                 const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery, true) : [];
                 hasFresh = Array.isArray(records) && records.length > 0;
-                const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod(lottery) : null;
-                if (!normalizeToConfirmed && predicted != null && predicted > oldPeriod && hasFresh) nextPeriod = predicted;
+                if (normalizeToConfirmed) {
+                    const confirmed = getLatestConfirmedPeriod(lottery);
+                    if (confirmed != null) {
+                        if (lottery === 'macau') {
+                            // 澳门每日开奖：0:00 推进到「最新已确认 + 1」（当天预测期）。
+                            // 标题已是当天期数时（用户当天已导入）不重复改写，避免清掉子选项。
+                            nextPeriod = confirmed + 1;
+                        } else {
+                            // 香港非每日：只有检测到新的已确认开奖期才推进；
+                            // 标题已是预测期（confirmed+1）不强行回退，超过 confirmed+1 才校正。
+                            if (confirmed > oldPeriod) nextPeriod = confirmed;
+                            else if (confirmed + 1 < oldPeriod) nextPeriod = confirmed + 1;
+                        }
+                    }
+                } else {
+                    const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod(lottery) : null;
+                    if (predicted != null && predicted > oldPeriod && hasFresh) nextPeriod = predicted;
+                }
             } catch (e) { /* data may not be ready during the first page tick */ }
             if (nextPeriod == null && lottery === 'macau' && String(it.pinnedResetDate || previousDate || '') !== today && !hasFresh) {
                 nextPeriod = oldPeriod + daysBetweenImportDates(it.pinnedResetDate || previousDate, today);
             }
-            if (nextPeriod == null || (!normalizeToConfirmed && nextPeriod <= oldPeriod)) return;
+            if (nextPeriod == null || nextPeriod === oldPeriod) return;
+            if (!normalizeToConfirmed && nextPeriod <= oldPeriod) return;
             it.title = replaceImportedItemPeriod(it.title, nextPeriod);
             it.latest_data = '请先获取数据';
             it.pendingRefresh = true;
-            // 历史补记在调用本函数前完成；推进期数时保留子条目但取消勾选，真正清空只在每天 23:29 执行。
+            // 历史补记在调用本函数前完成；推进期数时保留子条目但取消勾选，真正清空只在每天 23:59 执行。
             it.parts = (it.parts || []).map(function(part) {
                 return Object.assign({}, part, { checked: false });
             });
@@ -5504,7 +5525,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return changed;
     }
 
-    // 23:29 的兜底清理：再次开奖前先由调用方补记历史，再清空置顶条目子选项。
+    // 23:59 的兜底清理：当天开奖数据到达、历史登记完成后再清空置顶条目子选项（0:00 推进前）。
     function clearPinnedStrategyParts(items) {
         if (!Array.isArray(items) || !items.length) return false;
         let changed = false;
@@ -5543,8 +5564,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     function schedulePinnedPreDrawClear() {
         const now = new Date();
-        let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 29, 0, 0);
-        if (next.getTime() <= now.getTime()) next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 29, 0, 0);
+        let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0, 0);
+        if (next.getTime() <= now.getTime()) next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 0, 0);
         setTimeout(function() {
             const items = window.__importedStrategies || [];
             const pinned = items.filter(function(it) { return it && it.pinned; });
@@ -5659,8 +5680,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         try {
             const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords('macau', true) : [];
             if (!Array.isArray(records) || !records.length) return null;
-            const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod('macau') : null;
-            return predicted != null && isFinite(predicted) ? parseInt(predicted, 10) : null;
+            const confirmed = typeof getLatestConfirmedPeriod === 'function' ? getLatestConfirmedPeriod('macau') : null;
+            if (confirmed == null) return null;
+            // 当天期数：最新已确认记录若为今天开奖 → 当期 = confirmed；否则（昨日及更早）→ confirmed + 1。
+            // 即过滤阈值只在 0:00 后推进：开奖当天 23:30-23:59 刚开出的当期内容不会被误判为旧期。
+            let latestDate = '';
+            records.forEach(function(r) {
+                const d = String((r && r.date) || '').slice(0, 10);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d > latestDate) latestDate = d;
+            });
+            return latestDate === importTodayStr() ? confirmed : confirmed + 1;
         } catch (e) { return null; }
     }
 
@@ -6101,6 +6130,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (period == null) return false;
         const rec = findDrawRecordByPeriod(it.lottery, period);
         if (!rec) return false; // 该期开奖数据还没到，等数据刷新后自动补记
+        // 23:59 清空置顶子条目后 parts 为空：不得用空 parts 重算或新建当期记录，
+        // 否则会把开奖时已登记的真实中/不中战绩覆盖成无约束的“中”（v1.84 修复 v1.82 回归）。
+        if (!(it.parts || []).length) return false;
         const hit = entryHitsPeriod(fullItemEffects(it), getTmFromRecord(rec));
         const partsText = summarizeItemParts(it.parts || []);
         // 记录该期开奖特码信息（号码/生肖/五行/波色），供悬浮提示显示
@@ -7981,6 +8013,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__pageAutoFetch = function(feedbackEl) {
         const inputEl = document.getElementById('ext-strategy-input');
         if (!inputEl || !feedbackEl) return;
+
+        // v1.84：奥霸网地址优先取油猴脚本配置（脚本暴露 __getAobUrl，getAobUrl 会自动修正
+        // 已失效的旧地址并回落当前默认）；无脚本注入时使用内置默认地址兜底。
+        if (typeof window.__getAobUrl === 'function') {
+            const configuredAobUrl = window.__getAobUrl();
+            if (configuredAobUrl) {
+                const aobSource = PAGE_FETCH_SOURCES.find(s => s.key === 'AOB');
+                if (aobSource && aobSource.url !== configuredAobUrl) aobSource.url = configuredAobUrl;
+            }
+        }
 
         // 清理上一次兜底会话（监听器 / iframe / 回调）
         if (window.__pageFetchListener) window.removeEventListener('message', window.__pageFetchListener);
