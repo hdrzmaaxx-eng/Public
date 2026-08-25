@@ -564,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.84 · 2026-08-25 19:52</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.85 · 2026-08-25 22:55</div>
 
         </div>
     
@@ -5490,16 +5490,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (normalizeToConfirmed) {
                     const confirmed = getLatestConfirmedPeriod(lottery);
                     if (confirmed != null) {
-                        if (lottery === 'macau') {
-                            // 澳门每日开奖：0:00 推进到「最新已确认 + 1」（当天预测期）。
-                            // 标题已是当天期数时（用户当天已导入）不重复改写，避免清掉子选项。
-                            nextPeriod = confirmed + 1;
-                        } else {
-                            // 香港非每日：只有检测到新的已确认开奖期才推进；
-                            // 标题已是预测期（confirmed+1）不强行回退，超过 confirmed+1 才校正。
-                            if (confirmed > oldPeriod) nextPeriod = confirmed;
-                            else if (confirmed + 1 < oldPeriod) nextPeriod = confirmed + 1;
-                        }
+                        // 澳门与香港同逻辑：0:00 推进到「最新已确认 + 1」（下一预测期）。
+                        // 澳门每日开奖 → 每日推进；香港非每日 → 仅在开奖数据确认后推进，
+                        // 非开奖日目标期数与标题相同，自动无操作（不回退、不重复改写）。
+                        nextPeriod = confirmed + 1;
                     }
                 } else {
                     const predicted = typeof getCurrentPredictionPeriod === 'function' ? getCurrentPredictionPeriod(lottery) : null;
@@ -5525,12 +5519,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return changed;
     }
 
-    // 23:59 的兜底清理：当天开奖数据到达、历史登记完成后再清空置顶条目子选项（0:00 推进前）。
+    // 23:59 的兜底清理：当期开奖数据到达、历史登记完成后再清空置顶条目子选项（0:00 推进前）。
+    // 香港非每日开奖：非开奖日当期记录不存在，不清空子选项，避免还没开奖就把当期选择清掉。
     function clearPinnedStrategyParts(items) {
         if (!Array.isArray(items) || !items.length) return false;
         let changed = false;
         items.forEach(function(it) {
             if (!it || !it.pinned) return;
+            const period = extractItemPeriod(it);
+            if (period != null) {
+                const rec = typeof findDrawRecordByPeriod === 'function' ? findDrawRecordByPeriod(it.lottery, period) : null;
+                if (!rec) return; // 当期开奖数据未到：不清空（历史登记完成前不能丢子选项）
+            }
             if ((it.parts && it.parts.length) || it.latest_data !== '请先获取数据') {
                 it.latest_data = '请先获取数据';
                 it.parts = [];
