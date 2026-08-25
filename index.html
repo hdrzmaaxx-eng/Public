@@ -554,6 +554,7 @@
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
                     <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
                     <button id="ext-strategy-copy-btn" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.copyImportStrategies()">复制全部</button>
+                    <button id="ext-strategy-predict-btn" style="margin-top:8px; padding:4px 10px; border:1px solid #a7f3d0; background:#ecfdf5; color:#047857; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.predictImportChecks()" title="按条目历史中/不中规律预测当期命中概率，≥75% 自动勾选（胜率≥70%、历史≥5期、当期未开奖才参与）">智能预测勾选</button>
                 </div>
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
@@ -564,7 +565,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.85 · 2026-08-25 22:55</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.88 · 2026-08-25 23:51</div>
 
         </div>
     
@@ -2168,6 +2169,9 @@ function scrollToBottom(containerId) {
 .zdr-import-chip { font-size: 0.72rem; padding: 1px 8px; }
 .zdr-import-history-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 3px 0 0 21px; }
 .zdr-import-period { flex-shrink: 0; display: inline-block; font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; white-space: nowrap; text-align: center; }
+.zdr-import-history-row.zdr-expanded { flex-wrap: wrap; overflow: visible; }
+.zdr-import-history-toggle { margin: 3px 0 0 21px; font-size: 0.72rem; color: #1d4ed8; cursor: pointer; display: inline-block; -webkit-user-select: none; user-select: none; }
+.zdr-import-history-toggle:active { opacity: .7; }
 .zdr-import-hint { font-size: 0.72rem; }
 /* v1.62：按网站分组的低饱和底色容器 + 置顶条目 + 条目行间距（桌面基准，移动端在下方再放宽） */
 .zdr-import-site-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; }
@@ -2198,6 +2202,7 @@ function scrollToBottom(containerId) {
     /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
     .zdr-import-history-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; overflow: hidden; margin-left: 6px; }
     .zdr-import-period { font-size: 0.8rem; padding: 2px 0; min-width: 0; }
+    .zdr-import-history-toggle { margin-left: 6px; font-size: 0.82rem; }
     .zdr-import-hint { font-size: 0.82rem; }
     #ext-strategy-list input[type="checkbox"] { width: 17px; height: 17px; }
 }
@@ -5658,11 +5663,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }, delay);
     }
 
-    // ========== 新增：导入条目近期 10 期战绩（独立本地存储，清空导入清单/23:59 一律不清除） ==========
+    // ========== 新增：导入条目近期战绩（独立本地存储，清空导入清单/23:59 一律不清除） ==========
     // v2 语义：每一期只跟自己的开奖一一对应（222 期条目只对 222 期开奖判定中/不中），
-    // 同一条策略（去掉标题里的期数前缀）跨期在本地累积最近 10 期各自的开奖结果。
+    // 同一条策略（去掉标题里的期数前缀）跨期在本地累积各自的开奖结果。
     const IMPORT_HISTORY_KEY = 'zdr_import_history_v2';
-    const IMPORT_HISTORY_LIMIT = 10;
+    const IMPORT_HISTORY_LIMIT = 30; // v1.87：历史保留上限 10→30（导出/导入/清理共用；第三排默认仍只显示最近 10 期）
 
     // 旧版 v1 是「当前策略回测最近 10 期」的错误语义，作废并清理
     try { localStorage.removeItem('zdr_import_history_v1'); } catch (e) { /* ignore */ }
@@ -6567,7 +6572,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     // 悬浮历史期数 0.5 秒后显示该期条目的子选项
+    // v1.86：电脑端悬停或点击显示、鼠标移开即关闭；移动端点击切换显示/关闭、点击空白处关闭
+    // 桌面/触屏按运行时能力判定（hover + 精细指针视为电脑端），不按屏幕宽度，避免平板/触屏笔记本误判
+    const __periodTipHoverCapable = !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
     let __periodTipTimer = null;
+    let __periodTipChip = null; // 当前弹窗对应的期数 chip（移动端再次点击同一条时关闭）
     function getPeriodTipEl() {
         let tip = document.getElementById('zdr-period-tooltip');
         if (!tip) {
@@ -6578,7 +6587,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         return tip;
     }
-    function showPeriodTooltip(evt, el) {
+    function showPeriodTooltip(evt, el, immediate) {
         hidePeriodTooltip();
         const qishu = el.getAttribute('data-qishu') || '';
         const hit = el.getAttribute('data-hit') === '1';
@@ -6587,6 +6596,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const sx = el.getAttribute('data-sx') || '';
         const wx = el.getAttribute('data-wx') || '';
         const color = el.getAttribute('data-color') || '';
+        __periodTipChip = el;
         __periodTipTimer = setTimeout(function() {
             const tip = getPeriodTipEl();
             const colorHex = color === '红' ? '#ef4444' : (color === '蓝' ? '#2563eb' : (color === '绿' ? '#16a34a' : ''));
@@ -6620,15 +6630,35 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             tip.style.left = left + 'px';
             tip.style.top = top + 'px';
             tip.style.visibility = 'visible';
-        }, 500);
+        }, immediate ? 0 : 500);
+    }
+    // 点击期数 chip：电脑端点击立即显示（鼠标移开由 mouseleave 关闭）；移动端再次点击同一条关闭
+    function togglePeriodTooltip(evt, el) {
+        if (evt && evt.stopPropagation) evt.stopPropagation();
+        if (__periodTipHoverCapable) {
+            showPeriodTooltip(evt, el, true);
+            return;
+        }
+        if (__periodTipChip === el) {
+            hidePeriodTooltip();
+        } else {
+            showPeriodTooltip(evt, el, true);
+        }
     }
     function hidePeriodTooltip() {
         if (__periodTipTimer) { clearTimeout(__periodTipTimer); __periodTipTimer = null; }
+        __periodTipChip = null;
         const tip = document.getElementById('zdr-period-tooltip');
         if (tip) tip.style.display = 'none';
     }
+    // 点击期数之外的空白处/其他控件时关闭弹窗（移动端点空白取消；chip 的 onclick 已 stopPropagation）
+    document.addEventListener('click', function(evt) {
+        const t = evt && evt.target;
+        if (t && t.closest && !t.closest('.zdr-import-period')) hidePeriodTooltip();
+    });
     window.showPeriodTooltip = showPeriodTooltip;
     window.hidePeriodTooltip = hidePeriodTooltip;
+    window.togglePeriodTooltip = togglePeriodTooltip;
 
     // ========== 新增：号码暂存（香港/新澳门分开，显示在自定义策略库上方） ==========
     const SAVED_NUMS_KEY = 'zdr_saved_numbers_v1';
@@ -7523,12 +7553,22 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         ).join('');
     }
 
-    // 渲染单条条目的近期 10 期战绩第三排：只显示该策略本地累积的各自期数结果
-    // （每期一一对应，222 期只对 222 期；无期数条目不渲染），中=红、不中=灰，
-    // 每期带圆角外框、间距拉开，一排容纳 10 期（移动端超窄时横向滚动兜底），最新期在右侧
+    // v1.87：历史存储最多 30 期，第三排默认只显示最近 10 期（视觉与旧版一致，最新期在右侧）；
+    // 超过 10 期时显示「查看全部 N 期」展开按钮，展开后显示全部期数（桌面换行、移动端多行网格），
+    // 展开状态会话内记忆（刷新后恢复默认）。中=红、不中=灰，每期带圆角外框。
+    const __expandedHistoryKeys = new Set();
+    window.toggleImportHistoryExpanded = function(itemIndex) {
+        const items = window.__importedStrategies;
+        if (!items || !items[itemIndex]) return;
+        const key = importHistoryKey(items[itemIndex]);
+        if (__expandedHistoryKeys.has(key)) __expandedHistoryKeys.delete(key);
+        else __expandedHistoryKeys.add(key);
+        if (typeof renderImportList === 'function') renderImportList();
+    };
     function renderImportHistory(itemIndex, it, histMap) {
         if (extractItemPeriod(it) == null) return ''; // 无期数，无法一一对应，不渲染第三排
-        const h = histMap[importHistoryKey(it)];
+        const key = importHistoryKey(it);
+        const h = histMap[key];
         const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
         if (!periods.length) {
             // 无战绩时区分“页面还没有任何开奖数据”与“该期数据缺失”：Kiwi 等无油猴直连的环境下
@@ -7536,9 +7576,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const noData = typeof hasAnyLotteryData === 'function' && !hasAnyLotteryData();
             return '<div class="zdr-import-hint" style="margin:2px 0 0 21px;color:#94a3b8;line-height:1.7;">' + (noData ? '暂无开奖数据 · 需先加载开奖数据（新澳门/香港特码页）' : '该期暂无开奖数据（可能未开奖）') + '</div>';
         }
-        return '<div class="zdr-import-history-row">' +
-            periods.map(p => '<span class="zdr-import-period" style="border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '" onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()">' + escHtml(String(p.qishu)) + '</span>').join('') +
-            '</div>';
+        // v1.86：电脑端（hover+精细指针）绑定悬停显示/移开即关，并支持点击立即显示；
+        // 移动端只绑定点击切换（不绑 hover，避免触屏合成 mouseenter 干扰）；点击空白处由全局监听关闭
+        const hoverAttrs = __periodTipHoverCapable
+            ? ' onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()"'
+            : '';
+        const expanded = __expandedHistoryKeys.has(key);
+        const shown = expanded ? periods : periods.slice(-10);
+        const toggle = periods.length > 10
+            ? '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + periods.length + ' 期') + '</div>'
+            : '';
+        return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + '">' +
+            shown.map(p => '<span class="zdr-import-period" style="border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>').join('') +
+            '</div>' + toggle;
     }
 
     // 渲染导入条目清单（条目级勾选保留；条目内子选项直接点击切换）
@@ -7603,7 +7653,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         });
         const renderItem = (it) => {
             const realIndex = items.indexOf(it);
-            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="长按弹出置顶菜单">' +
+            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
                 '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
@@ -7779,6 +7829,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function updateToggleAllButton() {
         const btn = document.getElementById('ext-strategy-toggle-all');
         const copyBtn = document.getElementById('ext-strategy-copy-btn');
+        const predictBtn = document.getElementById('ext-strategy-predict-btn');
         if (!btn) return;
         const items = window.__importedStrategies || [];
         const activeCat = window.__importActiveCat;
@@ -7787,10 +7838,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!visible.length) {
             btn.style.display = 'none';
             if (copyBtn) copyBtn.style.display = 'none';
+            if (predictBtn) predictBtn.style.display = 'none';
             return;
         }
         btn.style.display = 'inline-block';
         if (copyBtn) copyBtn.style.display = 'inline-block';
+        if (predictBtn) predictBtn.style.display = 'inline-block';
         btn.textContent = visible.some(it => it.checked) ? '取消全选' : '全部启用';
     }
 
@@ -7967,6 +8020,135 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         syncImportState();
         renderImportList();
         saveImportedStrategies();
+    };
+
+    // ========== v1.88：智能预测勾选（根据条目历史中/不中规律预测当期命中概率） ==========
+    // 规则：胜率≥70% 且历史≥5期 且当期未开奖登记的条目才参与；
+    // 学习「连续中/不中 k 期后下一期的命中率」条件规律——k 样本≥3 次直接采信，
+    // 1~2 次按 70% 条件率 + 30% 整体胜率加权，无该状态样本回退整体胜率；
+    // 预测命中概率 ≥75% 则自动勾选该条目；勾选前记录快照，可用「撤回」一步还原。
+    const PREDICT_MIN_PERIODS = 5;
+    const PREDICT_MIN_RATE = 0.70;
+    const PREDICT_MIN_SAMPLES = 3;
+    const PREDICT_HIT_RATE = 0.75;
+    const PREDICT_TRUST_WEIGHT = 0.7;
+
+    // 返回条目当期预测命中概率（0~1）；不参与预测时 prob 为 null 并附 reason
+    function predictEntryHitProbability(it, histMap) {
+        const period = extractItemPeriod(it);
+        if (period == null) return { prob: null, reason: 'noPeriod' };
+        const h = histMap[importHistoryKey(it)];
+        const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
+        if (!periods.length) return { prob: null, reason: 'noHistory' };
+        // 当期已登记战绩（开奖已到并判定）→ 无需预测
+        if (periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period)) return { prob: null, reason: 'recorded' };
+        if (periods.length < PREDICT_MIN_PERIODS) return { prob: null, reason: 'tooFew' };
+        const seq = periods.map(p => !!(p && p.hit));
+        const total = seq.length;
+        const hits = seq.filter(Boolean).length;
+        const overallRate = hits / total;
+        if (overallRate < PREDICT_MIN_RATE) return { prob: null, reason: 'lowRate' };
+        // 条件规律统计：进入「连续中 k 期」/「连续不中 k 期」状态后，下一期的命中次数/总次数
+        const afterHit = {}, afterMiss = {};
+        let run = 1; // 截至 seq[0] 的连续同状态长度（进入第 1 期时的状态）
+        for (let i = 1; i < total; i++) {
+            const prev = seq[i - 1], cur = seq[i];
+            const stats = prev ? afterHit : afterMiss;
+            (stats[run] = stats[run] || { hit: 0, total: 0 }).total++;
+            if (cur) stats[run].hit++;
+            if (cur === prev) run++; else run = 1;
+        }
+        // 当前连续状态（从最新一期往前数）
+        let curK = 1;
+        for (let j = total - 2; j >= 0 && seq[j] === seq[total - 1]; j--) curK++;
+        const curStats = seq[total - 1] ? afterHit : afterMiss;
+        const s = curStats[curK];
+        let prob;
+        if (s && s.total >= PREDICT_MIN_SAMPLES) {
+            prob = s.hit / s.total; // 规律样本足够：直接采信条件率
+        } else if (s && s.total > 0) {
+            prob = PREDICT_TRUST_WEIGHT * (s.hit / s.total) + (1 - PREDICT_TRUST_WEIGHT) * overallRate; // 样本不足：加权整体胜率
+        } else {
+            prob = overallRate; // 该状态从未出现：回退整体胜率
+        }
+        return { prob: Math.round(prob * 1000) / 1000, reason: 'ok' };
+    }
+
+    // 汇总跳过原因文案
+    function predictSummaryText(stats) {
+        let t = '';
+        if (stats.lowRate) t += ' · 胜率<70%跳过 ' + stats.lowRate;
+        if (stats.tooFew) t += ' · 历史不足5期 ' + stats.tooFew;
+        if (stats.recorded) t += ' · 当期已开奖跳过 ' + stats.recorded;
+        if (stats.noHist) t += ' · 无历史/无期数 ' + stats.noHist;
+        if (stats.lowProb) t += ' · 预测<75% ' + stats.lowProb;
+        return t;
+    }
+
+    // 智能预测勾选：只作用于当前类别；未选类别时按互斥规则选预测命中数更多的类别
+    window.predictImportChecks = function() {
+        const items = window.__importedStrategies || [];
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        if (!items.length) {
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可预测的导入条目。</span>';
+            return;
+        }
+        const activeCat = window.__importActiveCat;
+        const scope = activeCat ? items.filter(it => it.lottery === activeCat) : items;
+        if (!scope.length) {
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前类别没有可预测的导入条目。</span>';
+            return;
+        }
+        const histMap = loadImportHistories();
+        const stats = { checked: 0, lowRate: 0, tooFew: 0, recorded: 0, lowProb: 0, noHist: 0 };
+        const perCat = { macau: [], hk: [] };
+        scope.forEach(it => {
+            const r = predictEntryHitProbability(it, histMap);
+            if (!r || r.prob == null) {
+                if (r && r.reason === 'lowRate') stats.lowRate++;
+                else if (r && r.reason === 'tooFew') stats.tooFew++;
+                else if (r && r.reason === 'recorded') stats.recorded++;
+                else stats.noHist++;
+                return;
+            }
+            if (r.prob < PREDICT_HIT_RATE) { stats.lowProb++; return; }
+            perCat[it.lottery === 'hk' ? 'hk' : 'macau'].push(it);
+        });
+        const hitPct = Math.round(PREDICT_HIT_RATE * 100);
+        let winCat = activeCat;
+        if (!winCat) {
+            const m = perCat.macau.length, h = perCat.hk.length;
+            if (m === 0 && h === 0) {
+                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 智能预测：没有条目命中概率 ≥' + hitPct + '%。' + predictSummaryText(stats) + '</span>';
+                return;
+            }
+            if (m === h) {
+                const checked = items.find(it => it.checked && (it.lottery === 'macau' || it.lottery === 'hk'));
+                winCat = checked ? checked.lottery : 'macau';
+            } else {
+                winCat = m > h ? 'macau' : 'hk';
+            }
+        }
+        const targets = perCat[winCat] || [];
+        if (!targets.length) {
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 智能预测：当前类别没有条目命中概率 ≥' + hitPct + '%。' + predictSummaryText(stats) + '</span>';
+            return;
+        }
+        pushZdrHistory(); // 快照：可用「撤回」一步还原
+        targets.forEach(it => {
+            it.checked = true;
+            if (it.parts && it.parts.length && it.parts.every(p => !p.checked)) {
+                it.parts.forEach(p => { p.checked = true; });
+            }
+            it.effects = buildItemEffects(it.parts || []);
+        });
+        stats.checked = targets.length;
+        enforceImportMutex(winCat);
+        syncImportState();
+        renderImportList();
+        saveImportedStrategies();
+        const catLabel = winCat === 'hk' ? '香港' : '新澳门';
+        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 智能预测（' + catLabel + '）：勾选 ' + stats.checked + ' 条' + predictSummaryText(stats) + '</span>';
     };
 
     // 清空导入清单（容器内按钮）：只移除当前类别的条目（未选类别时清空全部）
