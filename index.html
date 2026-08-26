@@ -565,7 +565,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.89 · 2026-08-26 18:58</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.90 · 2026-08-26 22:24</div>
 
         </div>
     
@@ -2167,9 +2167,14 @@ function scrollToBottom(containerId) {
 .zdr-import-site-head { font-size: 0.78rem; }
 .zdr-import-part-line { font-size: 0.75rem; }
 .zdr-import-chip { font-size: 0.72rem; padding: 1px 8px; }
-.zdr-import-history-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 3px 0 0 21px; }
+/* v1.90：PC 端历史期数不再固定一排 10 个/横向滚动，一排放不下自动往下折行（移动端仍为 10 列网格） */
+.zdr-import-history-row { display: flex; gap: 6px; flex-wrap: wrap; overflow: visible; margin: 3px 0 0 21px; }
 .zdr-import-period { flex-shrink: 0; display: inline-block; font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; white-space: nowrap; text-align: center; }
+/* v1.90：冻结类（杀肖/杀码/杀尾）命中当期开奖时，显示在子条目右侧的红底白字「中」方块 */
+.zdr-import-hit-badge { display: inline-block; background: #f87171; color: #fff; font-size: 0.62rem; line-height: 1.25; padding: 0 4px; border-radius: 3px; margin: 2px 4px 0 2px; font-weight: 600; -webkit-user-select: none; user-select: none; }
 .zdr-import-history-row.zdr-expanded { flex-wrap: wrap; overflow: visible; }
+/* v1.90：桌面端收起状态——单行显示、超出部分裁剪（配合「查看全部 N 期」展开恢复换行） */
+.zdr-import-history-row.zdr-collapsed { flex-wrap: nowrap; overflow: hidden; }
 .zdr-import-history-toggle { margin: 3px 0 0 21px; font-size: 0.72rem; color: #1d4ed8; cursor: pointer; display: inline-block; -webkit-user-select: none; user-select: none; }
 .zdr-import-history-toggle:active { opacity: .7; }
 .zdr-import-hint { font-size: 0.72rem; }
@@ -7528,10 +7533,44 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof updateDisplay === 'function') updateDisplay();
     }
 
+    // v1.90：当期开奖命中判断——子选项的值（生肖/号码/头数/尾数/波色/五行/类别组合…）落在开奖特码对应集合即命中；
+    // 尾数/头数/波色特判，其余复用 expandComboToken 的「类别/词条 → 号码集合」映射（与期数弹窗 tipValueMatched 同一套规则）。
+    function partHitDraw(p, tm, color) {
+        const tmStr = String(tm == null ? '' : tm);
+        if (!tmStr) return false;
+        const label = String(p.label || '');
+        const v = String(p.display == null ? '' : p.display);
+        if (/尾数/.test(label)) return v.replace(/尾$/, '') === tmStr.slice(-1);
+        if (/头数/.test(label)) return v === tmStr.charAt(0);
+        if (/波色/.test(label)) return !!color && v.indexOf(color) > -1;
+        if (p.kind === 'numset') return Array.isArray(p.nums) && p.nums.indexOf(tmStr) > -1;
+        // 统一按显示文本匹配（与期数弹窗 tipValueMatched 一致）：生肖/号码/五行/大小/单双/男肖女肖等
+        // 均由 expandComboToken 展开为号码集合，特码落在集合内即命中
+        const nums = (typeof expandComboToken === 'function') ? expandComboToken(v) : null;
+        return Array.isArray(nums) && nums.length > 0 && nums.indexOf(tmStr) > -1;
+    }
+
     // 渲染单条条目内可按类别点击启用的子选项（直接点击选项切换，不显示勾选框）
+    // v1.90：子条目行左对齐条目勾选框；开奖数据到达后（23:59 清空子条目之前）——
+    // 选入类命中当期开奖的子选项标浅红；杀肖/杀码/杀尾等冻结类：整组杀对（当期开奖未开出
+    // 组内任何冻结值，如冻结牛羊开马肖）→ 在该子条目行最右侧只显示一个红底白字「中」方块，
+    // chip 一律保持原样；杀错/部分杀错 → chip 保持原样、不做任何标记。
     function renderItemParts(itemIndex, it) {
         const parts = it.parts || [];
-        if (!parts.length) return '<div class="zdr-import-part-line" style="margin:2px 0 0 21px;color:#94a3b8;line-height:1.7;">（请先获取数据）</div>';
+        if (!parts.length) return '<div class="zdr-import-part-line" style="margin:2px 0 0 0;color:#94a3b8;line-height:1.7;">（请先获取数据）</div>';
+        // 查找该条目当前期数的开奖记录：当期未开奖（无记录）则不标红
+        let drawHit = null;
+        const period = extractItemPeriod(it);
+        if (period != null && typeof findDrawRecordByPeriod === 'function' && typeof getTmFromRecord === 'function') {
+            const rec = findDrawRecordByPeriod(it.lottery, period);
+            if (rec) {
+                const tm = getTmFromRecord(rec);
+                if (tm) {
+                    const color = redNums.indexOf(tm) > -1 ? '红' : (blueNums.indexOf(tm) > -1 ? '蓝' : (greenNums.indexOf(tm) > -1 ? '绿' : ''));
+                    drawHit = { tm: tm, color: color };
+                }
+            }
+        }
         const activeCat = window.__importActiveCat;
         const locked = !!activeCat && it.lottery !== activeCat; // 已选类别时另一类条目不可选
         const groups = [];
@@ -7541,27 +7580,48 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             groupMap[p.label].push(pi);
         });
         const chipBase = 'display:inline-block;border-radius:10px;cursor:pointer;margin:2px 4px 0 0;user-select:none;transition:background .15s;';
-        return groups.map(g =>
-            '<div class="zdr-import-part-line" style="margin:2px 0 0 21px;color:#64748b;line-height:1.7;">' + escHtml(g.label) + ': ' +
-            g.list.map(pi => {
-                const p = parts[pi];
-                const on = it.checked && p.checked;
-                const style = chipBase + (locked ? 'background:#f1f5f9;color:#cbd5e1;cursor:not-allowed;opacity:.6;' : (on ? 'background:#f59e0b;color:#fff;font-weight:600;' : 'background:#e2e8f0;color:#94a3b8;'));
-                return '<span class="zdr-import-chip"' + (locked ? '' : ' onclick="window.toggleImportPart(' + itemIndex + ',' + pi + ')"') + ' title="' + (locked ? '已选择另一类别，不可操作' : '点击启用/停用') + '" style="' + style + '">' + escHtml(p.display) + '</span>';
-            }).join('') + '</div>'
-        ).join('');
+        return groups.map(g => {
+            // 冻结类整组杀对判定：组内全部为冻结类且当期开奖未开出组内任何值
+            const allKill = g.list.length > 0 && g.list.every(pi => parts[pi].cat === 'frozen');
+            const groupKillCorrect = allKill && !!drawHit && !g.list.some(pi => partHitDraw(parts[pi], drawHit.tm, drawHit.color));
+            return '<div class="zdr-import-part-line" style="margin:2px 0 0 0;color:#64748b;line-height:1.7;">' + escHtml(g.label) + ': ' +
+                g.list.map(pi => {
+                    const p = parts[pi];
+                    const on = it.checked && p.checked;
+                    const hit = !!drawHit && partHitDraw(p, drawHit.tm, drawHit.color);
+                    const isKill = p.cat === 'frozen'; // 杀肖/杀码/杀尾等冻结类：chip 永远保持原样
+                    const style = chipBase + (hit && !isKill
+                        ? 'background:#f87171;color:#fff;font-weight:600;' + (locked ? 'cursor:not-allowed;opacity:.8;' : '')
+                        : (locked ? 'background:#f1f5f9;color:#cbd5e1;cursor:not-allowed;opacity:.6;' : (on ? 'background:#f59e0b;color:#fff;font-weight:600;' : 'background:#e2e8f0;color:#94a3b8;')));
+                    const tip = locked ? '已选择另一类别，不可操作' : (hit ? (isKill ? '该冻结项被开出（杀错）' : '该选项命中当期开奖') : (isKill ? '该冻结项未开出（杀对）' : '点击启用/停用'));
+                    return '<span class="zdr-import-chip"' + (locked ? '' : ' onclick="window.toggleImportPart(' + itemIndex + ',' + pi + ')"') + ' title="' + tip + '" style="' + style + '">' + escHtml(p.display) + '</span>';
+                }).join('') +
+                // 整组杀对时在子条目最右侧只显示一个「中」方块
+                (groupKillCorrect ? '<span class="zdr-import-hit-badge"' + (locked ? ' style="opacity:.8;"' : '') + '>中</span>' : '') +
+                '</div>';
+        }).join('');
     }
 
-    // v1.87：历史存储最多 30 期，第三排默认只显示最近 10 期（视觉与旧版一致，最新期在右侧）；
-    // 超过 10 期时显示「查看全部 N 期」展开按钮，展开后显示全部期数（桌面换行、移动端多行网格），
-    // 展开状态会话内记忆（刷新后恢复默认）。中=红、不中=灰，每期带圆角外框。
+    // v1.90：历史存储最多 30 期，最新期在右侧。PC 端不限制每排 10 个——全部期数直接显示、
+    // 只有一排放不下才自动折行；一旦发生换行就显示「▴ 收起」折叠提示（收起后单行显示并变为
+    // 「▾ 查看全部 N 期」，再点恢复），一排放得下时不显示提示；移动端沿用 10 列网格，
+    // 超过 10 期时显示「查看全部 N 期」展开按钮。中=浅红底白字、不中=浅灰底白字。
     const __expandedHistoryKeys = new Set();
+    const __desktopCollapsedKeys = new Set(); // 桌面端「收起」状态（仅当换行时可用）
     window.toggleImportHistoryExpanded = function(itemIndex) {
         const items = window.__importedStrategies;
         if (!items || !items[itemIndex]) return;
         const key = importHistoryKey(items[itemIndex]);
         if (__expandedHistoryKeys.has(key)) __expandedHistoryKeys.delete(key);
         else __expandedHistoryKeys.add(key);
+        if (typeof renderImportList === 'function') renderImportList();
+    };
+    window.toggleDesktopHistoryCollapse = function(itemIndex) {
+        const items = window.__importedStrategies;
+        if (!items || !items[itemIndex]) return;
+        const key = importHistoryKey(items[itemIndex]);
+        if (__desktopCollapsedKeys.has(key)) __desktopCollapsedKeys.delete(key);
+        else __desktopCollapsedKeys.add(key);
         if (typeof renderImportList === 'function') renderImportList();
     };
     function renderImportHistory(itemIndex, it, histMap) {
@@ -7581,13 +7641,56 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             ? ' onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()"'
             : '';
         const expanded = __expandedHistoryKeys.has(key);
-        const shown = expanded ? periods : periods.slice(-10);
-        const toggle = periods.length > 10
-            ? '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + periods.length + ' 期') + '</div>'
-            : '';
-        return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + '">' +
-            shown.map(p => '<span class="zdr-import-period" style="border:1px solid ' + (p.hit ? '#ef4444' : '#cbd5e1') + ';border-radius:7px;color:' + (p.hit ? '#ef4444' : '#94a3b8') + ';cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>').join('') +
+        const isMobile = window.innerWidth <= 600; // 与移动端 CSS 断点一致
+        const desktopCollapsed = !isMobile && __desktopCollapsedKeys.has(key);
+        const shown = (!isMobile || expanded) ? periods : periods.slice(-10);
+        // 移动端：10 列网格 + 超过 10 期显示「查看全部/收起」；桌面端：折叠提示是否显示由
+        // 渲染后的换行/裁剪测量决定（见 syncDesktopHistoryHint），文案按收起状态切换
+        let toggle = '';
+        if (isMobile && periods.length > 10) {
+            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + periods.length + ' 期') + '</div>';
+        } else if (!isMobile) {
+            toggle = '<div class="zdr-import-history-toggle" data-desktop="1" onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + periods.length + ' 期' : '▴ 收起') + '</div>';
+        }
+        // v1.90：期数改为浅红底白字（中）/ 浅灰底白字（不中），去掉边框
+        return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + (desktopCollapsed ? ' zdr-collapsed' : '') + '">' +
+            shown.map(p => '<span class="zdr-import-period" style="background:' + (p.hit ? '#f87171' : '#9ca3af') + ';color:#fff;border-radius:6px;cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>').join('') +
             '</div>' + toggle;
+    }
+
+    // v1.90：桌面端折叠提示——展开状态下发生换行（排不下）才显示「▴ 收起」；
+    // 收起状态下发生裁剪（还有更多期数）才显示「▾ 查看全部 N 期」；一排放得下则隐藏
+    function syncDesktopHistoryHint() {
+        if (window.innerWidth <= 600) return;
+        const rows = document.querySelectorAll('.zdr-import-history-row');
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const toggle = row.nextElementSibling;
+            if (!toggle || !toggle.classList || !toggle.classList.contains('zdr-import-history-toggle') || toggle.getAttribute('data-desktop') !== '1') continue;
+            const collapsed = row.classList.contains('zdr-collapsed');
+            let show = false;
+            if (collapsed) {
+                show = row.scrollWidth > row.clientWidth + 1; // 单行裁剪说明还有更多期数
+            } else {
+                const first = row.firstElementChild;
+                const last = row.lastElementChild;
+                show = !!(first && last && first.offsetTop !== last.offsetTop); // 换行说明排不下
+            }
+            toggle.style.display = show ? '' : 'none';
+        }
+    }
+    // v1.90：窗口缩放时即时刷新桌面端折叠提示；跨移动/桌面断点（600px）时重新渲染以切换期数显示逻辑
+    let __lastWidthBreak = window.innerWidth <= 600;
+    if (typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', function() {
+            const nowMobile = window.innerWidth <= 600;
+            if (nowMobile !== __lastWidthBreak) {
+                __lastWidthBreak = nowMobile;
+                if (typeof renderImportList === 'function') renderImportList();
+            } else if (typeof syncDesktopHistoryHint === 'function') {
+                syncDesktopHistoryHint();
+            }
+        });
     }
 
     // 渲染导入条目清单（条目级勾选保留；条目内子选项直接点击切换）
@@ -7675,6 +7778,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 '</div>';
         });
         listEl.innerHTML = listHtml;
+        syncDesktopHistoryHint();
         updateToggleAllButton();
         renderCategoryButtons();
     }
