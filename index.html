@@ -554,7 +554,6 @@
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
                     <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
                     <button id="ext-strategy-copy-btn" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.copyImportStrategies()">复制全部</button>
-                    <button id="ext-strategy-predict-btn" style="margin-top:8px; padding:4px 10px; border:1px solid #a7f3d0; background:#ecfdf5; color:#047857; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.predictImportChecks()" title="按条目历史中/不中规律预测当期命中概率，≥75% 自动勾选（胜率≥70%、历史≥5期、当期未开奖才参与）">智能预测勾选</button>
                 </div>
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
@@ -565,7 +564,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.90 · 2026-08-26 22:24</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.94 · 2026-08-26 22:42</div>
 
         </div>
     
@@ -2170,8 +2169,8 @@ function scrollToBottom(containerId) {
 /* v1.90：PC 端历史期数不再固定一排 10 个/横向滚动，一排放不下自动往下折行（移动端仍为 10 列网格） */
 .zdr-import-history-row { display: flex; gap: 6px; flex-wrap: wrap; overflow: visible; margin: 3px 0 0 21px; }
 .zdr-import-period { flex-shrink: 0; display: inline-block; font-size: 0.7rem; padding: 1px 7px; line-height: 1.5; white-space: nowrap; text-align: center; }
-/* v1.90：冻结类（杀肖/杀码/杀尾）命中当期开奖时，显示在子条目右侧的红底白字「中」方块 */
-.zdr-import-hit-badge { display: inline-block; background: #f87171; color: #fff; font-size: 0.62rem; line-height: 1.25; padding: 0 4px; border-radius: 3px; margin: 2px 4px 0 2px; font-weight: 600; -webkit-user-select: none; user-select: none; }
+/* v1.92：冻结类（杀肖/杀码/杀尾）整组杀对时，紧贴标签词（如「杀肖 中 牛 羊」）的浅红底红字「中」小标签 */
+.zdr-import-hit-badge { display: inline-block; background: #fee2e2; color: #dc2626; font-size: 0.62rem; line-height: 1.25; padding: 0 5px; border-radius: 4px; margin: 2px 4px 0 2px; font-weight: 600; -webkit-user-select: none; user-select: none; }
 .zdr-import-history-row.zdr-expanded { flex-wrap: wrap; overflow: visible; }
 /* v1.90：桌面端收起状态——单行显示、超出部分裁剪（配合「查看全部 N 期」展开恢复换行） */
 .zdr-import-history-row.zdr-collapsed { flex-wrap: nowrap; overflow: hidden; }
@@ -7553,8 +7552,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 渲染单条条目内可按类别点击启用的子选项（直接点击选项切换，不显示勾选框）
     // v1.90：子条目行左对齐条目勾选框；开奖数据到达后（23:59 清空子条目之前）——
     // 选入类命中当期开奖的子选项标浅红；杀肖/杀码/杀尾等冻结类：整组杀对（当期开奖未开出
-    // 组内任何冻结值，如冻结牛羊开马肖）→ 在该子条目行最右侧只显示一个红底白字「中」方块，
-    // chip 一律保持原样；杀错/部分杀错 → chip 保持原样、不做任何标记。
+    // 组内任何冻结值，如冻结牛羊开马肖）→ 在标签词（如「杀肖」）与冒号之间显示一个浅红底
+    // 红字「中」小标签（杀肖 中: 牛 羊），chip 一律保持原样；杀错/部分杀错 → chip 保持原样、不做任何标记。
     function renderItemParts(itemIndex, it) {
         const parts = it.parts || [];
         if (!parts.length) return '<div class="zdr-import-part-line" style="margin:2px 0 0 0;color:#94a3b8;line-height:1.7;">（请先获取数据）</div>';
@@ -7584,7 +7583,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             // 冻结类整组杀对判定：组内全部为冻结类且当期开奖未开出组内任何值
             const allKill = g.list.length > 0 && g.list.every(pi => parts[pi].cat === 'frozen');
             const groupKillCorrect = allKill && !!drawHit && !g.list.some(pi => partHitDraw(parts[pi], drawHit.tm, drawHit.color));
-            return '<div class="zdr-import-part-line" style="margin:2px 0 0 0;color:#64748b;line-height:1.7;">' + escHtml(g.label) + ': ' +
+            return '<div class="zdr-import-part-line" style="margin:2px 0 0 0;color:#64748b;line-height:1.7;">' + escHtml(g.label) +
+                // 整组杀对时「中」标签放在标签词与冒号之间（杀肖 中: 牛 羊）
+                (groupKillCorrect ? ' <span class="zdr-import-hit-badge"' + (locked ? ' style="opacity:.8;"' : '') + '>中</span>' : '') +
+                ': ' +
                 g.list.map(pi => {
                     const p = parts[pi];
                     const on = it.checked && p.checked;
@@ -7596,8 +7598,6 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     const tip = locked ? '已选择另一类别，不可操作' : (hit ? (isKill ? '该冻结项被开出（杀错）' : '该选项命中当期开奖') : (isKill ? '该冻结项未开出（杀对）' : '点击启用/停用'));
                     return '<span class="zdr-import-chip"' + (locked ? '' : ' onclick="window.toggleImportPart(' + itemIndex + ',' + pi + ')"') + ' title="' + tip + '" style="' + style + '">' + escHtml(p.display) + '</span>';
                 }).join('') +
-                // 整组杀对时在子条目最右侧只显示一个「中」方块
-                (groupKillCorrect ? '<span class="zdr-import-hit-badge"' + (locked ? ' style="opacity:.8;"' : '') + '>中</span>' : '') +
                 '</div>';
         }).join('');
     }
@@ -7932,7 +7932,6 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function updateToggleAllButton() {
         const btn = document.getElementById('ext-strategy-toggle-all');
         const copyBtn = document.getElementById('ext-strategy-copy-btn');
-        const predictBtn = document.getElementById('ext-strategy-predict-btn');
         if (!btn) return;
         const items = window.__importedStrategies || [];
         const activeCat = window.__importActiveCat;
@@ -7941,12 +7940,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!visible.length) {
             btn.style.display = 'none';
             if (copyBtn) copyBtn.style.display = 'none';
-            if (predictBtn) predictBtn.style.display = 'none';
             return;
         }
         btn.style.display = 'inline-block';
         if (copyBtn) copyBtn.style.display = 'inline-block';
-        if (predictBtn) predictBtn.style.display = 'inline-block';
         btn.textContent = visible.some(it => it.checked) ? '取消全选' : '全部启用';
     }
 
@@ -8123,135 +8120,6 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         syncImportState();
         renderImportList();
         saveImportedStrategies();
-    };
-
-    // ========== v1.88：智能预测勾选（根据条目历史中/不中规律预测当期命中概率） ==========
-    // 规则：胜率≥70% 且历史≥5期 且当期未开奖登记的条目才参与；
-    // 学习「连续中/不中 k 期后下一期的命中率」条件规律——k 样本≥3 次直接采信，
-    // 1~2 次按 70% 条件率 + 30% 整体胜率加权，无该状态样本回退整体胜率；
-    // 预测命中概率 ≥75% 则自动勾选该条目；勾选前记录快照，可用「撤回」一步还原。
-    const PREDICT_MIN_PERIODS = 5;
-    const PREDICT_MIN_RATE = 0.70;
-    const PREDICT_MIN_SAMPLES = 3;
-    const PREDICT_HIT_RATE = 0.75;
-    const PREDICT_TRUST_WEIGHT = 0.7;
-
-    // 返回条目当期预测命中概率（0~1）；不参与预测时 prob 为 null 并附 reason
-    function predictEntryHitProbability(it, histMap) {
-        const period = extractItemPeriod(it);
-        if (period == null) return { prob: null, reason: 'noPeriod' };
-        const h = histMap[importHistoryKey(it)];
-        const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
-        if (!periods.length) return { prob: null, reason: 'noHistory' };
-        // 当期已登记战绩（开奖已到并判定）→ 无需预测
-        if (periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period)) return { prob: null, reason: 'recorded' };
-        if (periods.length < PREDICT_MIN_PERIODS) return { prob: null, reason: 'tooFew' };
-        const seq = periods.map(p => !!(p && p.hit));
-        const total = seq.length;
-        const hits = seq.filter(Boolean).length;
-        const overallRate = hits / total;
-        if (overallRate < PREDICT_MIN_RATE) return { prob: null, reason: 'lowRate' };
-        // 条件规律统计：进入「连续中 k 期」/「连续不中 k 期」状态后，下一期的命中次数/总次数
-        const afterHit = {}, afterMiss = {};
-        let run = 1; // 截至 seq[0] 的连续同状态长度（进入第 1 期时的状态）
-        for (let i = 1; i < total; i++) {
-            const prev = seq[i - 1], cur = seq[i];
-            const stats = prev ? afterHit : afterMiss;
-            (stats[run] = stats[run] || { hit: 0, total: 0 }).total++;
-            if (cur) stats[run].hit++;
-            if (cur === prev) run++; else run = 1;
-        }
-        // 当前连续状态（从最新一期往前数）
-        let curK = 1;
-        for (let j = total - 2; j >= 0 && seq[j] === seq[total - 1]; j--) curK++;
-        const curStats = seq[total - 1] ? afterHit : afterMiss;
-        const s = curStats[curK];
-        let prob;
-        if (s && s.total >= PREDICT_MIN_SAMPLES) {
-            prob = s.hit / s.total; // 规律样本足够：直接采信条件率
-        } else if (s && s.total > 0) {
-            prob = PREDICT_TRUST_WEIGHT * (s.hit / s.total) + (1 - PREDICT_TRUST_WEIGHT) * overallRate; // 样本不足：加权整体胜率
-        } else {
-            prob = overallRate; // 该状态从未出现：回退整体胜率
-        }
-        return { prob: Math.round(prob * 1000) / 1000, reason: 'ok' };
-    }
-
-    // 汇总跳过原因文案
-    function predictSummaryText(stats) {
-        let t = '';
-        if (stats.lowRate) t += ' · 胜率<70%跳过 ' + stats.lowRate;
-        if (stats.tooFew) t += ' · 历史不足5期 ' + stats.tooFew;
-        if (stats.recorded) t += ' · 当期已开奖跳过 ' + stats.recorded;
-        if (stats.noHist) t += ' · 无历史/无期数 ' + stats.noHist;
-        if (stats.lowProb) t += ' · 预测<75% ' + stats.lowProb;
-        return t;
-    }
-
-    // 智能预测勾选：只作用于当前类别；未选类别时按互斥规则选预测命中数更多的类别
-    window.predictImportChecks = function() {
-        const items = window.__importedStrategies || [];
-        const feedbackEl = document.getElementById('ext-strategy-feedback');
-        if (!items.length) {
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可预测的导入条目。</span>';
-            return;
-        }
-        const activeCat = window.__importActiveCat;
-        const scope = activeCat ? items.filter(it => it.lottery === activeCat) : items;
-        if (!scope.length) {
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前类别没有可预测的导入条目。</span>';
-            return;
-        }
-        const histMap = loadImportHistories();
-        const stats = { checked: 0, lowRate: 0, tooFew: 0, recorded: 0, lowProb: 0, noHist: 0 };
-        const perCat = { macau: [], hk: [] };
-        scope.forEach(it => {
-            const r = predictEntryHitProbability(it, histMap);
-            if (!r || r.prob == null) {
-                if (r && r.reason === 'lowRate') stats.lowRate++;
-                else if (r && r.reason === 'tooFew') stats.tooFew++;
-                else if (r && r.reason === 'recorded') stats.recorded++;
-                else stats.noHist++;
-                return;
-            }
-            if (r.prob < PREDICT_HIT_RATE) { stats.lowProb++; return; }
-            perCat[it.lottery === 'hk' ? 'hk' : 'macau'].push(it);
-        });
-        const hitPct = Math.round(PREDICT_HIT_RATE * 100);
-        let winCat = activeCat;
-        if (!winCat) {
-            const m = perCat.macau.length, h = perCat.hk.length;
-            if (m === 0 && h === 0) {
-                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 智能预测：没有条目命中概率 ≥' + hitPct + '%。' + predictSummaryText(stats) + '</span>';
-                return;
-            }
-            if (m === h) {
-                const checked = items.find(it => it.checked && (it.lottery === 'macau' || it.lottery === 'hk'));
-                winCat = checked ? checked.lottery : 'macau';
-            } else {
-                winCat = m > h ? 'macau' : 'hk';
-            }
-        }
-        const targets = perCat[winCat] || [];
-        if (!targets.length) {
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 智能预测：当前类别没有条目命中概率 ≥' + hitPct + '%。' + predictSummaryText(stats) + '</span>';
-            return;
-        }
-        pushZdrHistory(); // 快照：可用「撤回」一步还原
-        targets.forEach(it => {
-            it.checked = true;
-            if (it.parts && it.parts.length && it.parts.every(p => !p.checked)) {
-                it.parts.forEach(p => { p.checked = true; });
-            }
-            it.effects = buildItemEffects(it.parts || []);
-        });
-        stats.checked = targets.length;
-        enforceImportMutex(winCat);
-        syncImportState();
-        renderImportList();
-        saveImportedStrategies();
-        const catLabel = winCat === 'hk' ? '香港' : '新澳门';
-        if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 智能预测（' + catLabel + '）：勾选 ' + stats.checked + ' 条' + predictSummaryText(stats) + '</span>';
     };
 
     // 清空导入清单（容器内按钮）：只移除当前类别的条目（未选类别时清空全部）
