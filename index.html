@@ -565,7 +565,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.88 · 2026-08-25 23:51</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.89 · 2026-08-26 18:58</div>
 
         </div>
     
@@ -5513,11 +5513,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             it.title = replaceImportedItemPeriod(it.title, nextPeriod);
             it.latest_data = '请先获取数据';
             it.pendingRefresh = true;
-            // 历史补记在调用本函数前完成；推进期数时保留子条目但取消勾选，真正清空只在每天 23:59 执行。
-            it.parts = (it.parts || []).map(function(part) {
-                return Object.assign({}, part, { checked: false });
-            });
-            it.effects = buildItemEffects(it.parts);
+            // 历史补记在调用本函数前完成；推进期数时直接清空旧期子条目，
+            // 避免页面未在 23:59 打开时（次日加载推进）新期标题残留旧期子选项造成误解。
+            it.parts = [];
+            it.effects = buildItemEffects([]);
             it.pinnedResetDate = today;
             changed = true;
         });
