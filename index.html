@@ -263,6 +263,14 @@
             -webkit-tap-highlight-color: transparent; /* 移除移动端点击高亮蓝框 */
             touch-action: manipulation; /* 优化移动端点击延迟 */
         }
+        /* v1.95 长按交互基线：按住时禁止文字选中/复制（PC 拖选、iOS 放大镜/复制菜单、Android 长按复制菜单）；
+           后续新增的长按元素加上 .zdr-hold 即可复用 */
+        .zdr-hold,
+        .btn {
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
         /* 按钮被选中后的样式 */
         .btn.active {
             background-color: #007bff;
@@ -564,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.94 · 2026-08-26 22:42</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.96 · 2026-08-27 20:16</div>
 
         </div>
     
@@ -1128,33 +1136,96 @@
 
 
 
+        // v1.95：通用长按骨架 —— 统一 PC/移动端按住检测，防文字复制 + 滚动隔离
+        // duration: 按住多久触发；threshold: 位移超过该值(px)即取消（视为滚动/拖动意图）；
+        // consumeClick: 触发后 800ms 内吞掉随后的 click（防抬手误触发）；onFire: 触发回调
+        function setupZdrHold(el, opts) {
+            const duration = (opts && opts.duration) || 600;
+            const onFire = opts && opts.onFire;
+            const threshold = (opts && opts.threshold) || 10;
+            const consumeClick = !opts || opts.consumeClick !== false;
+            let timer = null, fired = false, firedAt = 0, startX = 0, startY = 0, scrollGuardOn = false;
+
+            function addScrollGuard() {
+                if (!scrollGuardOn) { window.addEventListener('scroll', cancel, true); scrollGuardOn = true; }
+            }
+            function removeScrollGuard() {
+                if (scrollGuardOn) { window.removeEventListener('scroll', cancel, true); scrollGuardOn = false; }
+            }
+            function cancel() {
+                if (timer) { clearTimeout(timer); timer = null; }
+                removeScrollGuard();
+            }
+            function start(e) {
+                if (e.button !== undefined && e.button !== 0) return; // 仅主键/主触点
+                cancel();
+                fired = false;
+                const t = e.touches && e.touches[0];
+                startX = t ? t.clientX : e.clientX;
+                startY = t ? t.clientY : e.clientY;
+                addScrollGuard();
+                timer = setTimeout(function() {
+                    timer = null;
+                    fired = true; firedAt = Date.now();
+                    if (typeof onFire === 'function') onFire();
+                }, duration);
+                // PC 端按下即阻止文字选区；触屏不阻止（否则点击会失效），由 CSS user-select 负责
+                if (e.cancelable && (e.type === 'mousedown' || e.pointerType === 'mouse')) e.preventDefault();
+            }
+            function move(e) {
+                if (!timer) return;
+                const t = e.touches && e.touches[0];
+                const cx = t ? t.clientX : e.clientX;
+                const cy = t ? t.clientY : e.clientY;
+                if (Math.abs(cx - startX) > threshold || Math.abs(cy - startY) > threshold) cancel();
+            }
+            function end(e) {
+                const hadFired = fired;
+                cancel();
+                if (hadFired && e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            }
+
+            if (window.PointerEvent) {
+                el.addEventListener('pointerdown', start);
+                el.addEventListener('pointermove', move);
+                el.addEventListener('pointerup', end);
+                el.addEventListener('pointercancel', end);
+                el.addEventListener('pointerleave', end);
+            } else {
+                el.addEventListener('mousedown', start);
+                el.addEventListener('mousemove', move);
+                el.addEventListener('mouseup', end);
+                el.addEventListener('mouseleave', end);
+                el.addEventListener('touchstart', start, { passive: true });
+                el.addEventListener('touchmove', move, { passive: true });
+                el.addEventListener('touchend', end);
+                el.addEventListener('touchcancel', end);
+            }
+            // Android 长按约 500ms 先触发 contextmenu：只拦截菜单、不取消定时器，否则 1000ms 长按无法触发
+            el.addEventListener('contextmenu', function(e) {
+                if (e.cancelable) e.preventDefault();
+            });
+            if (consumeClick) {
+                el.addEventListener('click', function(e) {
+                    if (fired && Date.now() - firedAt < 800) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    fired = false;
+                }, true);
+            }
+            el.__zdrHoldCleanup = function() { cancel(); };
+        }
+
         // 新增：长按处理函数（改造为全维度通用，带防反选延迟）
         function setupLongPress(btn, category, value) {
-            let pressTimer;
-            let longPressTriggered = false;
             const itemKey = category + ':' + value;
-
-            // 鼠标/触摸按下事件
-            btn.addEventListener('mousedown', startPress);
-            btn.addEventListener('touchstart', startPress, { passive: true });
-
-            // 鼠标/触摸松开事件
-            btn.addEventListener('mouseup', cancelPress);
-            btn.addEventListener('touchend', cancelPress);
-            btn.addEventListener('mouseleave', cancelPress); // 如果鼠标移出按钮，取消长按
-
-            function startPress(e) {
-                if (e.type !== 'touchstart') {
-                    e.preventDefault(); // 防止PC端默认行为（移动端不阻止以免引发点击失效）
-                }
-                longPressTriggered = false;
-                pressTimer = setTimeout(() => {
-                    // 长按触发：切换冻结状态
-                    longPressTriggered = true;
-                    
+            setupZdrHold(btn, {
+                duration: 1000, // 1秒长按时间
+                onFire: function() {
                     if (frozenItems.has(itemKey)) {
                         // 已冻结 → 解冻：延迟200毫秒清除冻结状态，保护手指抬起时产生的Click事件不造成反选
-                        setTimeout(() => {
+                        setTimeout(function() {
                             pushZdrHistory();
                             frozenItems.delete(itemKey);
                             btn.classList.remove('frozen');
@@ -1173,16 +1244,8 @@
                         syncUI();
                         updateDisplay();
                     }
-                }, 1000); // 1000ms = 1秒长按时间
-            }
-
-            function cancelPress(e) {
-                clearTimeout(pressTimer);
-                // 阻止可能触发的额外行为
-                if (longPressTriggered) {
-                    e.stopPropagation();
                 }
-            }
+            });
         }
 
 
@@ -5737,7 +5800,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             // 「新澳门」后期数才变成开头，期数前缀才能被去掉，规范化结果与键「奥霸网【九肖18码】」相等
             // v1.68：补剥「香港」前缀（与「新澳门」对称），旧「香港 4847…」标题才能与去掉前缀的新条目匹配
             .replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '')
-            .replace(/599507\.com|599508\.com|56949\.com|99444(\.com)?/g, '')
+            // v1.96：域名剥离改为通用数字域名规则——4~7 位数字 + com（带点/不带点均可，支持
+            // .com.cn/.com.hk 等多级后缀）一律按域名剥掉，避免群英会域名 599507→559991→后续再换
+            // 数字域名时历史键再次失联；99444 为历史遗留的裸站名写法（无 .com），单独保留兼容
+            .replace(/\d{4,7}\.?com(?:\.(?:cn|hk|mo|tw))?|\b99444\b/gi, '')
             .replace(/[【】『』〔〕「」《》（）()\s·→：:，,。.!！?？\-_★☆]/g, '')
             .trim();
     }
@@ -6855,10 +6921,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         refreshSavedNumbersPanel();
     };
 
-    // 长按 1 秒删除单个号码：按下启动 1s 定时器，期间移动/松开/取消均取消；触发后抑制随后的单击导入
-    window._stashNumHold = function(el, stashId, num) {
+    // v1.95：长按 1 秒删除单个号码：按下启动 1s 定时器，期间位移(>10px)/松开/取消/页面滚动均取消；触发后抑制随后的单击导入
+    window._stashNumHold = function(el, evt, stashId, num) {
         window._stashNumRelease(el);
         el.__zdrHoldFired = false;
+        if (evt) { el.__zdrHoldStartX = evt.clientX; el.__zdrHoldStartY = evt.clientY; }
+        el.__zdrHoldScrollCancel = function() { window._stashNumRelease(el); };
+        window.addEventListener('scroll', el.__zdrHoldScrollCancel, true);
         el.style.opacity = '0.6';
         el.style.transform = 'scale(0.93)';
         el.__zdrHoldTimer = setTimeout(function() {
@@ -6868,9 +6937,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             window.deleteNumberFromStash(stashId, num);
         }, 1000);
     };
+    window._stashNumMove = function(el, evt) {
+        if (!el || !el.__zdrHoldTimer || !evt) return;
+        if (Math.abs(evt.clientX - el.__zdrHoldStartX) > 10 || Math.abs(evt.clientY - el.__zdrHoldStartY) > 10) window._stashNumRelease(el);
+    };
     window._stashNumRelease = function(el) {
         if (!el) return;
         if (el.__zdrHoldTimer) { clearTimeout(el.__zdrHoldTimer); el.__zdrHoldTimer = null; }
+        if (el.__zdrHoldScrollCancel) { window.removeEventListener('scroll', el.__zdrHoldScrollCancel, true); el.__zdrHoldScrollCancel = null; }
         el.style.opacity = '1';
         el.style.transform = 'scale(1)';
     };
@@ -6926,7 +7000,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     const bg = c === '红' ? '#dc2626' : (c === '蓝' ? '#2563eb' : '#16a34a');
                     const fg = '#ffffff';
                     return '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:opacity 0.12s, transform 0.12s;" ' +
-                        'onpointerdown="window._stashNumHold(this,' + s.id + ',\'' + n + '\')" onpointerup="window._stashNumRelease(this)" onpointerleave="window._stashNumRelease(this)" onpointercancel="window._stashNumRelease(this)" ' +
+                        'onpointerdown="window._stashNumHold(this,event,' + s.id + ',\'' + n + '\')" onpointermove="window._stashNumMove(this,event)" onpointerup="window._stashNumRelease(this)" onpointerleave="window._stashNumRelease(this)" onpointercancel="window._stashNumRelease(this)" ' +
                         'oncontextmenu="event.preventDefault(); window._stashNumRelease(this); return false;" ' +
                         'onclick="if (window._stashNumConsumeClick(this)) return; window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框 · 长按1秒删除该号码">' +
                         '<span>' + n + '</span><span style="font-size:0.68rem;opacity:0.85;font-weight:500;">' + (nz(n) || '') + '</span></span>';
@@ -7700,7 +7774,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (/奥霸网|澳霸网/.test(t)) return '奥霸网';
         if (/铁算盘/.test(t)) return '铁算盘';
         if (/九龙网|九龍网/.test(t)) return '澳门九龙网';
-        if (/群英会/.test(t) || /599507\.com|599508\.com/.test(t)) return '群英会';
+        // v1.96：域名识别补群英会新旧域名（旧 599507/599508，新 559991/559992）；此处仅影响
+        // 清单分组底色/排序等展示，历史键站族由 zdrSiteFamily 的关键字判定，不依赖域名
+        if (/群英会/.test(t) || /599507\.com|599508\.com|559991\.com|559992\.com/.test(t)) return '群英会';
         return '其他';
     }
     function siteHeadColor(site) {
