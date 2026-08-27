@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.96 · 2026-08-27 20:16</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.97 · 2026-08-27 21:10</div>
 
         </div>
     
@@ -7117,10 +7117,80 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
         // 规则0：选入/杀死标记（油猴自定义模板“内容标记”输出）——整条按标记识别并直接返回，
         // 不再走下面规则，避免“绝杀三肖”等正文词与标记语义冲突（同一批生肖既被杀又被选）
-        const hasPickMark = /【选入】/.test(str);
-        const hasKillMark = /【杀死】/.test(str);
-        if (hasPickMark || hasKillMark) {
-            const isKill = !!hasKillMark;
+        // v1.97：细分标记【选入/杀死】(生肖|号码|头数|尾数|波色) 直接按类别解析，不依赖内容关键词；
+        // 旧【选入】/【杀死】保持自动识别，并增强尾类识别（全角/带圈数字、标题关键词、括号尾兜底）
+        const normalizeMarkDigits = (s) => String(s)
+            .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+            .replace(/[①-⑩]/g, c => String(('①②③④⑤⑥⑦⑧⑨⑩'.indexOf(c)) + 1));
+        function parseMarkedCategory(cat, body, isKill) {
+            const outParts = [];
+            const outHits = [];
+            const noPeriod = body.replace(/\d+\s*期/g, ' ');
+            const pushChecked = (p) => { p.checked = true; outParts.push(p); };
+            if (cat === '尾数') {
+                const bracket = noPeriod.match(/[〖【]([^〗】]*)[〗】]/);
+                const src = bracket ? bracket[1] : noPeriod;
+                const tails = Array.from(new Set((src.match(/\d/g) || []).filter(d => /^[0-9]$/.test(d))));
+                if (!tails.length) return null;
+                tails.forEach(t => pushChecked({ cat: isKill ? 'frozen' : 'lastDigit', label: isKill ? '杀尾' : '尾数', value: t, display: t + '尾', kind: 'digit' }));
+                outHits.push("<span style='color:" + (isKill ? '#ef4444' : '#0891b2') + ";'>" + (isKill ? '杀尾(标记):' : '尾数(标记):') + "</span> " + tails.join(','));
+                return { parts: outParts, hits: outHits };
+            }
+            if (cat === '号码') {
+                const nums = Array.from(new Set((noPeriod.match(/\d+/g) || [])
+                    .filter(n => n.length <= 2)
+                    .map(n => parseInt(n, 10))
+                    .filter(v => !isNaN(v) && v >= 1 && v <= 49)
+                    .map(v => v.toString().padStart(2, '0'))));
+                if (!nums.length) return null;
+                nums.forEach(v => pushChecked({ cat: isKill ? 'frozen' : 'numbers', label: isKill ? '杀码' : '特码', value: v, display: v, kind: 'num' }));
+                outHits.push("<span style='color:" + (isKill ? '#ef4444' : '#10b981') + ";'>" + (isKill ? '杀码(标记):' : '特码(标记):') + "</span> " + nums.join(','));
+                return { parts: outParts, hits: outHits };
+            }
+            if (cat === '生肖') {
+                const zods = Array.from(new Set((body.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []).filter(z => zodiacMap[z])));
+                if (!zods.length) return null;
+                zods.forEach(z => pushChecked({ cat: isKill ? 'frozen' : 'numbers', label: isKill ? '杀肖' : '选肖', value: z, display: z, kind: 'zodiac' }));
+                outHits.push("<span style='color:" + (isKill ? '#ef4444' : '#10b981') + ";'>" + (isKill ? '杀肖(标记):' : '选肖(标记):') + "</span> " + zods.join(''));
+                return { parts: outParts, hits: outHits };
+            }
+            if (cat === '头数') {
+                const headStr = noPeriod.replace(/[^\d]/g, '');
+                const heads = Array.from(new Set((headStr.match(/\d/g) || []).filter(d => /^[0-4]$/.test(d))));
+                if (!heads.length) return null;
+                heads.forEach(h => pushChecked({ cat: isKill ? 'frozen' : 'firstDigit', label: isKill ? '杀头' : '头数', value: h, display: h, kind: 'digit' }));
+                outHits.push("<span style='color:#3b82f6;'>" + (isKill ? '杀头(标记):' : '头数(标记):') + "</span> " + heads.join(','));
+                return { parts: outParts, hits: outHits };
+            }
+            if (cat === '波色') {
+                let colors = Array.from(new Set((body.match(/[红蓝绿]\s*波/g) || []).map(m => m[0])));
+                if (!colors.length) {
+                    const cb = body.match(/[〖【]([^〗】]*)[〗】]/);
+                    if (cb) colors = Array.from(new Set((cb[1].match(/[红蓝绿]/g) || [])));
+                }
+                if (!colors.length) return null;
+                colors.forEach(c => pushChecked({ cat: isKill ? 'frozen' : 'color', label: isKill ? '杀波色' : '波色', value: c, display: c + '波', kind: 'colorChar' }));
+                outHits.push("<span style='color:#8b5cf6;'>" + (isKill ? '杀波色(标记):' : '波色(标记):') + "</span> " + colors.join(','));
+                return { parts: outParts, hits: outHits };
+            }
+            return null;
+        }
+        const pickMark = str.match(/【选入(生肖|号码|头数|尾数|波色)?】/);
+        const killMark = str.match(/【杀死(生肖|号码|头数|尾数|波色)?】/);
+        if (pickMark || killMark) {
+            const isKill = !!killMark;
+            const markCat = pickMark ? (pickMark[1] || '') : (killMark[1] || '');
+            const markBody = normalizeMarkDigits(pickMark ? str.slice(pickMark.index + pickMark[0].length) : str.slice(killMark.index + killMark[0].length));
+            if (markCat) {
+                const parsed = parseMarkedCategory(markCat, markBody, isKill);
+                if (parsed) {
+                    parsed.parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+                    return { parts: parsed.parts, hits: parsed.hits };
+                }
+            }
+            // 旧【选入】/【杀死】或细分内容无法解析 → 自动识别（正文归一化 + 尾类优先增强）；
+            // 先剥掉标记前缀，避免“尾数”等类别词混入正文关键词匹配
+            const normStr = normalizeMarkDigits(str).replace(/【(选入|杀死)(生肖|号码|头数|尾数|波色)?】/, '');
             // 类别词条识别（仅选入标记）：标题或正文含 琴棋书画/风雨雷电/春夏秋冬 时，
             // 从正文括号取组字（组字间可有空格，如 【画 书 棋】），避免“必开【画 书 棋】”等被丢弃
             if (!isKill) {
@@ -7130,14 +7200,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     { keyword: '春夏秋冬', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } },
                     { keyword: '四季', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } }
                 ];
-                const markedSearchText = (title ? String(title) : '') + '\u0001' + str;
+                const markedSearchText = (title ? String(title) : '') + '\u0001' + normStr;
                 markedGroupRules.forEach(gr => {
                     if (!markedSearchText.includes(gr.keyword)) return;
                     const found = [];
                     const gSeen = new Set();
                     const markedBracketRe = /[〖【]([^〗】]*)[〗】]/g;
                     let mb;
-                    while ((mb = markedBracketRe.exec(str)) !== null) {
+                    while ((mb = markedBracketRe.exec(normStr)) !== null) {
                         if (inPlusBracket(mb.index)) continue;
                         Array.from(mb[1]).forEach(ch => {
                             if (gr.chars[ch] && !gSeen.has(ch)) { gSeen.add(ch); found.push(ch); }
@@ -7145,8 +7215,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     }
                     if (!found.length) { // 无括号时兼容 风雨雷电：风雨 等写法
                         let ki = 0;
-                        while ((ki = str.indexOf(gr.keyword, ki)) > -1) {
-                            Array.from(str.slice(ki + gr.keyword.length, ki + gr.keyword.length + 16)).forEach(ch => {
+                        while ((ki = normStr.indexOf(gr.keyword, ki)) > -1) {
+                            Array.from(normStr.slice(ki + gr.keyword.length, ki + gr.keyword.length + 16)).forEach(ch => {
                                 if (gr.chars[ch] && !gSeen.has(ch)) { gSeen.add(ch); found.push(ch); }
                             });
                             ki += gr.keyword.length;
@@ -7158,11 +7228,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     }
                 });
             }
-            // 尾类内容优先：绝杀二尾【7尾.5尾】/六尾 0.1.2.3.4.8尾 等按 杀尾/尾数 识别，
+            // 尾类内容优先：绝杀二尾【7尾.5尾】/六尾 0.1.2.3.4.8尾 / ⑦尾【1.2.3.4.5.6.7尾】等按 杀尾/尾数 识别，
             // 而不是把 7、5 等误当成杀码/特码号码（尾部是集合语义，不是单个号码）
-            const tailHead = str.match(/(?:绝杀|死杀|必杀)?(?:六尾|尾数|[一二三四五六七八九十]尾|杀尾)/);
+            const tailHead = normStr.match(/(?:绝杀|死杀|必杀)?(?:六尾|尾数|[0-9一二三四五六七八九十]尾|杀尾)/);
             if (tailHead) {
-                const afterSeg = str.slice(tailHead.index + tailHead[0].length, tailHead.index + tailHead[0].length + 16);
+                const afterSeg = normStr.slice(tailHead.index + tailHead[0].length, tailHead.index + tailHead[0].length + 16);
                 const tailBracket = afterSeg.match(/[〖【]([^〗】]*)[〗】]/);
                 const seg = tailBracket ? tailBracket[1] : afterSeg;
                 const tailStr = seg.replace(/[^\d.]+/g, '.');
@@ -7177,9 +7247,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     return { parts: parts, hits: hits };
                 }
             }
-            const zodList = (str.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []);
+            // 标题含尾数关键词（如“包中尾数”）或正文残留 N尾 写法时，括号纯数字集合也按尾数兜底
+            const titleHasTailWord = /(尾数|六尾|[0-9一二三四五六七八九十]尾)/.test(title || '');
+            if (!tailHead && (titleHasTailWord || /[0-9一二三四五六七八九十]尾/.test(normStr))) {
+                const noPeriodTail = normStr.replace(/\d+\s*期/g, ' ');
+                const tailBracketFallback = noPeriodTail.match(/[〖【]([^〗】]*)[〗】]/);
+                const fallbackDigits = ((tailBracketFallback ? tailBracketFallback[1] : noPeriodTail).match(/\d/g) || []).filter(d => /^[0-9]$/.test(d));
+                const hasTailChar = tailBracketFallback ? /尾/.test(tailBracketFallback[1]) : /尾/.test(noPeriodTail);
+                if (hasTailChar && fallbackDigits.length) {
+                    const tails = Array.from(new Set(fallbackDigits));
+                    tails.forEach(t => parts.push({ cat: isKill ? 'frozen' : 'lastDigit', label: isKill ? '杀尾' : '尾数', value: t, display: t + '尾', kind: 'digit' }));
+                    hits.push("<span style='color:" + (isKill ? '#ef4444' : '#0891b2') + ";'>" + (isKill ? '杀尾(标记):' : '尾数(标记):') + "</span> " + tails.join(','));
+                    parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
+                    return { parts: parts, hits: hits };
+                }
+            }
+            const zodList = (normStr.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []);
             // 数字：取 1~2 位数字段（点号/顿号分隔列表如 05.12.33 也逐个提取；3 位及以上如期数/年份忽略）
-            const numList = (str.match(/\d+/g) || []).filter(n => n.length <= 2);
+            const numList = (normStr.match(/\d+/g) || []).filter(n => n.length <= 2);
             const zodSeen = new Set();
             const numSeen = new Set();
             let addedZod = 0, addedNum = 0;
@@ -7529,15 +7614,20 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (p.cat === 'frozen') effects.frozen.add('num:' + p.value);
                 else effects.numbers.add(p.value);
             } else if (p.kind === 'digit') {
-                if (p.cat === 'frozen') effects.frozen.add('lastDigit:' + p.value); // 杀尾：冻结对应尾数
+                if (p.cat === 'frozen') effects.frozen.add((p.label === '杀头' ? 'firstDigit:' : 'lastDigit:') + p.value); // 杀尾/杀头：冻结对应尾数/头数
                 else if (p.cat === 'lastDigit') effects.lastDigit.add(p.value);
                 else effects.firstDigit.add(p.value);
             } else if (p.kind === 'char') {
                 if (p.cat === 'weather') effects.weather.add(p.value);
                 else effects.element.add(p.value);
             } else if (p.kind === 'colorChar') {
-                effects.color.add(p.value + '波单');
-                effects.color.add(p.value + '波双');
+                if (p.cat === 'frozen') { // 杀波色：冻结红/蓝/绿波的 单+双 两组
+                    effects.frozen.add('color:' + p.value + '波单');
+                    effects.frozen.add('color:' + p.value + '波双');
+                } else {
+                    effects.color.add(p.value + '波单');
+                    effects.color.add(p.value + '波双');
+                }
             } else if (p.kind === 'numset') {
                 // 加号合集展开的号码集合：直接并入 numbers（并集语义）
                 (p.nums || []).forEach(n => effects.numbers.add(n));
