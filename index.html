@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.97 · 2026-08-27 21:10</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.98 · 2026-08-28 23:25</div>
 
         </div>
     
@@ -6198,15 +6198,31 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return buildItemEffects(parts);
     }
 
-    // 累积/更新单条条目的本期战绩：只对自身期数一一对应判定（无期数或该期未开奖则跳过；有变化才返回 true）
+    // 累积/更新单条条目的本期战绩：只对自身期数一一对应判定（无期数则跳过；有变化才返回 true）
+    // v1.98：当天已获取条目但该期开奖数据未到 → 先以「待补」记录（hit=null + 子选项 parts 快照）入账，
+    // 第三排直接显示该期、悬停提示「暂无开奖数据」；开奖数据到达后由本函数/补全通道按同期覆盖为真实中/不中。
     function updateEntryHistory(map, it) {
         const period = extractItemPeriod(it);
         if (period == null) return false;
-        const rec = findDrawRecordByPeriod(it.lottery, period);
-        if (!rec) return false; // 该期开奖数据还没到，等数据刷新后自动补记
         // 23:59 清空置顶子条目后 parts 为空：不得用空 parts 重算或新建当期记录，
         // 否则会把开奖时已登记的真实中/不中战绩覆盖成无约束的“中”（v1.84 修复 v1.82 回归）。
         if (!(it.parts || []).length) return false;
+        const key = importHistoryKey(it);
+        const prev = map[key];
+        const hadFilled = !!(prev && Array.isArray(prev.periods) && prev.periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period && p.hit != null));
+        const rec = findDrawRecordByPeriod(it.lottery, period);
+        if (!rec) {
+            // 该期开奖数据还没到：已有真实战绩时不降级；否则写入「待补」记录（带 parts 快照，供晚到数据补全）
+            if (hadFilled) return false;
+            const partsText = summarizeItemParts(it.parts || []);
+            const next = (prev && Array.isArray(prev.periods) ? prev.periods.filter(p => !(p.qishu != null && parseInt(p.qishu, 10) === period)) : []);
+            next.push({ qishu: String(period), hit: null, partsText: partsText, tm: '', sx: '', wx: '', color: '', parts: (it.parts || []).map(function(p) { return Object.assign({}, p); }) });
+            next.sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10));
+            if (next.length > IMPORT_HISTORY_LIMIT) next.splice(0, next.length - IMPORT_HISTORY_LIMIT);
+            if (prev && JSON.stringify(prev.periods || []) === JSON.stringify(next)) return false;
+            map[key] = { lottery: it.lottery || 'macau', title: String(it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, ''), periods: next, updatedAt: new Date().toISOString() };
+            return true;
+        }
         const hit = entryHitsPeriod(fullItemEffects(it), getTmFromRecord(rec));
         const partsText = summarizeItemParts(it.parts || []);
         // 记录该期开奖特码信息（号码/生肖/五行/波色），供悬浮提示显示
@@ -6217,8 +6233,6 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             for (const k in elementMap) if (elementMap[k].includes(tm)) { wx = k; break; }
             color = redNums.includes(tm) ? '红' : (blueNums.includes(tm) ? '蓝' : (greenNums.includes(tm) ? '绿' : ''));
         }
-        const key = importHistoryKey(it);
-        const prev = map[key];
         const next = (prev && Array.isArray(prev.periods) ? prev.periods.filter(p => !(p.qishu != null && parseInt(p.qishu, 10) === period)) : []);
         next.push({ qishu: String(rec.qishu), hit: hit, partsText: partsText, tm: tm, sx: sx, wx: wx, color: color });
         next.sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10));
@@ -6226,6 +6240,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (prev && JSON.stringify(prev.periods || []) === JSON.stringify(next)) return false;
         map[key] = { lottery: it.lottery || 'macau', title: String(it.title || '').replace(/^\s*\d{1,4}期[:：]?\s*/, ''), periods: next, updatedAt: new Date().toISOString() };
         return true;
+    }
+
+    // v1.98：补全历史表内残留的「待补」记录——开奖数据晚到时，即使条目已不在清单/已推进期数，
+    // 也按待补记录里保存的 parts 快照算出真实中/不中（有变化才返回 true）。
+    function fillPendingImportHistories(map) {
+        let changed = false;
+        Object.keys(map).forEach(function(k) {
+            const h = map[k];
+            if (!h || !Array.isArray(h.periods)) return;
+            h.periods.forEach(function(p) {
+                if (!p || p.hit != null) return;
+                if (!Array.isArray(p.parts) || !p.parts.length) return; // 无快照无法计算，保留待补
+                const rec = findDrawRecordByPeriod(h.lottery || String(k).split('|')[0], parseInt(p.qishu, 10));
+                if (!rec) return;
+                try {
+                    const effects = buildItemEffects(p.parts.map(function(part) { return Object.assign({}, part, { checked: true }); }));
+                    const hit = entryHitsPeriod(effects, getTmFromRecord(rec));
+                    const tm = getTmFromRecord(rec);
+                    let sx = '', wx = '', color = '';
+                    if (tm) {
+                        for (const z in zodiacMap) if (zodiacMap[z].includes(tm)) { sx = z; break; }
+                        for (const kk in elementMap) if (elementMap[kk].includes(tm)) { wx = kk; break; }
+                        color = redNums.includes(tm) ? '红' : (blueNums.includes(tm) ? '蓝' : (greenNums.includes(tm) ? '绿' : ''));
+                    }
+                    p.hit = hit; p.tm = tm; p.sx = sx; p.wx = wx; p.color = color;
+                    delete p.parts; // 已补全，不再保留快照
+                    changed = true;
+                } catch (e) { /* 快照异常：保留待补，不破坏历史表 */ }
+            });
+        });
+        return changed;
     }
 
     // 惰性补齐并持久化全部导入条目的本期战绩（有变化才写存储；返回最新历史表）
@@ -6238,6 +6283,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         items.forEach(it => {
             if (updateEntryHistory(map, it)) changed = true;
         });
+        // v1.98：开奖数据到达后补全历史表内残留的「待补」记录（含条目已清空/已推进期数的情况）
+        if (fillPendingImportHistories(map)) changed = true;
         // v1.68：移除「本地开奖数据查不到当期就删」的自动清理——该逻辑会把离线/数据未到/数据不完整时
         // 的有效历史期数连带删除（严重时整键清空 zdr_import_history_v2）。跨年误配已在写入端由
         // findDrawRecordByPeriod 的当年份过滤挡住（v1.29 同次修复）；历史中已存在的误配记录会在
@@ -6298,7 +6345,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const period = extractItemPeriod(it);
                 if (period == null) return true;
                 const h = loadImportHistories()[importHistoryKey(it)];
-                return h && Array.isArray(h.periods) && h.periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period);
+                // v1.98：待补记录（hit=null）不算已登记，轮询继续直到开奖数据到达并补全
+                return h && Array.isArray(h.periods) && h.periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period && p.hit != null);
             });
             if (allRecorded || __historyRefreshTicks >= 8) {
                 if (__historyRefreshTimer) { clearInterval(__historyRefreshTimer); __historyRefreshTimer = null; }
@@ -6525,11 +6573,18 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         let hit;
         if (p.hit === true || p.hit === 1 || p.hit === '1' || p.hit === 'true') hit = true;
         else if (p.hit === false || p.hit === 0 || p.hit === '0' || p.hit === 'false') hit = false;
+        else if (p.hit == null || p.hit === '' || p.hit === 'null') hit = null; // v1.98：待补记录（该期开奖未到）
         else return null;
         const clean = Object.assign({}, p, { qishu: String(qishu), hit: hit });
         ['partsText', 'tm', 'sx', 'wx', 'color'].forEach(function(field) {
             clean[field] = clean[field] == null ? '' : String(clean[field]);
         });
+        if (hit == null) {
+            // v1.98：待补记录保留 parts 快照（供晚到开奖数据补全），非数组/空数组视为无效快照
+            if (!Array.isArray(clean.parts) || !clean.parts.length) delete clean.parts;
+        } else {
+            delete clean.parts; // 已补全记录不携带 parts 快照
+        }
         return clean;
     }
 
@@ -6659,6 +6714,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function showPeriodTooltip(evt, el, immediate) {
         hidePeriodTooltip();
         const qishu = el.getAttribute('data-qishu') || '';
+        const pending = el.getAttribute('data-pending') === '1';
         const hit = el.getAttribute('data-hit') === '1';
         const tipText = el.getAttribute('data-tip') || '';
         const tm = el.getAttribute('data-tm') || '';
@@ -6668,13 +6724,20 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         __periodTipChip = el;
         __periodTipTimer = setTimeout(function() {
             const tip = getPeriodTipEl();
-            const colorHex = color === '红' ? '#ef4444' : (color === '蓝' ? '#2563eb' : (color === '绿' ? '#16a34a' : ''));
-            let html = '<div style="font-weight:600;margin-bottom:4px;">' + escHtml(qishu) + '期开：';
-            if (tm) {
-                html += '<span style="color:' + colorHex + ';">' + escHtml(tm) + '</span>' + (sx ? ' / ' + escHtml(sx) : '') + (wx ? ' / ' + escHtml(wx) : '');
+            let html;
+            if (pending) {
+                // v1.98：条目已计入历史但该期开奖数据未到 → 悬停/点击显示「暂无开奖数据」
+                html = '<div style="font-weight:600;margin-bottom:4px;">' + escHtml(qishu) + '期：暂无开奖数据</div>';
+                html += tipText ? '<div style="line-height:1.6;color:#64748b;">' + escHtml(tipText) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
+            } else {
+                const colorHex = color === '红' ? '#ef4444' : (color === '蓝' ? '#2563eb' : (color === '绿' ? '#16a34a' : ''));
+                html = '<div style="font-weight:600;margin-bottom:4px;">' + escHtml(qishu) + '期开：';
+                if (tm) {
+                    html += '<span style="color:' + colorHex + ';">' + escHtml(tm) + '</span>' + (sx ? ' / ' + escHtml(sx) : '') + (wx ? ' / ' + escHtml(wx) : '');
+                }
+                html += '<span style="margin-left:8px;background:' + (hit ? '#ef4444' : '#f1f5f9') + ';color:' + (hit ? '#fff' : '#94a3b8') + ';padding:3px 8px;border-radius:4px;font-weight:600;' + (hit ? 'box-shadow:0 1px 2px rgba(239,68,68,0.3);' : '') + '">' + (hit ? '中' : '错') + '</span></div>';
+                html += tipText ? '<div style="line-height:1.6;">' + highlightTipText(tipText, tm, color) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
             }
-            html += '<span style="margin-left:8px;background:' + (hit ? '#ef4444' : '#f1f5f9') + ';color:' + (hit ? '#fff' : '#94a3b8') + ';padding:3px 8px;border-radius:4px;font-weight:600;' + (hit ? 'box-shadow:0 1px 2px rgba(239,68,68,0.3);' : '') + '">' + (hit ? '中' : '错') + '</span></div>';
-            html += tipText ? '<div style="line-height:1.6;">' + highlightTipText(tipText, tm, color) + '</div>' : '<div style="color:#94a3b8;">该期无子选项记录</div>';
             tip.innerHTML = html;
             // 先隐藏可见性但参与布局，量取真实宽高后再定位；
             // （display:none 时 offsetWidth/offsetHeight 恒为 0，四边钳制会失效，
@@ -7817,8 +7880,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             toggle = '<div class="zdr-import-history-toggle" data-desktop="1" onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + periods.length + ' 期' : '▴ 收起') + '</div>';
         }
         // v1.90：期数改为浅红底白字（中）/ 浅灰底白字（不中），去掉边框
+        // v1.98：开奖数据未到的「待补」期数用白底虚线边框灰字，悬停/点击显示「暂无开奖数据」
         return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + (desktopCollapsed ? ' zdr-collapsed' : '') + '">' +
-            shown.map(p => '<span class="zdr-import-period" style="background:' + (p.hit ? '#f87171' : '#9ca3af') + ';color:#fff;border-radius:6px;cursor:default;" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (p.hit ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>').join('') +
+            shown.map(p => {
+                const pending = p.hit == null;
+                const chipStyle = pending
+                    ? 'background:#fff;border:1px dashed #94a3b8;color:#64748b;border-radius:6px;cursor:default;'
+                    : 'background:' + (p.hit ? '#f87171' : '#9ca3af') + ';color:#fff;border-radius:6px;cursor:default;';
+                return '<span class="zdr-import-period" style="' + chipStyle + '" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (pending ? '' : (p.hit ? '1' : '0')) + '" data-pending="' + (pending ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>';
+            }).join('') +
             '</div>' + toggle;
     }
 
@@ -8549,6 +8619,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 enforceImportMutex(lottery);
             }
             syncImportState();
+            ensureImportHistories(); // v1.98：无开奖数据也先把当天条目计入历史（待补记录），第三排立即可见
             renderImportList();
             saveImportedStrategies();
 
