@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.98 · 2026-08-28 23:25</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.100 · 2026-08-29 15:42</div>
 
         </div>
     
@@ -6216,7 +6216,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (hadFilled) return false;
             const partsText = summarizeItemParts(it.parts || []);
             const next = (prev && Array.isArray(prev.periods) ? prev.periods.filter(p => !(p.qishu != null && parseInt(p.qishu, 10) === period)) : []);
-            next.push({ qishu: String(period), hit: null, partsText: partsText, tm: '', sx: '', wx: '', color: '', parts: (it.parts || []).map(function(p) { return Object.assign({}, p); }) });
+            // pendingDate：待补记录写入日期，第三排次日才显示（v1.99）
+            next.push({ qishu: String(period), hit: null, partsText: partsText, tm: '', sx: '', wx: '', color: '', pendingDate: importTodayStr(), parts: (it.parts || []).map(function(p) { return Object.assign({}, p); }) });
             next.sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10));
             if (next.length > IMPORT_HISTORY_LIMIT) next.splice(0, next.length - IMPORT_HISTORY_LIMIT);
             if (prev && JSON.stringify(prev.periods || []) === JSON.stringify(next)) return false;
@@ -6582,8 +6583,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (hit == null) {
             // v1.98：待补记录保留 parts 快照（供晚到开奖数据补全），非数组/空数组视为无效快照
             if (!Array.isArray(clean.parts) || !clean.parts.length) delete clean.parts;
+            // v1.99：待补记录保留 pendingDate（写入日期，跨设备一致决定第三排显示时机），无效日期删除
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(clean.pendingDate || ''))) delete clean.pendingDate;
         } else {
             delete clean.parts; // 已补全记录不携带 parts 快照
+            delete clean.pendingDate; // 已补全记录不携带待补日期
         }
         return clean;
     }
@@ -7851,12 +7855,34 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         else __desktopCollapsedKeys.add(key);
         if (typeof renderImportList === 'function') renderImportList();
     };
+
+    // v1.99：待补期数第三排次日才显示——当天只记账不入行（仍显示「暂无开奖数据」提示）；
+    // 从写入次日开始仍未获取到开奖数据，才显示白底虚线灰字的待补期数。
+    function pendingRecordVisible(p, lottery) {
+        if (!p || p.hit != null) return false; // 已补全记录不属于待补显示逻辑
+        const today = importTodayStr();
+        const pd = String(p.pendingDate || '');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(pd)) return pd < today;
+        // 旧版待补记录（无 pendingDate，v1.98 短暂窗口）：澳门按期号推算开奖日（每天一期），
+        // 开奖日已过即显示；其余无法判定时保守显示，避免记录永远不可见
+        const year = new Date().getFullYear();
+        const q = parseInt(p.qishu, 10);
+        if (lottery !== 'hk' && isFinite(q) && q >= 1 && q <= 366) {
+            const d0 = new Date(year, 0, 1);
+            d0.setDate(d0.getDate() + (q - 1));
+            const ds = d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' + String(d0.getDate()).padStart(2, '0');
+            return ds < today;
+        }
+        return true;
+    }
+
     function renderImportHistory(itemIndex, it, histMap) {
         if (extractItemPeriod(it) == null) return ''; // 无期数，无法一一对应，不渲染第三排
         const key = importHistoryKey(it);
         const h = histMap[key];
         const periods = (h && Array.isArray(h.periods)) ? h.periods : [];
-        if (!periods.length) {
+        const displayPeriods = periods.filter(p => p.hit != null || pendingRecordVisible(p, (h && h.lottery) || String(key).split('|')[0]));
+        if (!displayPeriods.length) {
             // 无战绩时区分“页面还没有任何开奖数据”与“该期数据缺失”：Kiwi 等无油猴直连的环境下
             // 需先加载开奖数据（新澳门/香港特码页或插件穿透）历史才会补记
             const noData = typeof hasAnyLotteryData === 'function' && !hasAnyLotteryData();
@@ -7870,17 +7896,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const expanded = __expandedHistoryKeys.has(key);
         const isMobile = window.innerWidth <= 600; // 与移动端 CSS 断点一致
         const desktopCollapsed = !isMobile && __desktopCollapsedKeys.has(key);
-        const shown = (!isMobile || expanded) ? periods : periods.slice(-10);
+        const shown = (!isMobile || expanded) ? displayPeriods : displayPeriods.slice(-10);
         // 移动端：10 列网格 + 超过 10 期显示「查看全部/收起」；桌面端：折叠提示是否显示由
         // 渲染后的换行/裁剪测量决定（见 syncDesktopHistoryHint），文案按收起状态切换
         let toggle = '';
-        if (isMobile && periods.length > 10) {
-            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + periods.length + ' 期') + '</div>';
+        if (isMobile && displayPeriods.length > 10) {
+            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + displayPeriods.length + ' 期') + '</div>';
         } else if (!isMobile) {
-            toggle = '<div class="zdr-import-history-toggle" data-desktop="1" onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + periods.length + ' 期' : '▴ 收起') + '</div>';
+            toggle = '<div class="zdr-import-history-toggle" data-desktop="1" onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + displayPeriods.length + ' 期' : '▴ 收起') + '</div>';
         }
         // v1.90：期数改为浅红底白字（中）/ 浅灰底白字（不中），去掉边框
-        // v1.98：开奖数据未到的「待补」期数用白底虚线边框灰字，悬停/点击显示「暂无开奖数据」
+        // v1.98/v1.99：开奖数据未到的「待补」期数（次日才显示）用白底虚线边框灰字，悬停/点击显示「暂无开奖数据」
         return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + (desktopCollapsed ? ' zdr-collapsed' : '') + '">' +
             shown.map(p => {
                 const pending = p.hit == null;
@@ -8615,8 +8641,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const siteRank = { '铁算盘': 0, '澳门九龙网': 1, '群英会': 2, '奥霸网': 3, '其他': 4 };
                 window.__importedStrategies.sort((a, b) => (siteRank[detectImportSite(a)] != null ? siteRank[detectImportSite(a)] : 4) - (siteRank[detectImportSite(b)] != null ? siteRank[detectImportSite(b)] : 4));
                 // 导入类别成为当前视图，并取消另一类别的全部选中（严格互斥）
-                window.__importActiveCat = lottery;
-                enforceImportMutex(lottery);
+                // v1.100：自动获取批次可能同时含新澳门+香港（如自定义模板按归属分类，且固定四站不标彩种
+                // 由默认归新澳门），此时显示全部类别、不强制互斥，避免香港条目被新澳门视图遮掉“看似未导入”。
+                const batchHasHk = data.some(it => it.lottery === 'hk');
+                if (batchHasHk) {
+                    window.__importActiveCat = null;
+                } else {
+                    window.__importActiveCat = lottery;
+                    enforceImportMutex(lottery);
+                }
             }
             syncImportState();
             ensureImportHistories(); // v1.98：无开奖数据也先把当天条目计入历史（待补记录），第三排立即可见
