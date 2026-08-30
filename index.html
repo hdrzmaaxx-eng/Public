@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.100 · 2026-08-29 15:42</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.101 · 2026-08-30 16:19</div>
 
         </div>
     
@@ -7996,6 +7996,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         if (clearBtn) clearBtn.style.display = 'block';
         const badge = (it) => '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;' + (it.lottery === 'hk' ? 'background:#fee2e2;color:#b91c1c;' : 'background:#dbeafe;color:#1d4ed8;') + '">' + (it.lottery === 'hk' ? '香港' : '新澳门') + '</span>';
+        // v1.101：用 box2 实时开奖数据的权威期数对条目做只读核对角标（当期/下一期/未匹配）。
+        // 读取不到实时数据时返回空串（完全回退现有规则），不改条目、不删条目、不动勾选。
+        const realtimePeriodBadge = (it) => {
+            const rd = window.__realtimeDraw && window.__realtimeDraw[(it.lottery === 'hk' ? 'hk' : 'macau')];
+            if (!rd || (!rd.nextPeriod && !rd.curPeriod)) return '';
+            const period = extractItemPeriod(it);
+            if (period == null) return '';
+            const n = String(rd.nextPeriod || '').trim();
+            const c = String(rd.curPeriod || '').trim();
+            const p = String(period);
+            const mk = (label, bg, fg) => '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;background:' + bg + ';color:' + fg + ';" title="据 box2 实时开奖数据核对">' + label + '</span>';
+            if (n && p === String(parseInt(n, 10))) return mk('下一期', '#dbeafe', '#1d4ed8');
+            if (c && p === String(parseInt(c, 10))) return mk('当期', '#dcfce7', '#15803d');
+            return mk('期数未匹配', '#f1f5f9', '#64748b');
+        };
         // 类别筛选：选择了「新澳门/香港」时清单只显示该类别条目
         const visibleItems = activeCat ? items.filter(it => it.lottery === activeCat) : items;
         const catName = activeCat === 'hk' ? '香港' : (activeCat === 'macau' ? '新澳门' : '');
@@ -8020,7 +8035,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
-                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
+                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + realtimePeriodBadge(it) + escHtml(it.title) + '</span>' +
                 '</label>' +
                 renderItemParts(realIndex, it) +
                 renderImportHistory(realIndex, it, histMap) +
@@ -8045,6 +8060,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         renderCategoryButtons();
     }
     window.renderImportList = renderImportList; // 供 IIFE 外部的 clearAllSelections 调用
+    // v1.101：box2 实时开奖数据到位后由脚本回调，重新渲染清单以显示期数核对角标（只读，不删改条目）
+    window.__refreshRealtimeBadges = function() { if (typeof renderImportList === 'function') renderImportList(); };
     // 置顶反馈 toast（轻量浮层，不遮挡操作）
     function showPinToast(text) {
         let t = document.getElementById('zdr-pin-toast');
