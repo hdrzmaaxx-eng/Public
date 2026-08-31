@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.109 · 2026-08-31 22:50</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.110 · 2026-08-31 23:18</div>
 
         </div>
     
@@ -3426,10 +3426,12 @@ function pm33Pad(x) {
 }
 
 // 从平码记录（newest-first 的 {qishu, flats}）生成当期 8 组（每组 size 个号码，size=3 为三中三、size=2 为二中二）
-function generatePm33Groups(records, size) {
+function generatePm33Groups(records, size, groupCount, strategy) {
   size = size || 3;
+  groupCount = (typeof groupCount === 'number' && groupCount >= 1) ? Math.min(30, Math.floor(groupCount)) : 8;
+  strategy = (typeof strategy === 'number') ? strategy : 0;
   if (!records || records.length < 3) return [];
-  var N = 49;
+  var N = 49, adj = strategy / 100; // adj：-1..1（负=抓冷，正=追热，0=平衡）
   var win = Math.min(records.length, 60); // 近期加权窗口，越近权重越高
   var freq = {}, zodC = {}, colorC = {}, eleC = {}, tailC = {}, headC = {}, sizeC = {}, parityC = {};
   for (var i = 0; i < win; i++) {
@@ -3475,7 +3477,10 @@ function generatePm33Groups(records, size) {
   for (var a = 1; a <= N; a++) { var s = pm33Pad(a); if ((freq[s] || 0) > maxFreq) maxFreq = freq[s] || 0; }
   if (!maxFreq) maxFreq = 1;
 
-  // 综合打分 = 号码频次 + 生肖/波色/五行/尾数/头数/大小/单双 各维度热度加成（即“其他维度的策略”）
+  // 综合打分：频次项随策略（追热放大/抓冷压缩）、冷号偏置、维度热度加成随追热放大/抓冷压缩
+  var freqW = 6 + 6 * adj;
+  var hotW = Math.max(0, 1 + adj);
+  var coldW = Math.max(0, -adj) * 8;
   var nums = [];
   for (var a = 1; a <= N; a++) {
     var n2 = pm33Pad(a);
@@ -3485,24 +3490,29 @@ function generatePm33Groups(records, size) {
     var tl = n2.slice(-1), hd = n2.slice(0, 1);
     var sz = (parseInt(n2, 10) >= 25) ? '大' : '小';
     var py = (parseInt(n2, 10) % 2 === 1) ? '单' : '双';
-    var score = (freq[n2] || 0) / maxFreq * 6
-              + (hotZods.indexOf(z) >= 0 ? 4 : 0)
-              + (hotColors.indexOf(c) >= 0 ? 5 : 0)
-              + (hotEles.indexOf(e) >= 0 ? 3 : 0)
-              + (hotTails.indexOf(tl) >= 0 ? 3 : 0)
-              + (hotHeads.indexOf(hd) >= 0 ? 2 : 0)
-              + (sz === hotSize ? 2 : 0)
-              + (py === hotParity ? 2 : 0);
+    var freqNorm = (freq[n2] || 0) / maxFreq;
+    var score = freqNorm * freqW
+              + (hotZods.indexOf(z) >= 0 ? 4 : 0) * hotW
+              + (hotColors.indexOf(c) >= 0 ? 5 : 0) * hotW
+              + (hotEles.indexOf(e) >= 0 ? 3 : 0) * hotW
+              + (hotTails.indexOf(tl) >= 0 ? 3 : 0) * hotW
+              + (hotHeads.indexOf(hd) >= 0 ? 2 : 0) * hotW
+              + (sz === hotSize ? 2 : 0) * hotW
+              + (py === hotParity ? 2 : 0) * hotW
+              + (1 - freqNorm) * coldW;
     nums.push({ n: n2, score: score });
   }
   nums.sort(function(x, y) {
     return y.score - x.score || (parseInt(x.n, 10) - parseInt(y.n, 10));
   });
-  // 取综合分前 (8*size) 码，按排名相邻打包成 8 组（每组为连续的 size 个高概率码）
-  var topN = nums.slice(0, 8 * size).map(function(o) { return o.n; });
+  // 取综合分前 min(49, groupCount*size) 码，按排名相邻打包成 groupCount 组；组数超出时循环复用前部号码
+  var need = Math.min(N, groupCount * size);
+  var topN = nums.slice(0, need).map(function(o) { return o.n; });
   var groups = [];
-  for (var k = 0; k < 8; k++) {
-    groups.push(topN.slice(k * size, k * size + size));
+  for (var k = 0; k < groupCount; k++) {
+    var grp = [];
+    for (var j = 0; j < size; j++) grp.push(topN[(k * size + j) % topN.length]);
+    groups.push(grp);
   }
   return groups;
 }
@@ -3514,21 +3524,23 @@ function generatePm33Groups(records, size) {
 //   rate    ：严格命中率（size 码全中的组 / 总组数）
 //   avg     ：组均命中码数（每组的 3 码里中了几个，稳定非零，更能反映预测贴近程度）
 //   note    ：数据不足等提示
-function computePm33(flatHist, size) {
+function computePm33(flatHist, size, groupCount, strategy) {
   size = size || 3;
+  groupCount = (typeof groupCount === 'number' && groupCount >= 1) ? Math.min(30, Math.floor(groupCount)) : 8;
+  strategy = (typeof strategy === 'number') ? strategy : 0;
   if (!flatHist || flatHist.length === 0) {
     return { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '暂无开奖数据' };
   }
-  var groups = generatePm33Groups(flatHist, size);
+  var groups = generatePm33Groups(flatHist, size, groupCount, strategy);
 
   var history = [];
-  var MIN_INPUT = 6; // 至少要有 6 期历史才生成完整 8 组
+  var MIN_INPUT = 6; // 至少要有 6 期历史才生成完整组数
   var maxBack = Math.min(60, flatHist.length - 1);
   for (var j = 1; j <= maxBack; j++) {
     var input = flatHist.slice(j + 1); // 严格早于第 j 期的记录
     if (input.length < MIN_INPUT) break;
-    var g = generatePm33Groups(input, size);
-    if (!g || g.length < 8) continue;
+    var g = generatePm33Groups(input, size, groupCount, strategy);
+    if (!g || g.length < groupCount) continue;
     var actual = flatHist[j].flats;
     var set = {};
     (actual || []).forEach(function(n) { set[pm33Pad(n)] = true; });
@@ -4147,16 +4159,18 @@ function predict(raw) {
 
 
 
-  // ===== 平码三中三 / 平码二中二：基于平码历史预测 8 组（每组 3 码或 2 码）+ 回测历史 =====
+  // ===== 平码三中三 / 平码二中二：基于平码历史预测 N 组（每组 3 码或 2 码，组数/冷热策略可调）+ 回测历史 =====
   var flatHist = dataArr.map(function(rec) {
     var nums = String(rec.num || '').split(',');
     // 特码为最后一个号，平码为其前 6 个
     var flats = nums.slice(0, Math.max(0, nums.length - 1)).slice(0, 6);
     return { qishu: rec.qishu, flats: flats };
   });
+  var pm33GroupCount = (typeof window.__pm33Groups === 'number') ? window.__pm33Groups : 8;
+  var pm33Strategy = (typeof window.__pm33Strategy === 'number') ? window.__pm33Strategy : 0;
   var pm33 = {
-    size3: computePm33(flatHist, 3),
-    size2: computePm33(flatHist, 2)
+    size3: computePm33(flatHist, 3, pm33GroupCount, pm33Strategy),
+    size2: computePm33(flatHist, 2, pm33GroupCount, pm33Strategy)
   };
   // =================================================================================
 
@@ -4759,7 +4773,7 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   // 生成某一模式（'3' 或 '2'）的模块主体（命中率 + 8 组号码 + 历史回测）
   function buildPm33Body(data, n) {
     if (!data) return '';
-    var html = '<div style="font-size:0.8rem; font-weight:normal; color:#ea580c; margin-bottom:10px; text-align:left;">历史命中率: <span style="font-weight:bold; color:#ef4444;">' + data.rate + '</span> · 组均命中 <span style="font-weight:bold; color:#d97706;">' + data.avg + '</span> 码</div>';
+    var html = '<div style="font-size:0.8rem; font-weight:normal; color:#ea580c; margin-bottom:10px; text-align:left;">历史命中率: <span style="font-weight:bold; color:#ef4444;">' + data.rate + '</span></div>';
     if (data.groups && data.groups.length) {
       // 每组固定一排（桌面 4 组一行 / 移动端 3 组一行），不显示“组N”标签与“选入”按钮
       html += '<div class="pm33-groups">';
@@ -4825,13 +4839,57 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     if (body && data) body.innerHTML = buildPm33Body(data, window.__pm33N);
   };
 
+  // 滑块：平码策略（抓冷/追热）与组数（1-30，默认 8）
+  if (typeof window.__pm33Strategy !== 'number') window.__pm33Strategy = 0;
+  if (typeof window.__pm33Groups !== 'number') window.__pm33Groups = 8;
+  var stv = window.__pm33Strategy, gcv = window.__pm33Groups;
+  var stLabel = stv === 0 ? '平衡' : (stv > 0 ? '追热 +' + stv : '抓冷 ' + stv);
+  var stColor = stv === 0 ? '#64748b' : (stv > 0 ? '#ea580c' : '#3b82f6');
+  var pm33Controls = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:8px; margin:4px 0 10px;">' +
+    '<div style="padding:8px 12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; display:flex; flex-direction:column; gap:6px;">' +
+      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600;"><span style="color:#475569;">平码策略调整</span><span id="pm33-strategy-label" style="color:' + stColor + ';">' + stLabel + '</span></div>' +
+      '<input type="range" min="-100" max="100" step="10" value="' + stv + '" oninput="window.updatePm33Strategy(this.value)" style="width:100%; height:6px; accent-color:' + stColor + '; cursor:pointer; background:#cbd5e1; border-radius:3px; outline:none; -webkit-appearance:none;">' +
+    '</div>' +
+    '<div style="padding:8px 12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; display:flex; flex-direction:column; gap:6px;">' +
+      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600;"><span style="color:#475569;">组数</span><span id="pm33-count-label" style="color:#334155;">' + gcv + ' 组</span></div>' +
+      '<input type="range" min="1" max="30" step="1" value="' + gcv + '" oninput="window.updatePm33GroupCount(this.value)" style="width:100%; height:6px; accent-color:#7c3aed; cursor:pointer; background:#cbd5e1; border-radius:3px; outline:none; -webkit-appearance:none;">' +
+    '</div>' +
+    '</div>';
+  window.updatePm33Strategy = function(v) {
+    window.__pm33Strategy = Math.max(-100, Math.min(100, parseInt(v, 10) || 0));
+    var lbl = document.getElementById('pm33-strategy-label');
+    if (lbl) { var s = window.__pm33Strategy; lbl.textContent = s === 0 ? '平衡' : (s > 0 ? '追热 +' + s : '抓冷 ' + s); lbl.style.color = s === 0 ? '#64748b' : (s > 0 ? '#ea580c' : '#3b82f6'); }
+    if (typeof window.recomputePm33 === 'function') window.recomputePm33();
+  };
+  window.updatePm33GroupCount = function(v) {
+    window.__pm33Groups = Math.min(30, Math.max(1, parseInt(v, 10) || 8));
+    var lbl = document.getElementById('pm33-count-label');
+    if (lbl) lbl.textContent = window.__pm33Groups + ' 组';
+    if (typeof window.recomputePm33 === 'function') window.recomputePm33();
+  };
+  window.recomputePm33 = function() {
+    var raw = window._rawKjData;
+    if (!Array.isArray(raw) || !raw.length) return;
+    var flatHist = raw.map(function(rec) {
+      var nn = String(rec.num || '').split(',');
+      return { qishu: rec.qishu, flats: nn.slice(0, Math.max(0, nn.length - 1)).slice(0, 6) };
+    });
+    var gc = (typeof window.__pm33Groups === 'number') ? window.__pm33Groups : 8;
+    var st = (typeof window.__pm33Strategy === 'number') ? window.__pm33Strategy : 0;
+    window.__pm33Data = {
+      '3': computePm33(flatHist, 3, gc, st),
+      '2': computePm33(flatHist, 2, gc, st)
+    };
+    if (typeof window._renderPm33Body === 'function') window._renderPm33Body();
+  };
+
   var pm33Html = '<div class="info-card" style="margin-top:20px; margin-bottom:10px; border:1px solid #cbd5e1; box-shadow:0 4px 12px rgba(0,0,0,0.05);">';
   pm33Html += '<div class="title" style="display:flex; align-items:center; border-left:3px solid #f43f5e; flex-wrap:wrap; gap:8px;">' +
               '<button class="pm33-tab' + (pm33Mode === '3' ? ' active' : '') + '" data-mode="3" onclick="window.setPm33Mode(\'3\')">平码三中三</button>' +
               '<button class="pm33-tab' + (pm33Mode === '2' ? ' active' : '') + '" data-mode="2" onclick="window.setPm33Mode(\'2\')">平码二中二</button>' +
               '<span style="margin-left:auto; font-size:0.9rem; color:#64748b; white-space:nowrap;">第' + n + '期</span>' +
               '</div>';
-  pm33Html += '<div id="pm33-body">' + buildPm33Body(window.__pm33Data[pm33Mode], n) + '</div>';
+  pm33Html += pm33Controls + '<div id="pm33-body">' + buildPm33Body(window.__pm33Data[pm33Mode], n) + '</div>';
   pm33Html += '</div>';
 
   otherHtml += pm33Html;
