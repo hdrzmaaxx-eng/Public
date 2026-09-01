@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.117 · 2026-09-01 22:54</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.118 · 2026-09-01 23:11</div>
 
         </div>
     
@@ -4810,7 +4810,7 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     if (data.history && data.history.length) {
       html += '<div style="border-top:1px dashed #e2e8f0; padding-top:8px;">' +
               '<div style="font-size:0.9rem; font-weight:700; color:#334155; margin-bottom:6px;">历史回测（' + data.history.length + ' 期）</div>' +
-              '<div style="max-height:260px; overflow-y:auto; padding-right:4px;">';
+              '<div style="max-height:420px; overflow-y:auto; padding-right:4px;">';
       data.history.forEach(function(h) {
         var actualStr = (h.actual || []).join(' ');
         // 命中的号码直接标红（命中该期 6 个平码里的号码即标红）
@@ -4829,12 +4829,15 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
         } else {
           if (h.hitCount > 0) hitSummary = '<span style="color:#ef4444; font-weight:600;">二中二 中' + h.hitCount + '组</span>';
         }
+        // 每组固定宽度排列，竖杠等宽，使上下行竖杠对齐
         var groupsHtml = h.groups.map(function(g) {
-          return g.map(function(num) {
-            var hit = !!set[pm33Pad(num)];
-            return hit ? '<span style="color:#ef4444; font-weight:bold;">' + num + '</span>' : num;
-          }).join(',');
-        }).join(' ｜ ');
+          return '<span style="display:inline-block; min-width:60px; text-align:center;">' +
+                 g.map(function(num) {
+                   var hit = !!set[pm33Pad(num)];
+                   return hit ? '<span style="color:#ef4444; font-weight:bold;">' + num + '</span>' : num;
+                 }).join(',') +
+                 '</span>';
+        }).join('<span style="display:inline-block; width:12px; text-align:center; color:#cbd5e1;">｜</span>');
         // 期号+命中摘要 与 开奖号码 同一排（开奖右对齐），预测组合在下一行
         html += '<div style="padding:6px 0; border-bottom:1px solid #f8fafc;">' +
                 '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">' +
