@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.112 · 2026-09-01 21:44</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.117 · 2026-09-01 22:54</div>
 
         </div>
     
@@ -4816,27 +4816,35 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
         // 命中的号码直接标红（命中该期 6 个平码里的号码即标红）
         var set = {};
         (h.actual || []).forEach(function(x) { set[pm33Pad(x)] = true; });
-        // 若有整组全中，在开奖结果后面加「中」标记
-        var hitBadge = h.hitCount > 0
-          ? '<span style="background:#ef4444; color:#fff; padding:2px 6px; border-radius:4px; font-weight:600; margin-left:6px;">中' + (h.hitCount > 1 ? '×' + h.hitCount : '') + '</span>'
-          : '';
         // 平码三中二：三中三模式下，每组 3 个号中恰好命中 2 个的组数；0 组不显示
         var grpSize = (h.groups && h.groups[0]) ? h.groups[0].length : 3;
         var sanZhongErCount = grpSize === 3 ? (h.matches || []).filter(function(m) { return m === 2; }).length : 0;
+        // 命中摘要放到期号后面：没中的不显示，只显示中了的；三中三 与 三中二 之间空两格
+        var hitSummary = '';
+        if (grpSize === 3) {
+          var parts = [];
+          if (h.hitCount > 0) parts.push('<span style="color:#ef4444; font-weight:600;">三中三 中' + h.hitCount + '组</span>');
+          if (sanZhongErCount > 0) parts.push('<span style="color:#16a34a; font-weight:600;">三中二 中' + sanZhongErCount + '组</span>');
+          hitSummary = parts.join('&nbsp;&nbsp;');
+        } else {
+          if (h.hitCount > 0) hitSummary = '<span style="color:#ef4444; font-weight:600;">二中二 中' + h.hitCount + '组</span>';
+        }
         var groupsHtml = h.groups.map(function(g) {
           return g.map(function(num) {
             var hit = !!set[pm33Pad(num)];
             return hit ? '<span style="color:#ef4444; font-weight:bold;">' + num + '</span>' : num;
           }).join(',');
         }).join(' ｜ ');
-        html += '<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #f8fafc;">' +
-                '<div style="flex:1; padding-right:8px; overflow:hidden; color:#64748b;">' +
-                '<div style="font-weight:600; color:#334155; font-size:0.85rem; margin-bottom:2px;">第' + h.qishu + '期' +
-                  (sanZhongErCount > 0 ? '<span style="margin-left:8px; font-size:0.75rem; font-weight:600; color:#16a34a;">平码三中二中 ' + sanZhongErCount + ' 组</span>' : '') +
+        // 期号+命中摘要 与 开奖号码 同一排（开奖右对齐），预测组合在下一行
+        html += '<div style="padding:6px 0; border-bottom:1px solid #f8fafc;">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">' +
+                  '<div style="display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap;">' +
+                    '<span style="font-weight:700; color:#334155; font-size:0.85rem; white-space:nowrap;">第' + h.qishu + '期</span>' +
+                    '<span style="font-size:0.78rem; font-weight:600; white-space:nowrap;">' + hitSummary + '</span>' +
+                  '</div>' +
+                  '<div style="font-size:0.85rem; white-space:nowrap; text-align:right; color:#64748b; padding-right:12px;">开奖平码：<span style="font-weight:700; color:#1d4ed8;">' + actualStr + '</span></div>' +
                 '</div>' +
-                '<div style="font-size:0.78rem; line-height:1.5;">' + groupsHtml + '</div>' +
-                '</div>' +
-                '<div style="font-size:0.82rem; margin:0 10px; white-space:nowrap; color:#475569;">' + actualStr + hitBadge + '</div>' +
+                '<div style="font-size:0.78rem; line-height:1.5; margin-top:2px; overflow:hidden; color:#64748b;">' + groupsHtml + '</div>' +
                 '</div>';
       });
       html += '</div></div>';
