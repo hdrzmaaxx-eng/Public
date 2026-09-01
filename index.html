@@ -572,7 +572,7 @@
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.111 · 2026-09-01 20:39</div>
+            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.112 · 2026-09-01 21:44</div>
 
         </div>
     
@@ -3547,7 +3547,9 @@ function computePm33(flatHist, size, digitCount, strategy) {
   var history = [];
   var MIN_INPUT = 6; // 至少要有 6 期历史才生成完整组数
   var maxBack = Math.min(60, flatHist.length - 1);
-  for (var j = 1; j <= maxBack; j++) {
+  // j 从 0 开始：回测包含“最新已开期”（flatHist[0]），用严格早于该期的数据预测再与真实开奖比对；
+  // 否则最新一期要被排除、直到开下一期后才会被回测到（如已开 244 期、回测却只到 243 期）。
+  for (var j = 0; j <= maxBack; j++) {
     var input = flatHist.slice(j + 1); // 严格早于第 j 期的记录
     if (input.length < MIN_INPUT) break;
     var g = generatePm33Groups(input, size, digitCount, strategy);
