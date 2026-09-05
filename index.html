@@ -565,14 +565,15 @@
                 </div>
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
-                <div style="display:flex; gap:8px; margin-top:8px;">
+                <div class="zdr-he-actions" style="display:flex; gap:8px; margin-top:8px;">
                     <button id="ext-strategy-history-export" style="flex:1; height:34px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.exportImportHistories(this)" title="导出历史战绩：复制 JSON 或下载 JSON 文件，可到另一台设备导入">导出历史条目</button>
                     <button id="ext-strategy-history-import" style="flex:1; height:34px; background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.importImportHistories(this)" title="导入历史战绩：粘贴 JSON 或选择 JSON 文件，合并到本机">导入历史条目</button>
+                    <button id="ext-strategy-history-edit" style="flex:1; height:34px; background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.editImportHistories(this)" title="编辑历史战绩：删除历史条目 / 删除某期 / 补充子条目">编辑历史条目</button>
                     <button id="ext-strategy-history-reset" style="flex:1; height:34px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; border-radius:6px; font-size:13px; cursor:pointer;" onclick="window.resetImportHistories(this)" title="清空本机全部历史条目（zdr_import_history_v2），清空后需重新导入 JSON 恢复">清空历史条目</button>
                 </div>
             </div>
 
-            <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.118 · 2026-09-01 23:11</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.123 · 2026-09-05 17:23</div>
 
         </div>
     
@@ -2282,6 +2283,9 @@ function scrollToBottom(containerId) {
     .zdr-import-history-toggle { margin-left: 6px; font-size: 0.82rem; }
     .zdr-import-hint { font-size: 0.82rem; }
     #ext-strategy-list input[type="checkbox"] { width: 17px; height: 17px; }
+    /* v1.121：历史条目底部 4 按钮移动端两行排列，避免「编辑历史条目」等长文案被挤/裁切 */
+    .zdr-he-actions { flex-wrap: wrap; }
+    .zdr-he-actions button { flex: 1 1 45% !important; min-width: calc(50% - 8px); }
 }
 /* 超窄屏（≤360px）：再压缩间距与字号，保证 3 位期数也完整放下不溢出 */
 @media (max-width: 360px) {
@@ -3418,6 +3422,25 @@ function recordSortKey(r) {
 //   - 按位数 digitCount 取前 N 码生成全部组合（三中三 C(N,3)、二中二 C(N,2)）；历史回测对过去每一期“仅用其之前的数据”预测再与真实 6 平码比对
 // ============================================================
 
+// 种子伪随机（采样用，固定 seed 可复现，用于当期按期号播种；回测不采样保持确定性）
+function pm33Mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+// 期号 → 稳定 uint32 种子（同一期号得到同一组，不同期号不同组）
+function pm33SeedFromQishu(q) {
+  var s = String(q == null ? '' : q), h = 2166136261 >>> 0;
+  for (var i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
 // 补零为两位字符串（'01'..'49'）
 function pm33Pad(x) {
   x = parseInt(x, 10);
@@ -3426,7 +3449,8 @@ function pm33Pad(x) {
 }
 
 // 从平码记录（newest-first 的 {qishu, flats}）生成当期组（每组 size 个号码，size=3 为三中三、size=2 为二中二）
-// 位数 digitCount = 取综合分前 digitCount 个号码，生成全部 C(digitCount, size) 组合作为组
+// 位数 digitCount = 当期从 top(2×位数) 热池按综合分排名加权随机抽「位数」个（作频率=避免每期不变），
+//   再生成全部 C(digitCount, size) 组合作为组；useSample=false 时退回确定性 top-位数（历史回测用，保持命中率稳定）。
 function pm33Combine(arr, k) {
   var res = [], n = (arr || []).length;
   if (k <= 0 || k > n) return res;
@@ -3444,7 +3468,7 @@ function pm33Combine(arr, k) {
   }
   return res;
 }
-function generatePm33Groups(records, size, digitCount, strategy) {
+function generatePm33Groups(records, size, digitCount, strategy, seed, useSample) {
   size = size || 3;
   digitCount = (typeof digitCount === 'number' && digitCount >= 3) ? Math.min(10, Math.round(digitCount)) : 4;
   strategy = (typeof strategy === 'number') ? strategy : 0;
@@ -3523,9 +3547,28 @@ function generatePm33Groups(records, size, digitCount, strategy) {
   nums.sort(function(x, y) {
     return y.score - x.score || (parseInt(x.n, 10) - parseInt(y.n, 10));
   });
-  // 取综合分前 digitCount 码，生成全部 C(digitCount, size) 组合作为组
-  var topN = nums.slice(0, digitCount).map(function(o) { return o.n; });
-  return pm33Combine(topN, size);
+  // v1.119：历史回测保持确定性（取前 digitCount 码），当期改用 top(2×位数) 热池加权随机抽 digitCount 个，
+  //   让每期组合有变化、又不丢热号底线（实测二中二胜率不降略升）。
+  if (!useSample) {
+    var topN = nums.slice(0, digitCount).map(function(o) { return o.n; });
+    return pm33Combine(topN, size);
+  }
+  var K = Math.min(nums.length, Math.max(3, digitCount) * 2);
+  var pool = nums.slice(0, K);
+  for (var k = 0; k < pool.length; k++) pool[k].w = pool.length - k; // 排名越靠前权重越高
+  if (typeof seed === 'number' && !isNaN(seed)) { seed = seed >>> 0; } else { seed = (Math.random() * 0xFFFFFFFF) >>> 0; }
+  var rng = pm33Mulberry32(seed);
+  var picked = [];
+  var remain = pool.slice();
+  while (picked.length < digitCount && remain.length > 0) {
+    var sum = 0, i;
+    for (i = 0; i < remain.length; i++) sum += remain[i].w;
+    var r = rng() * sum, idx = 0;
+    for (i = 0; i < remain.length; i++) { r -= remain[i].w; if (r <= 0) { idx = i; break; } }
+    picked.push(remain[idx].n);
+    remain.splice(idx, 1);
+  }
+  return pm33Combine(picked, size);
 }
 
 // 平码三中三总入口
@@ -3542,7 +3585,7 @@ function computePm33(flatHist, size, digitCount, strategy) {
   if (!flatHist || flatHist.length === 0) {
     return { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '暂无开奖数据' };
   }
-  var groups = generatePm33Groups(flatHist, size, digitCount, strategy);
+  var groups = generatePm33Groups(flatHist, size, digitCount, strategy, pm33SeedFromQishu((parseInt(flatHist[0].qishu, 10) || 0) + 1), true);
 
   var history = [];
   var MIN_INPUT = 6; // 至少要有 6 期历史才生成完整组数
@@ -3552,7 +3595,7 @@ function computePm33(flatHist, size, digitCount, strategy) {
   for (var j = 0; j <= maxBack; j++) {
     var input = flatHist.slice(j + 1); // 严格早于第 j 期的记录
     if (input.length < MIN_INPUT) break;
-    var g = generatePm33Groups(input, size, digitCount, strategy);
+    var g = generatePm33Groups(input, size, digitCount, strategy, 0, false);
     if (!g || !g.length) continue;
     var actual = flatHist[j].flats;
     var set = {};
@@ -4240,16 +4283,41 @@ function rememberLotteryData(lottery, data) {
 function isLotteryDataFresh(lottery, data) {
     if (!Array.isArray(data) || !data.length) return false;
     var maxDate = '';
+    var year = new Date().getFullYear();
+    var maxPeriod = 0;
     data.forEach(function(r) {
         var d = r && r.date ? String(r.date) : '';
         if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
             var dd = d.slice(0, 10);
             if (dd > maxDate) maxDate = dd;
         }
+        var rYear = r && r.year != null ? parseInt(r.year, 10) : (r && r.id ? Math.floor(r.id / 1000) : year);
+        if (rYear !== year) return; // 只统计当期年份期数，避免历史年份的较大期数干扰（香港跨年如 064/065）
+        var q = r && r.qishu != null ? parseInt(r.qishu, 10) : 0;
+        if (isFinite(q) && q > maxPeriod) maxPeriod = q;
     });
     if (!maxDate) return false;
     var today = new Date();
-    var tol = lottery === 'hk' ? 3 : 1;
+    if (lottery === 'hk') {
+        // 香港非每日开奖、开奖日不固定（可能隔一周甚至更久），用固定天数判断会把「暂无新开奖」误报为已过期。
+        // 优先用 box2 实时数据（curPeriod=已开当期 / nextPeriod=下一预测期）核对最新已开期——与时间无关且权威；
+        // box2 未就绪（读不到/未加载）时放宽为较高容差，避免频繁弹「已过期」。
+        var rd = window.__realtimeDraw && window.__realtimeDraw.hk;
+        if (rd) {
+            var cur = parseInt(rd.curPeriod, 10);
+            var next = parseInt(rd.nextPeriod, 10);
+            var ref = isFinite(cur) ? cur : (isFinite(next) ? next - 1 : NaN);
+            if (isFinite(ref)) {
+                // 最新已开期只要不低于权威当期（如香港已开 95 而数据到 95）即视为新鲜
+                return maxPeriod >= ref;
+            }
+        }
+        var tolHk = 14; // box2 未就绪时的兜底容差（覆盖较长停开窗口）
+        var cutoffHk = new Date(today.getFullYear(), today.getMonth(), today.getDate() - tolHk);
+        var cutoffHkStr = cutoffHk.getFullYear() + '-' + String(cutoffHk.getMonth() + 1).padStart(2, '0') + '-' + String(cutoffHk.getDate()).padStart(2, '0');
+        return maxDate >= cutoffHkStr;
+    }
+    var tol = 1;
     var cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - tol);
     var cutoffStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth() + 1).padStart(2, '0') + '-' + String(cutoff.getDate()).padStart(2, '0');
     return maxDate >= cutoffStr;
@@ -6331,12 +6399,39 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     let __histMapCache = null; // v1.62：会话内缓存历史战绩表，避免每次渲染都重新解析 localStorage
+    // v1.121：历史期数规格化（去前导零）+ 香港未开奖幽灵期清理。
+    // 去前导零：让「093/094/095」与「92/96」这类混排期数在桌面端折行时宽度一致，避免排版参差。
+    // 港澳未开奖期：香港非每日开奖，导入条目被推进到「下一预测期」（如已开 95 期写 96）时，
+    // 不应把未开奖期写进历史（否则历史条目里出现尚未开奖的 96）。澳门保留 v1.98/v1.99 的待补语义，不在此清理。
+    function sanitizeHistoryEntry(entry) {
+        if (!entry || !Array.isArray(entry.periods)) return false;
+        let changed = false;
+        const lottery = entry.lottery || 'macau';
+        const confirmed = lottery === 'hk' && typeof getLatestConfirmedPeriod === 'function' ? getLatestConfirmedPeriod('hk') : null;
+        const next = [];
+        entry.periods.forEach(p => {
+            if (!p || typeof p !== 'object') { changed = true; return; }
+            const raw = String(p.qishu == null ? '' : p.qishu).trim();
+            if (!/^\d{1,4}$/.test(raw)) { changed = true; return; }
+            const num = parseInt(raw, 10);
+            if (!num) { changed = true; return; }
+            if (String(num) !== raw) { p.qishu = String(num); changed = true; }
+            // 香港：未开奖（hit==null）且期数超过最新已确认开奖 → 幽灵期，剔除
+            if (lottery === 'hk' && p.hit == null && confirmed != null && num > confirmed) { changed = true; return; }
+            next.push(p);
+        });
+        if (next.length !== entry.periods.length) { entry.periods = next; changed = true; }
+        return changed;
+    }
     function loadImportHistories() {
         if (__histMapCache) return __histMapCache;
         try {
             const raw = localStorage.getItem(IMPORT_HISTORY_KEY);
             const data = raw ? JSON.parse(raw) : null;
             __histMapCache = (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+            let cleaned = false;
+            Object.keys(__histMapCache).forEach(k => { if (sanitizeHistoryEntry(__histMapCache[k])) cleaned = true; });
+            if (cleaned) saveImportHistories(__histMapCache); // 规格化结果持久化，导出/渲染自动拿到干净数据
         } catch (e) { __histMapCache = {}; }
         return __histMapCache;
     }
@@ -6862,6 +6957,224 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof renderImportList === 'function') renderImportList();
         flashHistoryAction(btn, true, '清空成功', '清空失败');
         if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 历史条目已清空，请重新导入历史条目 JSON。</span>';
+    };
+
+    // v1.121：编辑历史条目——删除整条历史 / 删除某期 / 补充、编辑子条目（partsText）。
+    // 数据源：zdr_import_history_v2（loadImportHistories / saveImportHistories），编辑后即时保存并刷新清单。
+    let __histEditMap = null;
+    let __histEditKeys = [];
+    const __histEditorExpanded = Object.create(null); // v1.121：子条目展开/折叠状态（默认折叠）
+    const __heBtn = 'border:none;border-radius:6px;font-size:12px;padding:3px 8px;cursor:pointer;margin-left:4px;flex-shrink:0;';
+    const __heBtnDel = __heBtn + 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca;';
+    const __heBtnOp = __heBtn + 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;';
+    const __heBtnAdd = __heBtn + 'background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;';
+    function histEditRender() {
+        const map = __histEditMap || {};
+        __histEditKeys = Object.keys(map);
+        if (!__histEditKeys.length) {
+            window.zdrOpen({
+                title: '编辑历史条目',
+                html: '<div style="text-align:center;color:#94a3b8;padding:14px 4px;">当前没有可编辑的历史条目。<br>请先「导入历史条目」JSON，或加载开奖数据并导入条目后自动生成。</div>',
+                buttons: [{ text: '关闭', className: 'zdr-btn-cancel' }]
+            });
+            return;
+        }
+        let html = '<div style="text-align:left;font-size:13px;max-height:60vh;overflow:auto;padding-right:2px;">';
+        __histEditKeys.forEach((key, e) => {
+            const entry = map[key] || {};
+            const expanded = !!__histEditorExpanded[key];
+            const lottery = entry.lottery || String(key).split('|')[0];
+            const badge = lottery === 'hk'
+                ? '<span style="background:#fee2e2;color:#b91c1c;border-radius:4px;padding:0 5px;margin-right:5px;">香港</span>'
+                : '<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:0 5px;margin-right:5px;">新澳门</span>';
+            const title = escHtml(entry.title || historyTitleFromKey(key) || key);
+            html += '<div class="zdr-he-entry" data-e="' + e + '" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;background:#fff;overflow:hidden;">';
+            html += '<div class="zdr-he-head" onclick="window.__histEditorToggle(' + e + ')" title="' + (expanded ? '点击收起子条目' : '点击展开子条目') + '" style="font-weight:700;color:#334155;line-height:1.5;padding:8px 10px;cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
+                '<span class="zdr-he-arrow" style="color:#94a3b8;flex-shrink:0;">' + (expanded ? '▾' : '▸') + '</span>' +
+                badge + '<span style="flex:1;min-width:120px;">' + title + '</span>' +
+                '<span style="flex-shrink:0;">' +
+                '<button onclick="window.__histEditorAddPeriod(' + e + ');event.stopPropagation();" title="新增一期并补充子条目" style="' + __heBtnAdd + '">+ 新增期数</button>' +
+                '<button onclick="window.__histEditorDeleteKey(' + e + ');event.stopPropagation();" title="删除该历史条目" style="' + __heBtnDel + '">删除本条</button>' +
+                '</span>' +
+                '</div>';
+            const periods = (Array.isArray(entry.periods) ? entry.periods : []);
+            html += '<div class="zdr-he-periods" style="display:' + (expanded ? 'block' : 'none') + ';padding:0 10px 8px;border-top:1px solid #f1f5f9;">';
+            if (!periods.length) {
+                html += '<div style="color:#94a3b8;font-size:12px;padding:6px 0;">（无期数记录）</div>';
+            } else {
+                periods.forEach((p, pi) => {
+                    const pending = p.hit == null;
+                    const hit = pending ? '待补' : (p.hit ? '中' : '不中');
+                    const hitColor = pending ? '#64748b' : (p.hit ? '#dc2626' : '#9ca3af');
+                    const rawPt = String(p.partsText == null ? '' : p.partsText);
+                    html += '<div class="zdr-he-row" data-e="' + e + '" data-pi="' + pi + '" style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px dashed #eef2f7;">' +
+                        '<span style="flex-shrink:0;min-width:50px;font-weight:600;color:#475569;padding-top:1px;">第' + escHtml(String(p.qishu)) + '期</span>' +
+                        '<span style="flex-shrink:0;color:' + hitColor + ';padding-top:1px;">' + hit + '</span>' +
+                        '<span class="zdr-he-pt" data-text="' + escAttr(rawPt) + '" style="flex:1;color:#64748b;word-break:break-all;line-height:1.5;">' + escHtml(rawPt) + '</span>' +
+                        '<button class="zdr-he-op" onclick="window.__histEditorStartEdit(' + e + ',' + pi + ',this)" title="补充/编辑子条目" style="' + __heBtnOp + '">补充</button>' +
+                        '<button class="zdr-he-op" onclick="window.__histEditorDeletePeriod(' + e + ',' + pi + ')" title="删除该期" style="' + __heBtnDel + '">删期</button>' +
+                        '</div>';
+                });
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+        const prevScroll = (document.querySelector('#zdrDialogOverlay .zdr-modal-body') || {}).scrollTop || 0;
+        window.zdrOpen({
+            title: '编辑历史条目（删除 / 补充子条目）',
+            titleAlign: 'left',
+            html: html,
+            buttons: [{ text: '关闭', className: 'zdr-btn-cancel' }],
+            onOpen: function() {
+                const modal = document.querySelector('#zdrDialogOverlay .zdr-modal');
+                if (modal) modal.style.maxWidth = '620px';
+                const body = document.querySelector('#zdrDialogOverlay .zdr-modal-body');
+                if (body) body.scrollTop = prevScroll;
+            }
+        });
+    }
+    window.__histEditorRender = histEditRender;
+    window.__histEditorToggle = function(e) {
+        const key = __histEditKeys[e];
+        if (key == null) return;
+        __histEditorExpanded[key] = !__histEditorExpanded[key];
+        // 原地展开/折叠，避免整段重绘导致回到最上方
+        const node = document.querySelector('#zdrDialogOverlay .zdr-he-entry[data-e="' + e + '"]');
+        if (!node) { histEditRender(); return; }
+        const periods = node.querySelector('.zdr-he-periods');
+        const arrow = node.querySelector('.zdr-he-arrow');
+        const head = node.querySelector('.zdr-he-head');
+        const expanded = !!__histEditorExpanded[key];
+        if (periods) periods.style.display = expanded ? 'block' : 'none';
+        if (arrow) arrow.textContent = expanded ? '▾' : '▸';
+        if (head) head.title = expanded ? '点击收起子条目' : '点击展开子条目';
+    };
+    window.__histEditorDeleteKey = function(e) {
+        const key = __histEditKeys[e];
+        if (key == null || !__histEditMap || !(key in __histEditMap)) return;
+        delete __histEditMap[key];
+        saveImportHistories(__histEditMap);
+        if (typeof renderImportList === 'function') renderImportList();
+        histEditRender();
+    };
+    window.__histEditorDeletePeriod = function(e, pi) {
+        const key = __histEditKeys[e];
+        const entry = key != null && __histEditMap ? __histEditMap[key] : null;
+        if (!entry || !Array.isArray(entry.periods)) return;
+        entry.periods.splice(pi, 1);
+        saveImportHistories(__histEditMap);
+        if (typeof renderImportList === 'function') renderImportList();
+        histEditRender();
+    };
+    // 补充/编辑子条目：把某期 partsText 就地替换为 textarea，保存后更新并尽量重建 parts 快照（供晚到开奖数据补全）
+    window.__histEditorStartEdit = function(e, pi, btn) {
+        const key = __histEditKeys[e];
+        const entry = key != null && __histEditMap ? __histEditMap[key] : null;
+        if (!entry || !Array.isArray(entry.periods) || !entry.periods[pi] || !btn) return;
+        const row = btn.closest('.zdr-he-row');
+        if (!row) return;
+        row.querySelectorAll('.zdr-he-op').forEach(function(op) { op.style.display = 'none'; });
+        const ptEl = row.querySelector('.zdr-he-pt');
+        if (!ptEl) return;
+        const cur = ptEl.getAttribute('data-text') || '';
+        const ta = document.createElement('textarea');
+        ta.className = 'zdr-he-ta';
+        ta.value = cur;
+        ta.style.cssText = 'flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;min-height:30px;box-sizing:border-box;font-family:inherit;';
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = '保存';
+        saveBtn.style.cssText = __heBtnDel;
+        saveBtn.onclick = function() {
+            const p = entry.periods[pi];
+            const val = String(ta.value == null ? '' : ta.value).trim();
+            p.partsText = val;
+            try {
+                const parsed = processImportedItem(val, entry.title || key);
+                if (Array.isArray(parsed.parts) && parsed.parts.length) p.parts = parsed.parts;
+            } catch (err) { /* 解析失败仅保留文本 */ }
+            saveImportHistories(__histEditMap);
+            if (typeof renderImportList === 'function') renderImportList();
+            histEditRender();
+        };
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消';
+        cancelBtn.style.cssText = __heBtnOp;
+        cancelBtn.onclick = function() { histEditRender(); };
+        ptEl.replaceWith(ta);
+        row.appendChild(saveBtn);
+        row.appendChild(cancelBtn);
+    };
+    // 新增一期：独立浮层（不覆盖/不退出编辑器），期数与子条目内容放同一弹窗，尽量重建 parts 快照。
+    // 取消/背景/Esc 只关闭本浮层，回到编辑历史条目；提交成功后关闭浮层并刷新编辑器。
+    function openHistAddForm(onSubmit) {
+        const old = document.getElementById('zdr-he-add-overlay');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        const overlay = document.createElement('div');
+        overlay.id = 'zdr-he-add-overlay';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+        overlay.innerHTML = '<div style="background:#fff;width:100%;max-width:460px;border-radius:12px;padding:22px 22px 18px;box-sizing:border-box;box-shadow:0 10px 30px rgba(0,0,0,.2);">' +
+            '<div style="text-align:left;font-size:16px;font-weight:700;color:#334155;margin-bottom:14px;">新增历史期数</div>' +
+            '<div style="text-align:left;font-size:14px;">' +
+            '<div style="margin-bottom:12px;"><label style="display:block;color:#475569;margin-bottom:4px;font-size:13px;">期数</label>' +
+            '<input id="zdr-he-new-qishu" type="text" inputmode="numeric" placeholder="例如 96" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;outline:none;"></div>' +
+            '<div><label style="display:block;color:#475569;margin-bottom:4px;font-size:13px;">子条目内容（例如 选肖:羊 猪 猴）</label>' +
+            '<textarea id="zdr-he-new-pt" rows="2" placeholder="选肖:羊 猪 猴" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;outline:none;resize:vertical;"></textarea></div>' +
+            '<div id="zdr-he-new-err" style="color:#dc2626;font-size:12px;margin-top:8px;display:none;">请填写有效期数（大于 0 的整数）</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:10px;margin-top:18px;">' +
+            '<button id="zdr-he-new-cancel" style="flex:1;padding:10px 12px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;">取消</button>' +
+            '<button id="zdr-he-new-ok" style="flex:1;padding:10px 12px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;background:linear-gradient(105deg,#2563eb,#1d4ed8);color:#fff;">确定</button>' +
+            '</div></div>';
+        document.body.appendChild(overlay);
+        const qEl = overlay.querySelector('#zdr-he-new-qishu');
+        const ptEl = overlay.querySelector('#zdr-he-new-pt');
+        const errEl = overlay.querySelector('#zdr-he-new-err');
+        const close = function() {
+            document.removeEventListener('keydown', keyHandler, true);
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        };
+        const keyHandler = function(ev) {
+            if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); }
+        };
+        document.addEventListener('keydown', keyHandler, true);
+        overlay.addEventListener('click', function(ev) { if (ev.target === overlay) close(); });
+        overlay.querySelector('#zdr-he-new-ok').onclick = function() {
+            const qs = String(qEl.value == null ? '' : qEl.value).trim();
+            const pt = String(ptEl.value == null ? '' : ptEl.value).trim();
+            const qishu = parseInt(qs, 10);
+            if (!qishu || qishu <= 0) { errEl.style.display = 'block'; qEl.style.borderColor = '#f87171'; return; }
+            close();
+            onSubmit(qishu, pt);
+        };
+        overlay.querySelector('#zdr-he-new-cancel').onclick = close;
+        setTimeout(function() { try { qEl.focus(); } catch (e) { /* ignore */ } }, 30);
+    }
+    window.__histEditorAddPeriod = function(e) {
+        const key = __histEditKeys[e];
+        const entry = key != null && __histEditMap ? __histEditMap[key] : null;
+        if (!entry) return;
+        openHistAddForm(function(qishu, pt) {
+            const newPeriod = { qishu: String(qishu), hit: null, partsText: pt, tm: '', sx: '', wx: '', color: '', pendingDate: importTodayStr() };
+            try {
+                const parsed = processImportedItem(pt, entry.title || key);
+                if (Array.isArray(parsed.parts) && parsed.parts.length) newPeriod.parts = parsed.parts;
+            } catch (err) { /* 解析失败仅保留文本 */ }
+            if (!Array.isArray(entry.periods)) entry.periods = [];
+            // 同键同期数覆盖，其余保留并按时序重排、限制期数
+            entry.periods = entry.periods.filter(p => parseInt(p.qishu, 10) !== qishu);
+            entry.periods.push(newPeriod);
+            entry.periods.sort((a, b) => parseInt(a.qishu, 10) - parseInt(b.qishu, 10));
+            if (entry.periods.length > IMPORT_HISTORY_LIMIT) entry.periods = entry.periods.slice(-IMPORT_HISTORY_LIMIT);
+            saveImportHistories(__histEditMap);
+            if (typeof renderImportList === 'function') renderImportList();
+            __histEditorExpanded[key] = true; // 新增后自动展开该条目，便于看到结果
+            histEditRender(); // 重新渲染编辑器（滚动位置由 histEditRender 内恢复）
+        });
+    };
+    // 打开编辑器入口（按钮 onclick 调用）
+    window.editImportHistories = function(btn) {
+        __histEditMap = loadImportHistories();
+        histEditRender();
     };
 
     // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
@@ -7992,14 +8305,39 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     if (added) hits.push("<span style='color:#10b981;'>选肖(标题):</span> " + zm2[1]);
                 }
             }
-            // 尾数兜底：标题含“尾数” → 从正文提取 数字.数字…尾
-            if (/尾数/.test(t)) {
-                const tm2 = str.match(/([\d\.]+)\s*尾/);
-                if (tm2) {
-                    tm2[1].split('.').forEach(x => { if (x !== '') parts.push({ cat: 'lastDigit', label: '尾数', value: x, display: x, kind: 'digit' }); });
-                    hits.push("<span style='color:#0891b2;'>尾数(标题):</span> " + tm2[1]);
+            // 尾数兜底：标题含 尾数/六尾/N尾/杀尾（如“七尾中特”）→ 从正文提取尾数字；
+            // 正文可能是纯数字串（如“0256789”），此时也逐位识别为尾数（非单个号码）
+            if (/(尾数|[0-9一二三四五六七八九十]尾|六尾|杀尾)/.test(t)) {
+                const noPeriodTail = str.replace(/\d+\s*期/g, ' ');
+                const tb = noPeriodTail.match(/[〖【]([^〗】]*)[〗】]/);
+                const src = tb ? tb[1] : noPeriodTail;
+                const digits = Array.from(new Set((src.match(/\d/g) || []).filter(d => /^[0-9]$/.test(d))));
+                if (digits.length) {
+                    digits.forEach(x => parts.push({ cat: 'lastDigit', label: '尾数', value: x, display: x, kind: 'digit' }));
+                    hits.push("<span style='color:#0891b2;'>尾数(标题):</span> " + digits.join(','));
                 }
             }
+            // 类别词兜底：标题含 风雨雷电/春夏秋冬/琴棋书画/四季 → 从正文取对应组字
+            // （正文可能只有组字、没有类别词，如“雷风电”）
+            const titleGroupRules = [
+                { keyword: '风雨雷电', cat: 'weather', label: '风雨雷电', chars: { '风': 'wind', '雨': 'rain', '雷': 'thunder', '电': 'electric' } },
+                { keyword: '春夏秋冬', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } },
+                { keyword: '琴棋书画', cat: 'art', label: '琴棋书画', chars: { '琴': 'qin', '棋': 'qi', '书': 'shu', '画': 'hua' } },
+                { keyword: '四季', cat: 'season', label: '春夏秋冬', chars: { '春': 'spring', '夏': 'summer', '秋': 'autumn', '冬': 'winter' } }
+            ];
+            titleGroupRules.forEach(gr => {
+                if (!t.includes(gr.keyword)) return;
+                const found = [];
+                const gSeen = new Set();
+                Array.from(str).forEach(ch => { if (gr.chars[ch] && !gSeen.has(ch)) { gSeen.add(ch); found.push(ch); } });
+                if (found.length) {
+                    found.forEach(ch => {
+                        const key = gr.cat + ':' + gr.chars[ch];
+                        if (!seenEffectKeys.has(key)) { seenEffectKeys.add(key); parts.push({ cat: gr.cat, label: gr.label, value: gr.chars[ch], display: ch, kind: 'effect' }); }
+                    });
+                    hits.push("<span style='color:#0d9488;'>筛选(标题):</span> " + found.map(ch => gr.label + '·' + ch).join('、'));
+                }
+            });
         }
 
         // 汇总去重：同一 类别+标签+值 的子选项只保留一个（效果集合本身会去重，这里避免重复 chips）
@@ -9411,6 +9749,7 @@ window.closeSuppModal = function() {
         return new Promise(function(resolve) {
             activeResolve = resolve;
             titleEl.textContent = opts.title || '';
+            titleEl.style.textAlign = opts.titleAlign || 'center';
             bodyEl.textContent = opts.message || '';
             if (opts.input) {
                 promptMode = true;
@@ -9470,6 +9809,36 @@ window.closeSuppModal = function() {
             ]
         });
     };
+
+    // v1.121：通用 HTML 内容模态框（供「编辑历史条目」等复杂编辑使用）。
+    // 与 alert/confirm/prompt 不同：body 放 HTML、支持自定义按钮回调、返回 { close } 便于编程关闭。
+    window.zdrOpen = function(opts) {
+        opts = opts || {};
+        activeResolve = null;
+        promptMode = false;
+        titleEl.textContent = opts.title || '';
+        titleEl.style.textAlign = opts.titleAlign || 'center';
+        bodyEl.innerHTML = opts.html || '';
+        inputEl.style.display = 'none';
+        inputEl.value = '';
+        actionsEl.innerHTML = '';
+        (opts.buttons || []).forEach(function(b) {
+            const btn = document.createElement('button');
+            btn.textContent = b.text;
+            btn.className = b.className || 'zdr-btn-cancel';
+            btn.onclick = function() {
+                if (typeof b.onClick === 'function') b.onClick(btn);
+                if (b.closeOnClick !== false) closeDialog(b.value);
+            };
+            actionsEl.appendChild(btn);
+        });
+        overlay.style.display = 'flex';
+        overlay.classList.add('show');
+        document.addEventListener('keydown', onKeydown);
+        if (typeof opts.onOpen === 'function') opts.onOpen();
+        return { close: function() { closeDialog(false); } };
+    };
+    window.zdrClose = function() { closeDialog(false); };
 })();
 
 // 工具1：获取特定年份特定号码的生肖
