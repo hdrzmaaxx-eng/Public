@@ -573,7 +573,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.123 · 2026-09-05 17:23</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.125 · 2026-09-06 15:39</div>
 
         </div>
     
@@ -2248,7 +2248,7 @@ function scrollToBottom(containerId) {
 .zdr-import-history-row.zdr-expanded { flex-wrap: wrap; overflow: visible; }
 /* v1.90：桌面端收起状态——单行显示、超出部分裁剪（配合「查看全部 N 期」展开恢复换行） */
 .zdr-import-history-row.zdr-collapsed { flex-wrap: nowrap; overflow: hidden; }
-.zdr-import-history-toggle { margin: 3px 0 0 21px; font-size: 0.72rem; color: #1d4ed8; cursor: pointer; display: inline-block; -webkit-user-select: none; user-select: none; }
+.zdr-import-history-toggle { margin: 3px 0 0 auto; font-size: 0.72rem; color: #1d4ed8; cursor: pointer; display: block; width: fit-content; text-align: right; -webkit-user-select: none; user-select: none; }
 .zdr-import-history-toggle:active { opacity: .7; }
 .zdr-import-hint { font-size: 0.72rem; }
 /* v1.62：按网站分组的低饱和底色容器 + 置顶条目 + 条目行间距（桌面基准，移动端在下方再放宽） */
@@ -2280,7 +2280,7 @@ function scrollToBottom(containerId) {
     /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
     .zdr-import-history-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; overflow: hidden; margin-left: 6px; }
     .zdr-import-period { font-size: 0.8rem; padding: 2px 0; min-width: 0; }
-    .zdr-import-history-toggle { margin-left: 6px; font-size: 0.82rem; }
+    .zdr-import-history-toggle { margin-left: auto; margin-right: 0; font-size: 0.82rem; display: block; width: fit-content; text-align: right; }
     .zdr-import-hint { font-size: 0.82rem; }
     #ext-strategy-list input[type="checkbox"] { width: 17px; height: 17px; }
     /* v1.121：历史条目底部 4 按钮移动端两行排列，避免「编辑历史条目」等长文案被挤/裁切 */
@@ -8520,7 +8520,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }).join('');
     }
 
-    // v1.90：历史存储最多 30 期，最新期在右侧。PC 端不限制每排 10 个——全部期数直接显示、
+    // v1.90：历史存储最多 30 期；v1.124 起改为最新期在左侧（由高到低）。PC 端不限制每排 10 个——全部期数直接显示、
     // 只有一排放不下才自动折行；一旦发生换行就显示「▴ 收起」折叠提示（收起后单行显示并变为
     // 「▾ 查看全部 N 期」，再点恢复），一排放得下时不显示提示；移动端沿用 10 列网格，
     // 超过 10 期时显示「查看全部 N 期」展开按钮。中=浅红底白字、不中=浅灰底白字。
@@ -8563,6 +8563,28 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return true;
     }
 
+    // v1.124：历史期数改为「最新期在最左、由高到低」展示。澳门/香港期号都是每年重置的日序号
+    // （001-365/366），跨年回到 001；纯按时号数字倒序在跨年会排错（如 365 会排到 01 前面）。
+    // 这里不改下层存储顺序，只在此按「期号升序 + 最大间隔检测年份回绕」生成最新优先序列：
+    // 期号升序后若相邻最大间隔明显大于普通间隔，则间隔之后的大号段视为上一年、之前的小号段
+    // 视为今年；展示时今年倒序在前、上一年倒序在后，从而得到「02-01-365-364」这种跨年正确序。
+    function historyPeriodNewestFirst(periods) {
+        const arr = (periods || []).filter(p => p && p.qishu != null && /^\d{1,4}$/.test(String(p.qishu)));
+        if (arr.length <= 1) return arr;
+        const num = arr.map(p => ({ p: p, q: parseInt(String(p.qishu), 10) }));
+        num.sort((a, b) => a.q - b.q);
+        let maxGap = 1, split = num.length;
+        for (let i = 1; i < num.length; i++) {
+            const gap = num[i].q - num[i - 1].q;
+            if (gap > maxGap) { maxGap = gap; split = i; }
+        }
+        const span = num[num.length - 1].q - num[0].q;
+        if (split < num.length && maxGap > 1 && maxGap * 2 > span) {
+            return num.slice(0, split).reverse().concat(num.slice(split).reverse()).map(x => x.p);
+        }
+        return num.slice().reverse().map(x => x.p);
+    }
+
     function renderImportHistory(itemIndex, it, histMap) {
         if (extractItemPeriod(it) == null) return ''; // 无期数，无法一一对应，不渲染第三排
         const key = importHistoryKey(it);
@@ -8580,17 +8602,25 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const hoverAttrs = __periodTipHoverCapable
             ? ' onmouseenter="window.showPeriodTooltip(event, this)" onmouseleave="window.hidePeriodTooltip()"'
             : '';
+        // v1.124：期数一律按「最新在左、由高到低」展示（含跨年正确排序）。
+        // v1.125：移动端默认收起（只显示最近 10 期一排），点「▾ 查看全部 N 期」展开全部；桌面端默认展开。
         const expanded = __expandedHistoryKeys.has(key);
         const isMobile = window.innerWidth <= 600; // 与移动端 CSS 断点一致
         const desktopCollapsed = !isMobile && __desktopCollapsedKeys.has(key);
-        const shown = (!isMobile || expanded) ? displayPeriods : displayPeriods.slice(-10);
-        // 移动端：10 列网格 + 超过 10 期显示「查看全部/收起」；桌面端：折叠提示是否显示由
-        // 渲染后的换行/裁剪测量决定（见 syncDesktopHistoryHint），文案按收起状态切换
+        const mobileAll = expanded; // 移动端默认收起（最近 10 期）；收藏进 __expandedHistoryKeys 即展开全部
+        const ordered = historyPeriodNewestFirst(displayPeriods);
+        // v1.125：移动端默认收起（最近 10 期一排）；桌面端默认展开（全部期数、可换行）。
+        // 展开/收起都只渲染一份「当前应显示」的期数：收起时只取最新 10 期，展开时显示全部，
+        // 不再用 overflow 把右侧期数裁掉，避免桌面端点「▴ 收起」后右边期数被截断。
+        // 移动端：默认收起（mobileAll 才展开全部）；桌面端：默认展开（desktopCollapsed 才收起为一排）
+        const shown = isMobile ? (mobileAll ? ordered : ordered.slice(0, 10)) : (desktopCollapsed ? ordered.slice(0, 10) : ordered);
+        // 移动端：10 列网格 + 超过 10 期显示「查看全部/收起」；桌面端：收起后按 data-more 显示「查看全部」，
+        // 展开态由 syncDesktopHistoryHint 按是否换行决定是否显示「▴ 收起」
         let toggle = '';
         if (isMobile && displayPeriods.length > 10) {
-            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (expanded ? '▴ 收起' : '▾ 查看全部 ' + displayPeriods.length + ' 期') + '</div>';
+            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (mobileAll ? '▴ 收起' : '▾ 查看全部 ' + displayPeriods.length + ' 期') + '</div>';
         } else if (!isMobile) {
-            toggle = '<div class="zdr-import-history-toggle" data-desktop="1" onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + displayPeriods.length + ' 期' : '▴ 收起') + '</div>';
+            toggle = '<div class="zdr-import-history-toggle" data-desktop="1"' + (displayPeriods.length > 10 ? ' data-more="1"' : '') + ' onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + displayPeriods.length + ' 期' : '▴ 收起') + '</div>';
         }
         // v1.90：期数改为浅红底白字（中）/ 浅灰底白字（不中），去掉边框
         // v1.98/v1.99：开奖数据未到的「待补」期数（次日才显示）用白底虚线边框灰字，悬停/点击显示「暂无开奖数据」
@@ -8606,7 +8636,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     // v1.90：桌面端折叠提示——展开状态下发生换行（排不下）才显示「▴ 收起」；
-    // 收起状态下发生裁剪（还有更多期数）才显示「▾ 查看全部 N 期」；一排放得下则隐藏
+    // v1.125：收起状态下还有更多期数（data-more）才显示「▾ 查看全部 N 期」；一排放得下则隐藏
     function syncDesktopHistoryHint() {
         if (window.innerWidth <= 600) return;
         const rows = document.querySelectorAll('.zdr-import-history-row');
@@ -8617,7 +8647,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const collapsed = row.classList.contains('zdr-collapsed');
             let show = false;
             if (collapsed) {
-                show = row.scrollWidth > row.clientWidth + 1; // 单行裁剪说明还有更多期数
+                show = toggle.getAttribute('data-more') === '1'; // 收起后仍有更多期数才显示「查看全部」
             } else {
                 const first = row.firstElementChild;
                 const last = row.lastElementChild;
@@ -8710,13 +8740,27 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const totalPinned = items.filter(x => x.pinned).length;
         const pinned = visibleItems.filter(it => it.pinned);
         const rest = visibleItems.filter(it => !it.pinned);
-        // 按网站分组：相同网站的条目集中显示（置顶条目已单独抽出，不重复展示）
+        // v1.124：命中率高的条目优先显示——组内按历史命中率从高到低排序（不做开关、不加角标）。
+        // 口径：已确定的历史期数中（hit!=null），中次数 / 已开奖期数；无战绩（无已开奖期数）视为无数据沉底。
+        // 置顶条目不参与排序（置顶固定在最上）。冻结类（杀肖/杀码/杀尾）历史命中一并计入。
+        const hitRateOf = (it) => {
+            const hh = histMap[importHistoryKey(it)];
+            if (!hh || !Array.isArray(hh.periods)) return null;
+            let det = 0, hits = 0;
+            hh.periods.forEach(p => { if (p && p.hit != null) { det++; if (p.hit) hits++; } });
+            return det ? (hits / det) : null;
+        };
+        const pinRate = new Map();
+        (visibleItems || []).forEach(it => pinRate.set(it, hitRateOf(it)));
+        const byRate = (it) => (pinRate.get(it) == null ? -1 : pinRate.get(it));
+        // 按网站分组：相同网站的条目集中显示（置顶条目已单独抽出，不重复展示；组内按命中率降序，无数据沉底）
         const siteOrder = ['铁算盘', '澳门九龙网', '群英会', '奥霸网', '其他'];
         const groups = {};
         rest.forEach(it => {
             const s = detectImportSite(it);
             (groups[s] = groups[s] || []).push(it);
         });
+        Object.keys(groups).forEach(s => { groups[s].sort((a, b) => byRate(b) - byRate(a)); });
         const renderItem = (it) => {
             const realIndex = items.indexOf(it);
             return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
