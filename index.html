@@ -409,12 +409,12 @@
             <iframe frameborder="0" height="123" scrolling="no" src="https://dy.sxhwqc.com:2025/hk.html" target="_blank" width="100%"></iframe>
         </div>
 
-        <!-- 结果显示容器 - 包裹层 #zdr-sticky-wrap 负责吸顶（v1.128） -->
-        <div id="zdr-sticky-wrap">
+        <!-- 结果显示容器 - 保持原有吸顶方式（与预测页 #display-container-predict 共用同一条 CSS 规则，v1.131 改回） -->
         <div id="display-container"></div>
 
-        <!-- v1.128 ~ v1.130：吸顶输入框下方的「下滑抽屉」快捷筛选面板（特码生肖 / 波色 / 五行 / 尾数）
-             短横线拉手**只在输入框吸顶时出现**；下拉展开、上拉收起（轻点也可）；
+        <!-- v1.128 ~ v1.131：吸顶输入框下方的「下滑抽屉」快捷筛选面板（特码生肖 / 波色 / 五行 / 尾数）
+             抽屉自身吸顶并紧贴结果框下沿（吸顶偏移由 JS 按结果框实测高度设置）；
+             短横线拉手**只在结果框吸顶时出现**；下拉展开、上拉收起（轻点也可）；
              面板内按钮沿用 .btn，点击筛选 / 长按冻结与页面下方按钮完全一致 -->
         <div id="zdr-drawer" class="zdr-drawer">
             <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
@@ -474,7 +474,6 @@
                     </div>
                 </div>
             </div>
-        </div>
         </div>
 
         <div class="button-container">
@@ -638,7 +637,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.130 · 2026-09-10 23:20</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.131 · 2026-09-10 23:36</div>
 
         </div>
     
@@ -2367,19 +2366,16 @@ function scrollToBottom(containerId) {
 }
 
 /* ============================================================
-   v1.128 / v1.129：吸顶输入框下方的「下滑抽屉」快捷筛选面板
+   v1.128 ~ v1.131：吸顶输入框下方的「下滑抽屉」快捷筛选面板
    （特码生肖 / 特码波色 / 特码五行 / 特码尾数，点一下直接筛选）
-   - 吸顶能力上移到包裹层 #zdr-sticky-wrap，#display-container 自身不再单独吸顶
-     （预测页 #display-container-predict 不受影响，保持原样）
-   - 短横线拉手**只在输入框真正吸顶时显示**（JS 给 #zdr-drawer 加 .zdr-drawer-stuck）
+   - 结果框 #display-container 保持**原有吸顶方式**（与预测页 #display-container-predict
+     共用同一条规则），不再用包裹层；抽屉自身吸顶，top 由 JS 按结果框实测高度实时设置，
+     所以未吸顶时它就在结果框下方正常排版，吸顶后紧贴结果框下沿显示
+   - 短横线拉手**只在结果框真正吸顶时显示**（JS 给 #zdr-drawer 加 .zdr-drawer-stuck）
    - 拉手「下滑展开、上滑收起」（pointer capture 保证鼠标拖出拉手也能判定）；
      面板内按钮沿用 .btn 类，自动共享点击选择 / 长按冻结等既有逻辑
-   - 面板用琥珀色上边框 + 橙色标题条 + 灰底分组卡片，与下方页面内容区分明显
    ============================================================ */
-#zdr-sticky-wrap { position: sticky; top: 66px; z-index: 1000; }
-/* 注意：#display-container 必须保留定位上下文（原为 sticky），否则内部的复制/清空/清集等
-   绝对定位按钮会跑到 .calculator 角落；这里只把吸顶交给包裹层 */
-#zdr-sticky-wrap > #display-container { position: relative; top: auto; z-index: auto; }
+.zdr-drawer { position: sticky; top: 220px; z-index: 999; }
 .zdr-drawer-handle {
     display: none; align-items: center; justify-content: center;
     height: 26px; margin: -8px 0 6px;
@@ -10160,10 +10156,10 @@ window.saveSuppData = function() {
 (function () {
     var drawer = document.getElementById('zdr-drawer');
     var handle = document.getElementById('zdr-drawer-handle');
-    var wrap = document.getElementById('zdr-sticky-wrap');
-    if (!drawer || !handle || !wrap) return;
+    var box = document.getElementById('display-container');
+    if (!drawer || !handle || !box) return;
 
-    var STICK_TOP = 66;      // 与 CSS 的 #zdr-sticky-wrap { top: 66px } 一致
+    var STICK_TOP = 66;      // 与 #display-container（含预测页）的 CSS sticky top 一致
     var OPEN_THRESHOLD = 20; // 上/下拉位移达到该值即触发展开或收起
     var SLOP = 6;            // 超过该位移视为「拖动」，抬手不当作轻点
 
@@ -10177,11 +10173,19 @@ window.saveSuppData = function() {
     };
     window.toggleZdrDrawer = function () { window.setZdrDrawer(!isOpen()); };
 
-    // ===== v1.129：只在输入框吸顶时显示拉手（未吸顶一律隐藏并收起抽屉）=====
-    // 判定：包裹层仍在可见状态（非 display:none），且其顶边已贴到吸顶位置 top:66px
+    // v1.131：抽屉自身吸顶，吸顶偏移 = 结果框吸顶位置 + 结果框实测高度，
+    // 这样未吸顶时它在结果框下方正常排版，吸顶后紧贴结果框下沿（结果条数变化会即时同步）
+    function syncDrawerTop() {
+        var h = box.offsetHeight || 0;
+        drawer.style.top = (STICK_TOP + h) + 'px';
+    }
+
+    // ===== v1.129：只在结果框吸顶时显示拉手（未吸顶一律隐藏并收起抽屉）=====
+    // 判定：结果框仍在可见状态（非 display:none），且其顶边已贴到吸顶位置 top:66px
     var stuck = false, rafId = 0;
     function updateStuck() {
-        var r = wrap.getBoundingClientRect();
+        syncDrawerTop();
+        var r = box.getBoundingClientRect();
         var visible = r.height > 0 || r.width > 0;
         var next = visible && r.top <= STICK_TOP + 1.5;
         if (next === stuck) return;
@@ -10199,6 +10203,11 @@ window.saveSuppData = function() {
     }
     window.addEventListener('scroll', scheduleStuckCheck, { passive: true });
     window.addEventListener('resize', scheduleStuckCheck);
+    window.addEventListener('resize', syncDrawerTop);
+    // 结果框高度会随结果条数变化，用 ResizeObserver 实时把抽屉贴回它下沿
+    if (window.ResizeObserver) {
+        try { new ResizeObserver(function () { syncDrawerTop(); }).observe(box); } catch (err) { /* ignore */ }
+    }
 
     // ===== 手势：pointer capture 保证鼠标/手指拖出拉手范围后仍能判定 =====
     var startY = 0, tracking = false, dragged = false;
@@ -10261,8 +10270,9 @@ window.saveSuppData = function() {
     }
 
     window.setZdrDrawer(false); // 默认收起
+    syncDrawerTop();
     updateStuck();
-    setTimeout(updateStuck, 300); // 首屏数据/布局稳定后再判定一次
+    setTimeout(function () { syncDrawerTop(); updateStuck(); }, 300); // 首屏数据/布局稳定后再判定一次
 })();
 </script>
 
