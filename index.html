@@ -409,9 +409,74 @@
             <iframe frameborder="0" height="123" scrolling="no" src="https://dy.sxhwqc.com:2025/hk.html" target="_blank" width="100%"></iframe>
         </div>
 
-        <!-- 结果显示容器 - 保持在 calculator 内部，使用 CSS sticky -->
+        <!-- 结果显示容器 - 包裹层 #zdr-sticky-wrap 负责吸顶（v1.128） -->
+        <div id="zdr-sticky-wrap">
         <div id="display-container"></div>
-        
+
+        <!-- v1.128 ~ v1.130：吸顶输入框下方的「下滑抽屉」快捷筛选面板（特码生肖 / 波色 / 五行 / 尾数）
+             短横线拉手**只在输入框吸顶时出现**；下拉展开、上拉收起（轻点也可）；
+             面板内按钮沿用 .btn，点击筛选 / 长按冻结与页面下方按钮完全一致 -->
+        <div id="zdr-drawer" class="zdr-drawer">
+            <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
+                 aria-expanded="false" aria-controls="zdr-drawer-panel" title="下滑展开 · 上滑收起"></div>
+            <div id="zdr-drawer-panel" class="zdr-drawer-panel">
+                <div class="zdr-drawer-group">
+                    <div class="zdr-drawer-title">特码生肖（长按杀肖）</div>
+                    <div class="zdr-drawer-row">
+                        <button class="btn" data-category="zodiac" data-value="鼠"><span class="count-badge">0</span>鼠</button>
+                        <button class="btn" data-category="zodiac" data-value="牛"><span class="count-badge">0</span>牛</button>
+                        <button class="btn" data-category="zodiac" data-value="虎"><span class="count-badge">0</span>虎</button>
+                        <button class="btn" data-category="zodiac" data-value="兔"><span class="count-badge">0</span>兔</button>
+                        <button class="btn" data-category="zodiac" data-value="龙"><span class="count-badge">0</span>龙</button>
+                        <button class="btn" data-category="zodiac" data-value="蛇"><span class="count-badge">0</span>蛇</button>
+                        <button class="btn" data-category="zodiac" data-value="马"><span class="count-badge">0</span>马</button>
+                        <button class="btn" data-category="zodiac" data-value="羊"><span class="count-badge">0</span>羊</button>
+                        <button class="btn" data-category="zodiac" data-value="猴"><span class="count-badge">0</span>猴</button>
+                        <button class="btn" data-category="zodiac" data-value="鸡"><span class="count-badge">0</span>鸡</button>
+                        <button class="btn" data-category="zodiac" data-value="狗"><span class="count-badge">0</span>狗</button>
+                        <button class="btn" data-category="zodiac" data-value="猪"><span class="count-badge">0</span>猪</button>
+                    </div>
+                </div>
+                <div class="zdr-drawer-group">
+                    <div class="zdr-drawer-title">特码波色</div>
+                    <div class="zdr-drawer-row col-3">
+                        <button class="btn" data-category="color" data-value="红波单">红波单</button>
+                        <button class="btn" data-category="color" data-value="红波双">红波双</button>
+                        <button class="btn" data-category="color" data-value="蓝波单">蓝波单</button>
+                        <button class="btn" data-category="color" data-value="蓝波双">蓝波双</button>
+                        <button class="btn" data-category="color" data-value="绿波单">绿波单</button>
+                        <button class="btn" data-category="color" data-value="绿波双">绿波双</button>
+                    </div>
+                </div>
+                <div class="zdr-drawer-group">
+                    <div class="zdr-drawer-title">特码五行</div>
+                    <div class="zdr-drawer-row col-5">
+                        <button class="btn" data-category="element" data-value="金">金</button>
+                        <button class="btn" data-category="element" data-value="木">木</button>
+                        <button class="btn" data-category="element" data-value="水">水</button>
+                        <button class="btn" data-category="element" data-value="火">火</button>
+                        <button class="btn" data-category="element" data-value="土">土</button>
+                    </div>
+                </div>
+                <div class="zdr-drawer-group">
+                    <div class="zdr-drawer-title">特码尾数</div>
+                    <div class="zdr-drawer-row col-10">
+                        <button class="btn" data-category="lastDigit" data-value="0">0尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="1">1尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="2">2尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="3">3尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="4">4尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="5">5尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="6">6尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="7">7尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="8">8尾</button>
+                        <button class="btn" data-category="lastDigit" data-value="9">9尾</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+
         <div class="button-container">
          
             <div style="display: flex; justify-content: space-between; align-items: center; margin: 15px 0 8px 0;">
@@ -573,7 +638,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.126 · 2026-09-08 20:08</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.130 · 2026-09-10 23:20</div>
 
         </div>
     
@@ -1219,10 +1284,12 @@
         }
 
         // 新增：长按处理函数（改造为全维度通用，带防反选延迟）
+        // v1.128：长按冻结时间由 1000ms 改为 500ms——手机上系统长按触感（震动）约在 500ms 出现，
+        //         而冻结原本在 1000ms 才触发，导致「先震动、后冻结」；改为同刻触发，做到震动即冻结
         function setupLongPress(btn, category, value) {
             const itemKey = category + ':' + value;
             setupZdrHold(btn, {
-                duration: 1000, // 1秒长按时间
+                duration: 500, // v1.128：500ms（与手机系统长按震动同刻，震动即冻结）
                 onFire: function() {
                     if (frozenItems.has(itemKey)) {
                         // 已冻结 → 解冻：延迟200毫秒清除冻结状态，保护手指抬起时产生的Click事件不造成反选
@@ -1972,6 +2039,9 @@ function scrollToBottom(containerId) {
 #predictView .pm33-group { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 4px; display: flex; justify-content: center; align-items: center; gap: 6px; white-space: nowrap; }
 #predictView .pm33-tab { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 16px; padding: 4px 14px; font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; transition: all .2s; white-space: nowrap; }
 #predictView .pm33-tab.active { background: linear-gradient(135deg, #f43f5e, #fb7185); color: #fff; border-color: transparent; }
+/* v1.128 ~ v1.130：平码三中三 / 二中二 卡片折叠——默认折叠，点标题栏整行切换展开/收起（无额外状态提示） */
+#predictView .pm33-title { cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#predictView .pm33-title:active { opacity: .85; }
 
 @media (max-width: 400px) { #predictView .predict-list { grid-template-columns: 1fr; } }
 
@@ -2253,6 +2323,8 @@ function scrollToBottom(containerId) {
 .zdr-import-hint { font-size: 0.72rem; }
 /* v1.62：按网站分组的低饱和底色容器 + 置顶条目 + 条目行间距（桌面基准，移动端在下方再放宽） */
 .zdr-import-site-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; }
+/* v1.128：彩种大分区标题条（新澳门一整块在上、香港一整块在下） */
+.zdr-import-cat-head { font-size: 0.88rem; font-weight: 800; border-radius: 8px; padding: 5px 10px; margin: 10px 0 4px; }
 .zdr-import-site-group .zdr-import-site-head { margin: 2px 0 4px; }
 .zdr-import-pinned-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; background: #fffbeb; border: 1px solid #fde68a; }
 .zdr-import-pinned-head { font-size: 0.8rem; font-weight: 700; color: #b45309; margin: 2px 0 4px; padding-left: 6px; border-left: 3px solid #f59e0b; }
@@ -2272,6 +2344,7 @@ function scrollToBottom(containerId) {
     .zdr-import-part-line { font-size: 0.85rem; }
     .zdr-import-chip { font-size: 0.82rem; padding: 2px 9px; }
     .zdr-import-site-group { padding: 10px 8px 12px; }
+    .zdr-import-cat-head { font-size: 0.95rem; padding: 7px 10px; }
     .zdr-import-pinned-group { padding: 10px 8px 12px; }
     .zdr-import-pinned-head { font-size: 0.85rem; }
     .zdr-import-item { padding: 9px 8px 10px; margin-bottom: 8px; }
@@ -2291,6 +2364,61 @@ function scrollToBottom(containerId) {
 @media (max-width: 360px) {
     .zdr-import-history-row { gap: 3px; margin-left: 3px; }
     .zdr-import-period { font-size: 0.72rem; }
+}
+
+/* ============================================================
+   v1.128 / v1.129：吸顶输入框下方的「下滑抽屉」快捷筛选面板
+   （特码生肖 / 特码波色 / 特码五行 / 特码尾数，点一下直接筛选）
+   - 吸顶能力上移到包裹层 #zdr-sticky-wrap，#display-container 自身不再单独吸顶
+     （预测页 #display-container-predict 不受影响，保持原样）
+   - 短横线拉手**只在输入框真正吸顶时显示**（JS 给 #zdr-drawer 加 .zdr-drawer-stuck）
+   - 拉手「下滑展开、上滑收起」（pointer capture 保证鼠标拖出拉手也能判定）；
+     面板内按钮沿用 .btn 类，自动共享点击选择 / 长按冻结等既有逻辑
+   - 面板用琥珀色上边框 + 橙色标题条 + 灰底分组卡片，与下方页面内容区分明显
+   ============================================================ */
+#zdr-sticky-wrap { position: sticky; top: 66px; z-index: 1000; }
+/* 注意：#display-container 必须保留定位上下文（原为 sticky），否则内部的复制/清空/清集等
+   绝对定位按钮会跑到 .calculator 角落；这里只把吸顶交给包裹层 */
+#zdr-sticky-wrap > #display-container { position: relative; top: auto; z-index: auto; }
+.zdr-drawer-handle {
+    display: none; align-items: center; justify-content: center;
+    height: 26px; margin: -8px 0 6px;
+    cursor: pointer; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.zdr-drawer-stuck .zdr-drawer-handle { display: flex; }
+.zdr-drawer-handle::after {
+    content: ""; display: block; width: 58px; height: 5px; border-radius: 3px;
+    background: #cbd5e1; transition: background 0.2s ease, width 0.2s ease;
+}
+.zdr-drawer-open .zdr-drawer-handle::after { background: #f59e0b; width: 40px; }
+.zdr-drawer-panel {
+    display: none; background: #fff;
+    border: 1px solid #fdba74; border-top: 3px solid #f59e0b;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16);
+    padding: 8px 10px 12px; max-height: 56vh; overflow-y: auto;
+}
+/* 桌面端：面板两列排布（生肖/波色 上行，五行/尾数 下行），比纵向拉长更紧凑、更像独立面板 */
+.zdr-drawer-open .zdr-drawer-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; align-content: start; }
+.zdr-drawer-group { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 7px 8px 9px; }
+.zdr-drawer-title { font-size: 0.78rem; font-weight: 700; color: #475569; margin: 0 0 5px; padding-left: 6px; border-left: 3px solid #fb923c; }
+.zdr-drawer-row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 5px; }
+.zdr-drawer-row.col-10 { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+.zdr-drawer-row.col-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.zdr-drawer-row.col-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.zdr-drawer-row.col-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#zdr-drawer .btn { height: 32px; min-height: 0; padding: 0 2px; font-size: 0.8rem; border-radius: 6px; min-width: 0; width: 100%; }
+#zdr-drawer .btn .count-badge { width: 12px; height: 12px; font-size: 9px; top: 1px; left: 1px; }
+/* 移动端：面板改单列纵向排布；生肖/尾数两排、波色两排、五行一排，保证一排按钮都放得下不溢出 */
+@media (max-width: 600px) {
+    .zdr-drawer-open .zdr-drawer-panel { grid-template-columns: 1fr; }
+    .zdr-drawer-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .zdr-drawer-row.col-10 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .zdr-drawer-row.col-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .zdr-drawer-panel { max-height: 42vh; padding: 8px 8px 10px; }
+    #zdr-drawer .btn { height: 34px; font-size: 0.82rem; }
 }
 </style>
 
@@ -4939,6 +5067,14 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     var body = document.getElementById('pm33-body');
     if (body && data) body.innerHTML = buildPm33Body(data, window.__pm33N);
   };
+  // v1.128 起：折叠/展开平码三中三 / 二中二 卡片主体（策略与位数滑块 + 全部组合 + 历史回测）
+  // v1.129：点击标题栏整行即可折叠展开（v1.128 只有右侧小按钮可点）；v1.130 去掉右侧状态提示
+  window.togglePm33Collapse = function(force) {
+    var wrap = document.getElementById('pm33-collapse-wrap');
+    var next = (typeof force === 'boolean') ? force : !window.__pm33Collapsed;
+    window.__pm33Collapsed = next;
+    if (wrap) wrap.style.display = next ? 'none' : 'block';
+  };
 
   // 滑块：平码策略（抓冷/追热）与位数（3-10，手动调节；默认 4 位）
   if (typeof window.__pm33Strategy !== 'number') window.__pm33Strategy = 0;
@@ -4984,13 +5120,18 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     if (typeof window._renderPm33Body === 'function') window._renderPm33Body();
   };
 
+  // v1.128：平码三中三 / 平码二中二 卡片支持折叠（默认折叠）。展开状态记在 window.__pm33Collapsed，
+  // 同一次会话内切换模式、拖动滑块、重绘预测页都保持；刷新页面回到默认折叠
+  if (typeof window.__pm33Collapsed !== 'boolean') window.__pm33Collapsed = true;
   var pm33Html = '<div class="info-card" style="margin-top:20px; margin-bottom:10px; border:1px solid #cbd5e1; box-shadow:0 4px 12px rgba(0,0,0,0.05);">';
-  pm33Html += '<div class="title" style="display:flex; align-items:center; border-left:3px solid #f43f5e; flex-wrap:wrap; gap:8px;">' +
-              '<button class="pm33-tab' + (pm33Mode === '3' ? ' active' : '') + '" data-mode="3" onclick="window.setPm33Mode(\'3\')">平码三中三</button>' +
-              '<button class="pm33-tab' + (pm33Mode === '2' ? ' active' : '') + '" data-mode="2" onclick="window.setPm33Mode(\'2\')">平码二中二</button>' +
+  // v1.129 起：直接点击标题栏整行即可折叠 / 展开（两个模式切换按钮内 stopPropagation，不会误触发折叠）
+  // v1.130：按作者要求去掉右侧「▾ 展开 / ▴ 收起」状态提示，只留整行点击
+  pm33Html += '<div class="title pm33-title" onclick="window.togglePm33Collapse()" title="点击折叠 / 展开平码模块" style="display:flex; align-items:center; border-left:3px solid #f43f5e; flex-wrap:wrap; gap:8px; cursor:pointer;">' +
+              '<button class="pm33-tab' + (pm33Mode === '3' ? ' active' : '') + '" data-mode="3" onclick="event.stopPropagation(); window.setPm33Mode(\'3\')">平码三中三</button>' +
+              '<button class="pm33-tab' + (pm33Mode === '2' ? ' active' : '') + '" data-mode="2" onclick="event.stopPropagation(); window.setPm33Mode(\'2\')">平码二中二</button>' +
               '<span style="margin-left:auto; font-size:0.9rem; color:#64748b; white-space:nowrap;">第' + n + '期</span>' +
               '</div>';
-  pm33Html += pm33Controls + '<div id="pm33-body">' + buildPm33Body(window.__pm33Data[pm33Mode], n) + '</div>';
+  pm33Html += '<div id="pm33-collapse-wrap" style="display:' + (window.__pm33Collapsed ? 'none' : 'block') + ';">' + pm33Controls + '<div id="pm33-body">' + buildPm33Body(window.__pm33Data[pm33Mode], n) + '</div></div>';
   pm33Html += '</div>';
 
   otherHtml += pm33Html;
@@ -7650,7 +7791,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         refreshSavedNumbersPanel();
     };
 
-    // v1.95：长按 1 秒删除单个号码：按下启动 1s 定时器，期间位移(>10px)/松开/取消/页面滚动均取消；触发后抑制随后的单击导入
+    // v1.95：长按删除单个号码：按下启动定时器，期间位移(>10px)/松开/取消/页面滚动均取消；触发后抑制随后的单击导入
+    // v1.128：① 定时器由 1000ms 改为 500ms（与手机系统长按震动同刻，震动即删除）；
+    //         ② 修复移动端长按删不掉——安卓系统长按约 500ms 会先触发 contextmenu，
+    //            旧代码在 contextmenu 里调用了 _stashNumRelease 直接清掉了定时器（分类按钮那边只拦截菜单、
+    //            不清定时器，所以不受影响）；现在这里同样只拦截菜单，不再取消定时器
     window._stashNumHold = function(el, evt, stashId, num) {
         window._stashNumRelease(el);
         el.__zdrHoldFired = false;
@@ -7664,7 +7809,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             el.style.opacity = '1';
             el.style.transform = 'scale(1)';
             window.deleteNumberFromStash(stashId, num);
-        }, 1000);
+        }, 500);
     };
     window._stashNumMove = function(el, evt) {
         if (!el || !el.__zdrHoldTimer || !evt) return;
@@ -7728,10 +7873,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     // 实色波色块：背景用对应波色，数字与生肖用白色
                     const bg = c === '红' ? '#dc2626' : (c === '蓝' ? '#2563eb' : '#16a34a');
                     const fg = '#ffffff';
-                    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:opacity 0.12s, transform 0.12s;" ' +
+                    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;transition:opacity 0.12s, transform 0.12s;" ' +
                         'onpointerdown="window._stashNumHold(this,event,' + s.id + ',\'' + n + '\')" onpointermove="window._stashNumMove(this,event)" onpointerup="window._stashNumRelease(this)" onpointerleave="window._stashNumRelease(this)" onpointercancel="window._stashNumRelease(this)" ' +
-                        'oncontextmenu="event.preventDefault(); window._stashNumRelease(this); return false;" ' +
-                        'onclick="if (window._stashNumConsumeClick(this)) return; window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框 · 长按1秒删除该号码">' +
+                        'oncontextmenu="event.preventDefault(); return false;" ' +
+                        'onclick="if (window._stashNumConsumeClick(this)) return; window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框 · 长按删除该号码">' +
                         '<span>' + n + '</span><span style="font-size:0.68rem;opacity:0.85;font-weight:500;">' + (nz(n) || '') + '</span></span>';
                 }).join('') +
                 '</div></div>';
@@ -8738,7 +8883,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const histMap = ensureImportHistories();
         // v1.62：置顶条目排在全部条目最上方（不分网站；上限 IMPORT_PIN_LIMIT 条）
         const totalPinned = items.filter(x => x.pinned).length;
-        const pinned = visibleItems.filter(it => it.pinned);
+        // v1.128：置顶组内也按「新澳门在前、香港在后」排列（与下方彩种大分区顺序一致）
+        const pinned = visibleItems.filter(it => it.pinned)
+            .sort((a, b) => (a.lottery === 'hk' ? 1 : 0) - (b.lottery === 'hk' ? 1 : 0));
         const rest = visibleItems.filter(it => !it.pinned);
         // v1.124：命中率高的条目优先显示——组内按历史命中率从高到低排序（不做开关、不加角标）。
         // 口径：已确定的历史期数中（hit!=null），中次数 / 已开奖期数；无战绩（无已开奖期数）视为无数据沉底。
@@ -8753,14 +8900,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const pinRate = new Map();
         (visibleItems || []).forEach(it => pinRate.set(it, hitRateOf(it)));
         const byRate = (it) => (pinRate.get(it) == null ? -1 : pinRate.get(it));
-        // 按网站分组：相同网站的条目集中显示（置顶条目已单独抽出，不重复展示；组内按命中率降序，无数据沉底）
+        // v1.128：清单改为「彩种大分区」——新澳门一整块在最上、香港一整块在其下（作者要求完整分开）；
+        // 每个大分区内仍按网站分组（相同网站的条目集中显示），组内按命中率降序、无数据沉底
+        // （置顶条目已单独抽出，不重复展示）
         const siteOrder = ['铁算盘', '澳门九龙网', '群英会', '奥霸网', '其他'];
-        const groups = {};
-        rest.forEach(it => {
-            const s = detectImportSite(it);
-            (groups[s] = groups[s] || []).push(it);
-        });
-        Object.keys(groups).forEach(s => { groups[s].sort((a, b) => byRate(b) - byRate(a)); });
+        const renderSiteGroups = (list) => {
+            const groups = {};
+            list.forEach(it => {
+                const s = detectImportSite(it);
+                (groups[s] = groups[s] || []).push(it);
+            });
+            let html = '';
+            siteOrder.forEach(site => {
+                const group = groups[site];
+                if (!group || !group.length) return;
+                group.sort((a, b) => byRate(b) - byRate(a));
+                const th = siteTheme[site] || siteTheme['其他'];
+                html += '<div class="zdr-import-site-group" style="background:' + th.bg + ';border:1px solid ' + th.bg + ';">' +
+                    '<div class="zdr-import-site-head" style="margin:2px 0 4px;font-weight:700;color:' + th.text + ';border-left:3px solid ' + th.border + ';padding-left:6px;">' + escHtml(site) + '（' + group.length + '）</div>' +
+                    group.map(renderItem).join('') +
+                    '</div>';
+            });
+            return html;
+        };
+        const macauRest = rest.filter(it => it.lottery !== 'hk');
+        const hkRest = rest.filter(it => it.lottery === 'hk');
+        // 单类别视图（正在只看新澳门或只看香港）时不再重复大分区标题，避免与清单顶部提示重复
+        const showCatHead = !activeCat;
+        const catHead = (name, count, isHk) => '<div class="zdr-import-cat-head" style="' +
+            (isHk ? 'background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;'
+                  : 'background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;') + '">' +
+            escHtml(name) + '（' + count + ' 条）</div>';
         const renderItem = (it) => {
             const realIndex = items.indexOf(it);
             return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
@@ -8776,15 +8946,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (pinned.length) {
             listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT + '）</div>' + pinned.map(renderItem).join('') + '</div>';
         }
-        siteOrder.forEach(site => {
-            const group = groups[site];
-            if (!group || !group.length) return;
-            const th = siteTheme[site] || siteTheme['其他'];
-            listHtml += '<div class="zdr-import-site-group" style="background:' + th.bg + ';border:1px solid ' + th.bg + ';">' +
-                '<div class="zdr-import-site-head" style="margin:2px 0 4px;font-weight:700;color:' + th.text + ';border-left:3px solid ' + th.border + ';padding-left:6px;">' + escHtml(site) + '（' + group.length + '）</div>' +
-                group.map(renderItem).join('') +
-                '</div>';
-        });
+        // 新澳门大分区（在上）
+        if (macauRest.length) {
+            if (showCatHead) listHtml += catHead('新澳门', macauRest.length, false);
+            listHtml += renderSiteGroups(macauRest);
+        }
+        // 香港大分区（在下）
+        if (hkRest.length) {
+            if (showCatHead) listHtml += catHead('香港', hkRest.length, true);
+            listHtml += renderSiteGroups(hkRest);
+        }
         listEl.innerHTML = listHtml;
         syncDesktopHistoryHint();
         updateToggleAllButton();
@@ -9978,6 +10149,121 @@ window.saveSuppData = function() {
         window.runPredict();
     }
 };
+
+// ============================================================
+// v1.128 / v1.129：吸顶输入框下方的「下滑抽屉」（快捷筛选面板：特码生肖 / 波色 / 五行 / 尾数）
+// 交互：拉手只在输入框**真正吸顶时**显示；下拉展开、上拉收起，轻点拉手也可切换；
+//       状态只存内存（未吸顶自动收起，刷新后默认收起）
+// 说明：面板内按钮都是 .btn + data-category/data-value，由页面既有脚本绑定点击筛选 /
+//       长按冻结逻辑（含冻结解冻防反选），这里只负责吸顶判定与抽屉手势，不复制任何筛选逻辑
+// ============================================================
+(function () {
+    var drawer = document.getElementById('zdr-drawer');
+    var handle = document.getElementById('zdr-drawer-handle');
+    var wrap = document.getElementById('zdr-sticky-wrap');
+    if (!drawer || !handle || !wrap) return;
+
+    var STICK_TOP = 66;      // 与 CSS 的 #zdr-sticky-wrap { top: 66px } 一致
+    var OPEN_THRESHOLD = 20; // 上/下拉位移达到该值即触发展开或收起
+    var SLOP = 6;            // 超过该位移视为「拖动」，抬手不当作轻点
+
+    function isOpen() { return drawer.classList.contains('zdr-drawer-open'); }
+    window.zdrDrawerIsOpen = isOpen;
+    window.setZdrDrawer = function (open) {
+        var next = !!open;
+        drawer.classList.toggle('zdr-drawer-open', next);
+        handle.setAttribute('aria-expanded', next ? 'true' : 'false');
+        handle.title = next ? '上滑收起' : '下滑展开';
+    };
+    window.toggleZdrDrawer = function () { window.setZdrDrawer(!isOpen()); };
+
+    // ===== v1.129：只在输入框吸顶时显示拉手（未吸顶一律隐藏并收起抽屉）=====
+    // 判定：包裹层仍在可见状态（非 display:none），且其顶边已贴到吸顶位置 top:66px
+    var stuck = false, rafId = 0;
+    function updateStuck() {
+        var r = wrap.getBoundingClientRect();
+        var visible = r.height > 0 || r.width > 0;
+        var next = visible && r.top <= STICK_TOP + 1.5;
+        if (next === stuck) return;
+        stuck = next;
+        drawer.classList.toggle('zdr-drawer-stuck', stuck);
+        if (!stuck) window.setZdrDrawer(false); // 未吸顶：拉手隐藏，抽屉同步收起
+    }
+    function scheduleStuckCheck() {
+        if (rafId) return;
+        if (window.requestAnimationFrame) {
+            rafId = requestAnimationFrame(function () { rafId = 0; updateStuck(); });
+        } else {
+            rafId = setTimeout(function () { rafId = 0; updateStuck(); }, 16);
+        }
+    }
+    window.addEventListener('scroll', scheduleStuckCheck, { passive: true });
+    window.addEventListener('resize', scheduleStuckCheck);
+
+    // ===== 手势：pointer capture 保证鼠标/手指拖出拉手范围后仍能判定 =====
+    var startY = 0, tracking = false, dragged = false;
+    function capture(e) {
+        if (e.pointerId != null && handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+    }
+    function releaseCapture(e) {
+        if (e && e.pointerId != null && handle.releasePointerCapture) { try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ } }
+    }
+    function onStart(e) { tracking = true; dragged = false; startY = e.clientY; capture(e); }
+    function onMove(e) {
+        if (!tracking) return;
+        var dy = e.clientY - startY;
+        if (Math.abs(dy) > SLOP) dragged = true;
+        if (dy >= OPEN_THRESHOLD) { window.setZdrDrawer(true); tracking = false; releaseCapture(e); }
+        else if (dy <= -OPEN_THRESHOLD) { window.setZdrDrawer(false); tracking = false; releaseCapture(e); }
+    }
+    function onEnd(e) {
+        if (tracking && !dragged) window.toggleZdrDrawer(); // 轻点拉手：切换展开/收起
+        tracking = false;
+        releaseCapture(e);
+    }
+    function onCancel(e) { tracking = false; releaseCapture(e); }
+
+    if (window.PointerEvent) {
+        handle.addEventListener('pointerdown', onStart);
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onEnd);
+        handle.addEventListener('pointercancel', onCancel);
+    } else {
+        // 老浏览器兜底：拖动过程监听 window，避免鼠标移出拉手后丢事件
+        handle.addEventListener('touchstart', function (e) { onStart(e.touches[0]); }, { passive: true });
+        handle.addEventListener('mousedown', onStart);
+        window.addEventListener('touchmove', function (e) { onMove(e.touches[0]); }, { passive: true });
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchend', onEnd);
+        window.addEventListener('touchcancel', onCancel);
+        window.addEventListener('mouseup', onEnd);
+    }
+    // 拖动拉手时不带动页面滚动（老版 iOS 兜底；新浏览器由 touch-action:none 承担）
+    handle.addEventListener('touchstart', function (e) { if (e.cancelable) e.preventDefault(); }, { passive: false });
+    handle.addEventListener('touchmove', function (e) { if (e.cancelable) e.preventDefault(); }, { passive: false });
+    // 键盘可达：Enter / 空格 切换
+    handle.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            if (e.cancelable) e.preventDefault();
+            window.toggleZdrDrawer();
+        }
+    });
+
+    // 切回「特码筛选器」页签时重新判定（display 从 none 变回来不会触发 scroll）
+    var origSwitchMainTab = window.switchMainTab;
+    if (typeof origSwitchMainTab === 'function') {
+        window.switchMainTab = function () {
+            var ret = origSwitchMainTab.apply(this, arguments);
+            scheduleStuckCheck();
+            setTimeout(scheduleStuckCheck, 60);
+            return ret;
+        };
+    }
+
+    window.setZdrDrawer(false); // 默认收起
+    updateStuck();
+    setTimeout(updateStuck, 300); // 首屏数据/布局稳定后再判定一次
+})();
 </script>
 
 </body>
