@@ -412,13 +412,12 @@
         <!-- 结果显示容器 - 保持原有吸顶方式（与预测页 #display-container-predict 共用同一条 CSS 规则，v1.131 改回） -->
         <div id="display-container"></div>
 
-        <!-- v1.128 ~ v1.131：吸顶输入框下方的「下滑抽屉」快捷筛选面板（特码生肖 / 波色 / 五行 / 尾数）
+        <!-- v1.128 ~ v1.132：吸顶输入框下方的「下滑抽屉」快捷筛选面板（特码生肖 / 波色 / 五行 / 尾数）
              抽屉自身吸顶并紧贴结果框下沿（吸顶偏移由 JS 按结果框实测高度设置）；
              短横线拉手**只在结果框吸顶时出现**；下拉展开、上拉收起（轻点也可）；
+             拉手放在面板**之后**：收起时它在结果框正下方，展开后自动落到抽屉面板下沿；
              面板内按钮沿用 .btn，点击筛选 / 长按冻结与页面下方按钮完全一致 -->
         <div id="zdr-drawer" class="zdr-drawer">
-            <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
-                 aria-expanded="false" aria-controls="zdr-drawer-panel" title="下滑展开 · 上滑收起"></div>
             <div id="zdr-drawer-panel" class="zdr-drawer-panel">
                 <div class="zdr-drawer-group">
                     <div class="zdr-drawer-title">特码生肖（长按杀肖）</div>
@@ -474,6 +473,9 @@
                     </div>
                 </div>
             </div>
+            <!-- v1.132：拉手放在面板之后——收起时贴着结果框下沿，展开后落在抽屉面板下方 -->
+            <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
+                 aria-expanded="false" aria-controls="zdr-drawer-panel" title="下滑展开 · 上滑收起"></div>
         </div>
 
         <div class="button-container">
@@ -637,7 +639,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.131 · 2026-09-10 23:36</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.133 · 2026-09-11 20:22</div>
 
         </div>
     
@@ -2383,6 +2385,8 @@ function scrollToBottom(containerId) {
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
 }
+/* v1.132：展开时面板在上、拉手落到面板下沿（收起时面板 display:none，拉手仍紧贴结果框下沿） */
+.zdr-drawer-open .zdr-drawer-handle { margin: 2px 0 8px; }
 .zdr-drawer-stuck .zdr-drawer-handle { display: flex; }
 .zdr-drawer-handle::after {
     content: ""; display: block; width: 58px; height: 5px; border-radius: 3px;
@@ -2396,8 +2400,10 @@ function scrollToBottom(containerId) {
     box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16);
     padding: 8px 10px 12px; max-height: 56vh; overflow-y: auto;
 }
-/* 桌面端：面板两列排布（生肖/波色 上行，五行/尾数 下行），比纵向拉长更紧凑、更像独立面板 */
-.zdr-drawer-open .zdr-drawer-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; align-content: start; }
+/* 桌面端：面板两列排布（生肖/波色 上行，五行/尾数 下行），比纵向拉长更紧凑、更像独立面板；
+   上边缘用「负下边距」抵消结果框的下边距（--zdr-box-gap 由 JS 按实测写入：桌面 20px、手机 10px），
+   这样桌面与移动端展开后都紧贴结果框下沿、不留空隙 */
+.zdr-drawer-open .zdr-drawer-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; align-content: start; margin-top: calc(-1 * var(--zdr-box-gap, 20px)); }
 .zdr-drawer-group { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 7px 8px 9px; }
 .zdr-drawer-title { font-size: 0.78rem; font-weight: 700; color: #475569; margin: 0 0 5px; padding-left: 6px; border-left: 3px solid #fb923c; }
 .zdr-drawer-row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 5px; }
@@ -10159,9 +10165,25 @@ window.saveSuppData = function() {
     var box = document.getElementById('display-container');
     if (!drawer || !handle || !box) return;
 
-    var STICK_TOP = 66;      // 与 #display-container（含预测页）的 CSS sticky top 一致
+    // v1.133：吸顶位置与「结果框下边距」都按结果框**实测**读取，不写死——
+    // 桌面 CSS 是 top:66px / margin:20px 0，手机媒体查询里是 top:54.5px / margin:10px 0，
+    // 写死 66px 会让手机端抽屉比结果框低 ~11.5px（作者实测反馈的「移动端空了几个像素」）
+    var STICK_TOP = 66;      // 兜底值，实际以 getComputedStyle(box).top 为准
+    var BOX_GAP = 20;        // 兜底值，实际以 getComputedStyle(box).marginBottom 为准
     var OPEN_THRESHOLD = 20; // 上/下拉位移达到该值即触发展开或收起
     var SLOP = 6;            // 超过该位移视为「拖动」，抬手不当作轻点
+
+    function readBoxMetrics() {
+        if (!window.getComputedStyle) return;
+        var cs = window.getComputedStyle(box);
+        if (!cs) return;
+        var t = parseFloat(cs.top);
+        var mb = parseFloat(cs.marginBottom);
+        if (!isNaN(t)) STICK_TOP = t;
+        if (!isNaN(mb)) BOX_GAP = mb;
+        // 展开的面板上边缘靠「负下边距」抵消结果框的下边距 → 任何滚动位置都紧贴结果框下沿
+        drawer.style.setProperty('--zdr-box-gap', BOX_GAP + 'px');
+    }
 
     function isOpen() { return drawer.classList.contains('zdr-drawer-open'); }
     window.zdrDrawerIsOpen = isOpen;
@@ -10175,7 +10197,9 @@ window.saveSuppData = function() {
 
     // v1.131：抽屉自身吸顶，吸顶偏移 = 结果框吸顶位置 + 结果框实测高度，
     // 这样未吸顶时它在结果框下方正常排版，吸顶后紧贴结果框下沿（结果条数变化会即时同步）
+    // v1.133：每次同步先按实测刷新吸顶位置/下边距，桌面与手机媒体查询下都对得上
     function syncDrawerTop() {
+        readBoxMetrics();
         var h = box.offsetHeight || 0;
         drawer.style.top = (STICK_TOP + h) + 'px';
     }
