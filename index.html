@@ -639,7 +639,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.133 · 2026-09-11 20:22</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.134 · 2026-09-12 23:46</div>
 
         </div>
     
@@ -3546,6 +3546,59 @@ function recordSortKey(r) {
 }
 
 // ============================================================
+// v1.134：开奖记录有效性校验（过滤「号码未出全」的占位行）
+//   背景：源站「当期」那一行在开奖号码没出全时球位是空白的，主脚本旧版会把空白 padStart 成
+//   "00" 推给本页，于是历史里多出一条「第N期 开 00?」的幽灵期、标题也跟着多推一期（如 099 期）。
+//   规则：必须正好 7 个号码，每个都是 01~49 的两位数（00 / 空 / 非法值一律判无效）。
+//   无效记录不得参与合并、渲染与落本机缓存；本机缓存里已有的无效记录会被清理。
+// ============================================================
+function isValidKjRecord(r) {
+  if (!r || r.num == null) return false;
+  var nums = String(r.num).split(',');
+  if (nums.length !== 7) return false;
+  for (var i = 0; i < nums.length; i++) {
+    var n = nums[i].trim();
+    if (!/^\d{1,2}$/.test(n)) return false;
+    var v = parseInt(n, 10);
+    if (!(v >= 1 && v <= 49)) return false;
+  }
+  return true;
+}
+function filterValidKjRecords(list) {
+  return (Array.isArray(list) ? list : []).filter(isValidKjRecord);
+}
+// box2 实时开奖组件的当期 7 个球位是否都已读到号码（读不到 / 未填满 = 当期还没出全）
+function isRealtimeResultComplete(rd) {
+  try {
+    var arr = rd && rd.result;
+    if (!Array.isArray(arr) || arr.length < 7) return false;
+    for (var i = 0; i < 7; i++) {
+      var n = String((arr[i] && arr[i].num) || '').trim();
+      if (!/^\d{1,2}$/.test(n)) return false;
+      var v = parseInt(n, 10);
+      if (!(v >= 1 && v <= 49)) return false;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+// 清理本机缓存（zdr_manual_data_<彩种>）里已经写入的无效/占位记录，返回清理条数
+function purgeInvalidLocalKjRecords(lottery) {
+  try {
+    var key = 'zdr_manual_data_' + lottery;
+    var raw = localStorage.getItem(key);
+    if (!raw) return 0;
+    var list = JSON.parse(raw);
+    if (!Array.isArray(list)) return 0;
+    var kept = filterValidKjRecords(list);
+    if (kept.length === list.length) return 0;
+    localStorage.setItem(key, JSON.stringify(kept));
+    if (typeof window.invalidateLocalRecordsCache === 'function') window.invalidateLocalRecordsCache(lottery);
+    console.warn('⚠️ 已清理本机缓存中 ' + (list.length - kept.length) + ' 条号码未出全的占位记录');
+    return list.length - kept.length;
+  } catch (e) { return 0; }
+}
+
+// ============================================================
 // 平码三中三（PingMa SanZhongSan）预测与回测
 //   - 平码 = 每期开奖 num 的前 6 个号码（第 7 个为特码）
 //   - 中奖判定：一组 3 个号不分顺序，只要全部出现在该期 6 个平码里即算中
@@ -4437,6 +4490,10 @@ function isLotteryDataFresh(lottery, data) {
             var cur = parseInt(rd.curPeriod, 10);
             var next = parseInt(rd.nextPeriod, 10);
             var ref = isFinite(cur) ? cur : (isFinite(next) ? next - 1 : NaN);
+            // v1.134：box2 当期号码还没出全（7 个球位没填满，站方尚在开奖/未发布）时，
+            // 「最新已开且号码齐全」的一期就是 cur-1；此时日期源落后一期属正常，
+            // 不能据此判过期而拒绝渲染（否则过滤掉占位期后整页看不到预测内容）。
+            if (isFinite(ref) && !isRealtimeResultComplete(rd)) ref = ref - 1;
             if (isFinite(ref)) {
                 // 最新已开期只要不低于权威当期（如香港已开 95 而数据到 95）即视为新鲜
                 return maxPeriod >= ref;
@@ -5438,7 +5495,17 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   if (src && src.includes("插件穿透") && r.hc < 150) {
     statusMsg = "数据少于100期 (当前" + r.hc + "期)，预测结果可能会有偏差，建议使用原生数据。";
   }
-  bar.innerHTML = "✅ " + statusMsg;
+  // v1.134：开奖数据源还没更新到 box2 权威当期时在状态栏说明一句（历史里不会凭空多出这一期）
+  var lagNote = "";
+  try {
+    var rdHk = currentLottery === "hk" ? (window.__realtimeDraw && window.__realtimeDraw.hk) : null;
+    var curP = rdHk ? parseInt(rdHk.curPeriod, 10) : NaN;
+    var dataP = r.latest ? parseInt(r.latest.qishu, 10) : NaN;
+    if (isFinite(curP) && isFinite(dataP) && dataP < curP) {
+      lagNote = "（开奖数据源尚未更新到第" + curP + "期，当前显示到第" + dataP + "期）";
+    }
+  } catch (e) { /* ignore */ }
+  bar.innerHTML = "✅ " + statusMsg + lagNote;
   document.getElementById("rb").style.display = "block";
   document.getElementById("mp").style.display = "none";
   
@@ -5635,10 +5702,12 @@ async function tryFetch(url) {
       try {
         var manualData = JSON.parse(manualDataStr);
         if (Array.isArray(manualData) && manualData.length > 0) {
-          manualData.forEach(function(mRecord) {
+          // v1.134：号码未出全的占位记录不合并（否则会把「开 00?」的幽灵期当最新已开期）
+          var validManualData = filterValidKjRecords(manualData);
+          validManualData.forEach(function(mRecord) {
             if (!data.some(function(d) { return d.id === mRecord.id; })) data.push(mRecord);
           });
-          console.log('✅ 已合并本地手动补充数据，共 ' + manualData.length + ' 条');
+          console.log('✅ 已合并本地手动补充数据，共 ' + validManualData.length + ' 条（跳过无效 ' + (manualData.length - validManualData.length) + ' 条）');
         }
       } catch(e) { console.error("本地补充数据解析失败", e); }
     }
@@ -5751,19 +5820,24 @@ async function tryFetch(url) {
 	
 
     // ========== 新增：本地补充数据合并与连续性校验 ==========
+    // v1.134：顺手清掉本机缓存里已经存在的「号码未出全」占位记录（老版本可能已写进去）
+    purgeInvalidLocalKjRecords(currentLottery);
     // 1. 合并本地手动补充的数据
     var manualDataStr = localStorage.getItem('zdr_manual_data_' + currentLottery);
     if (manualDataStr) {
         try {
             var manualData = JSON.parse(manualDataStr);
             if (Array.isArray(manualData) && manualData.length > 0) {
-                manualData.forEach(function(mRecord) {
+                // v1.134：先剔除「号码未出全」的占位记录（如源站当期只填了前几个球），
+                // 否则会把 00 特码的幽灵期当成最新已开期（历史首行「开 00?」、标题多推一期）
+                var validManualData = filterValidKjRecords(manualData);
+                validManualData.forEach(function(mRecord) {
                     // 避免重复：如果API中没有该id才推入
                     if (!result.payload.data.some(function(d) { return d.id === mRecord.id; })) {
                         result.payload.data.push(mRecord);
                     }
                 });
-                console.log('✅ 已合并本地手动补充数据，共 ' + manualData.length + ' 条');
+                console.log('✅ 已合并本地手动补充数据，共 ' + validManualData.length + ' 条（跳过无效 ' + (manualData.length - validManualData.length) + ' 条）');
             }
         } catch(e) {
             console.error("本地补充数据解析失败", e);
@@ -5873,6 +5947,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 			 
              if (payload && payload.action === "ZDR_UPDATE" && payload.data && payload.data.length > 0) {
                   console.log("成功接收到跨域穿透数据总线消息！");
+                  // v1.134：源站「当期」在号码没出全时球位是空白，主脚本旧版会补成 00 推过来；
+                  // 这类不完整行不得进入渲染与本机缓存（否则历史首行恒为「开 00?」且标题多一期）
+                  payload.data = filterValidKjRecords(payload.data);
+                  if (!payload.data.length) {
+                      console.warn("穿透数据全为号码未出全的占位行，已忽略本次更新");
+                      return;
+                  }
                   
                   // ========== 新增：穿透数据标准化（补 id/year，澳门按每天一期推导 date）+ 最新在前排序 ==========
                   // 源站 #msg li 提取出的记录只有 {qishu, num}，无 id/date 且顺序不保证最新在前，
@@ -6615,6 +6696,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     function persistLotteryData(lottery, records) {
         try {
             if (!Array.isArray(records) || !records.length) return;
+            records = filterValidKjRecords(records); // v1.134：号码未出全的占位期不写入本机缓存
+            if (!records.length) return;
             const storageKey = 'zdr_manual_data_' + lottery;
             let localData = [];
             const raw = localStorage.getItem(storageKey);
