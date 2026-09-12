@@ -639,7 +639,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.134 · 2026-09-12 23:46</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.135 · 2026-09-13 00:07</div>
 
         </div>
     
@@ -1006,9 +1006,64 @@
         // 生肖顺序（从2026年的第一个生肖开始）
         const zodiacOrder = ['马', '蛇', '龙', '兔', '虎', '牛', '鼠', '猪', '狗', '鸡', '猴', '羊'];
 
-        // 获取当前年份
+        // ========== 生肖年（农历年）：以「农历正月初一」为界，不是元旦 ==========
+        // 香港 / 澳门：期数按新历（1 月 1 日）重置新一期，**但生肖映射按农历正月初一换年**，
+        // 所以每年 1 月 1 日 ~ 春节前一天仍沿用上一年的映射。旧版直接用 new Date().getFullYear()
+        // 会在元旦就提前换年，导致这段窗口内生肖标签 / 计数 / 筛选 / 命中判定整体错一年。
+        // LUNAR_CNY_TABLE：1900 ~ 2100 年农历正月初一对应的公历日期（"MMDD"，每年 4 位，下标 = 年份 - 1900）
+        // 抽样比对：2024-02-10 / 2025-01-29 / 2026-02-17 / 2027-02-06 / 2033-01-31 / 1949-01-29
+        const LUNAR_CNY_BASE_YEAR = 1900;
+        const LUNAR_CNY_TABLE =
+            '0131021902080129021602040125021302020122' +
+            '0210013002180206012602140203012302110201' +
+            '0220020801280216020501240213020201230210' +
+            '0130021702060126021402040124021101310219' +
+            '0208012702150205012502130202012202100129' +
+            '0217020601270214020301240212013102180208' +
+            '0128021502050125021302020121020901300217' +
+            '0206012702150203012302110131021802070128' +
+            '0216020501250213020202200209012902170206' +
+            '0127021502040123021001310219020701280216' +
+            '0205012402120201012202090129021802070126' +
+            '0214020301230210013102190208012802160205' +
+            '0125021202010122021001290217020601260213' +
+            '0203012302110131021902080128021502040124' +
+            '0212020101220210013002170206012602140202' +
+            '0123021102010219020801280215020401240212' +
+            '0202012102090129021702050126021402030123' +
+            '0211013102190207012702150205012402120202' +
+            '0122020901290217020601260214020301240210' +
+            '0130021802070127021502050125021202010121' +
+            '0209';
+
+        // 取某天的生肖年（= 农历年）：早于当年正月初一算上一年
+        // 入参：Date 对象 / 'YYYY-MM-DD' 字符串 / 不传（用当前时间）
+        function getZodiacYear(date) {
+            let y, m, d;
+            if (date instanceof Date) {
+                y = date.getFullYear(); m = date.getMonth(); d = date.getDate();
+            } else if (typeof date === 'string' && /^\d{4}-\d{1,2}-\d{1,2}/.test(date)) {
+                const p = date.trim().split(/[-/]/);
+                y = parseInt(p[0], 10); m = parseInt(p[1], 10) - 1; d = parseInt(p[2], 10);
+            } else {
+                const now = new Date();
+                y = now.getFullYear(); m = now.getMonth(); d = now.getDate();
+            }
+            const i = y - LUNAR_CNY_BASE_YEAR;
+            let cny;
+            if (i >= 0 && (i + 1) * 4 <= LUNAR_CNY_TABLE.length) {
+                const mmdd = LUNAR_CNY_TABLE.slice(i * 4, i * 4 + 4);
+                cny = new Date(y, parseInt(mmdd.slice(0, 2), 10) - 1, parseInt(mmdd.slice(2), 10));
+            } else {
+                cny = new Date(y, 1, 4); // 表外兜底（1900 ~ 2100 之外）：按 2 月 4 日近似
+            }
+            return new Date(y, m, d).getTime() < cny.getTime() ? y - 1 : y;
+        }
+        window.getZodiacYear = getZodiacYear; // 供其它脚本块 / 补充数据弹窗调用
+
+        // 获取当前生肖年（页面生肖映射按此换年）
         function getCurrentYear() {
-            return new Date().getFullYear();
+            return getZodiacYear(new Date());
         }
 
         // 根据年份计算偏移量（2026年为基准，偏移0）
@@ -2429,7 +2484,8 @@ function scrollToBottom(containerId) {
 
 
 <script>
-console.log('🔧 动态生肖映射已启用，当前年份：' + new Date().getFullYear());
+// 生肖年按农历正月初一换年（不是元旦）；window.getZodiacYear 由上方脚本块提供
+console.log('🔧 动态生肖映射已启用，生肖年（农历年）：' + (typeof window.getZodiacYear === 'function' ? window.getZodiacYear(new Date()) : new Date().getFullYear()));
 console.log('🔧 波色分组已拆分为6个：红波单/双、蓝波单/双、绿波单/双');
 </script>
 
@@ -3482,7 +3538,11 @@ window.getSavedStrategies = function() {
     };
     const zodiacOrder = ['马', '蛇', '龙', '兔', '虎', '牛', '鼠', '猪', '狗', '鸡', '猴', '羊'];
 
-    function getCurrentYear() { return new Date().getFullYear(); }
+    // 生肖年（农历年）以「农历正月初一」为界，不是元旦（香港 / 澳门期数按新历重置，但生肖映射按农历年换）
+    // 实现见上方脚本块的 LUNAR_CNY_TABLE + window.getZodiacYear，这里直接复用，避免两处口径分叉
+    function getCurrentYear() {
+      return (typeof window.getZodiacYear === 'function') ? window.getZodiacYear(new Date()) : new Date().getFullYear();
+    }
     function getYearOffset(year) { return (year - 2026) % 12; }
     function getZodiacMapForYear(year) {
       const offset = getYearOffset(year);
@@ -9984,6 +10044,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             <input type="number" id="supp-qishu" placeholder="请输入期数">
         </div>
         <div class="supp-form-group">
+            <label>开奖日期 (选填，按农历正月初一匹配生肖年)</label>
+            <input type="date" id="supp-date" placeholder="选填">
+        </div>
+        <div class="supp-form-group">
             <label>开奖号码 (逗号或空格分隔，含特码)</label>
             <input type="text" id="supp-nums" placeholder="例: 17,49,42,45,05,38,36">
         </div>
@@ -10175,6 +10239,7 @@ window.getElementForNum = function(num) {
 window.saveSuppData = function() {
     var year = document.getElementById('supp-year').value.trim();
     var qishu = document.getElementById('supp-qishu').value.trim();
+    var drawDate = (document.getElementById('supp-date') || { value: '' }).value.trim();
     var numsInput = document.getElementById('supp-nums').value.trim();
 
     if (!year || !qishu || !numsInput) {
@@ -10193,8 +10258,11 @@ window.saveSuppData = function() {
     }
 
     // 自动匹配生肖和五行
+    // 生肖按“生肖年（农历年）”匹配：填了开奖日期就按该日期换算——1 月 1 日 ~ 春节前一天仍算上一年；
+    // 未填日期时沿用旧行为，把「年份」当生肖年（此时请自行按农历年填写，例如 1 月的期填上一年）
     var yearInt = parseInt(year);
-    var sxs = nums.map(function(n) { return window.getZodiacForYearAndNum(n, yearInt); });
+    var zodiacYear = (drawDate && typeof window.getZodiacYear === 'function') ? window.getZodiacYear(drawDate) : yearInt;
+    var sxs = nums.map(function(n) { return window.getZodiacForYearAndNum(n, zodiacYear); });
     var wxs = nums.map(function(n) { return window.getElementForNum(n); }); 
 
     // 生成 API 兼容的标准记录对象
@@ -10221,12 +10289,15 @@ window.saveSuppData = function() {
     // v1.62：手动补充数据后同步失效本地记录会话缓存，保证历史战绩/预测立刻读到新数据
     if (typeof window.invalidateLocalRecordsCache === 'function') window.invalidateLocalRecordsCache();
 
-    window.zdrAlert("✅ 数据补充成功！系统已自动为您匹配：\n生肖：" + sxs.join(',') + "\n五行：" + wxs.join(',') + "\n\n弹窗关闭后系统将自动重新获取并应用数据。", { type: "success", title: "补充成功" });
+    var zodiacNote = drawDate ? "（开奖日期 " + drawDate + " → 生肖年 " + zodiacYear + "）" : "（未填开奖日期，按年份 " + zodiacYear + " 作生肖年）";
+    window.zdrAlert("✅ 数据补充成功！系统已自动为您匹配：\n生肖：" + sxs.join(',') + zodiacNote + "\n五行：" + wxs.join(',') + "\n\n弹窗关闭后系统将自动重新获取并应用数据。", { type: "success", title: "补充成功" });
     
     window.closeSuppModal();
     
     // 清空输入框状态，保留年份提升录入效率
     document.getElementById('supp-qishu').value = '';
+    var dateInput = document.getElementById('supp-date');
+    if (dateInput) dateInput.value = ''; // 日期清空，避免下一条记录沿用上一条的开奖日
     document.getElementById('supp-nums').value = '';
 
     // 重新运行预测流，新数据将无缝合并
