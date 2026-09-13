@@ -380,6 +380,19 @@
         .sticky-display {
             /* 保留，但不再使用 */
         }
+        /* v1.136 暂存号码分组长按拖动排序：跟手位移只走 transform（不触发页面重排），
+           其余分组让位带过渡；拖动中的卡片抬高阴影 + 边框高亮，松手平滑归位 */
+        .zdr-stash-group {
+            position: relative;
+            will-change: transform;
+            transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .zdr-stash-group.zdr-stash-dragging {
+            z-index: 20;
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
+            border-color: #94a3b8 !important;
+            background: #ffffff !important;
+        }
     </style>
 </head>
 <body>
@@ -639,7 +652,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.135 · 2026-09-13 00:07</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.136 · 2026-09-13 14:14</div>
 
         </div>
     
@@ -7974,6 +7987,224 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return false;
     };
 
+    // ===== v1.136：暂存分组长按拖动排序（电脑 / 手机通用）=====
+    // 交互：长按分组卡片（号码徽章与 标记/导入/删除 按钮除外）约 500ms 进入拖动 —— 卡片跟手、其余分组
+    //       按顺序平滑让位，松手平滑归位并写回本地存储；未进入拖动前位移 >10px 或页面滚动都视为「不是长按」，直接取消。
+    // 数据：面板显示顺序 = 存储数组反序（新组在上），所以落位按「显示顺序反序」写回 `zdr_saved_numbers_v1`，
+    //       存储键与数据结构不变；拖动期间不重绘面板（避免闪烁），只改 transform 跟手。
+    // 流畅要点：① 位移只走 transform（合成层，不触发布局重排）；② 用 rAF + 过渡让位，不整块重绘；
+    //           ③ 松手先写存储再动画归位，页面被重绘也不会丢顺序；④ 拖到屏幕上下边缘自动滚页。
+    const STASH_HOLD_MS = 500;   // 与页面其它长按（冻结 / 删号码）同刻
+    const STASH_DRAG_SLOP = 10;  // 超过该位移视为滚动意图，取消长按
+    let stashDrag = null;        // 当前按下 / 拖动状态
+    let stashHoldTimer = null;   // 「按下 → 进入拖动」的长按定时器
+    let stashSettle = null;      // 松手后的归位动画（物理重排 DOM 后再清掉）
+
+    // 取面板内当前彩种的暂存分组卡片（按显示顺序）
+    function stashGroupCards() {
+        const panel = document.getElementById('saved-numbers-panel');
+        if (!panel) return [];
+        return Array.prototype.slice.call(panel.querySelectorAll('.zdr-stash-group[data-stash-lottery="' + currentLottery + '"]'));
+    }
+
+    // 写回排序：按传入的显示顺序（新组在上）反序存回数组
+    function persistStashOrder(orderedCards, lottery) {
+        const data = loadSavedNumbers();
+        const list = data[lottery] || [];
+        const byId = {};
+        list.forEach(s => { byId[String(s.id)] = s; });
+        const nextDisplay = [];
+        orderedCards.forEach(el => {
+            const s = byId[el.getAttribute('data-stash-id')];
+            if (s) nextDisplay.push(s);
+        });
+        // 防御：卡片数与存储条数对不上（面板被重绘 / 有脏数据）一律不写，避免误删暂存
+        if (!nextDisplay.length || nextDisplay.length !== list.length) return;
+        data[lottery] = nextDisplay.slice().reverse();
+        saveSavedNumbers(data);
+    }
+
+    // 按下分组卡片：起长按定时器（未触发前只是普通按住，不影响按钮点击与号码长按删号）
+    window._stashGroupHold = function(card, evt) {
+        if (!card || !evt) return;
+        if (evt.button !== undefined && evt.button > 0) return; // 仅主键 / 主触点
+        const t = evt.target;
+        // 卡片内的按钮与号码徽章（长按删号）各自的手势优先，不参与拖动
+        if (t && t.closest && (t.closest('button') || t.closest('.zdr-stash-num'))) return;
+        stashEndDrag(false);   // 清掉上一次残留
+        flushStashSettle();    // 上一次归位动画还没落地就先落地，保证下面量到的坐标是最新的
+        const cards = stashGroupCards();
+        const index = cards.indexOf(card);
+        if (index < 0 || cards.length < 2) return; // 只有一组时没有排序可言
+        const container = card.parentNode;
+        const containerTop = container.getBoundingClientRect().top;
+        const tops = cards.map(el => el.getBoundingClientRect().top - containerTop);
+        const heights = cards.map(el => el.getBoundingClientRect().height);
+        const state = {
+            lottery: currentLottery, card: card, container: container, cards: cards,
+            tops: tops, heights: heights, index: index,
+            gap: Math.max(0, tops[1] - tops[0] - heights[0]),
+            startX: evt.clientX, startY: evt.clientY, lastClientY: evt.clientY, startContainerTop: containerTop,
+            active: false, raf: 0, seq: null, want: null
+        };
+        state.totalH = heights.reduce((a, b) => a + b, 0) + state.gap * (cards.length - 1);
+        stashDrag = state;
+        stashHoldTimer = setTimeout(function() { stashStartDrag(state); }, STASH_HOLD_MS);
+        document.addEventListener('pointermove', stashOnPointerMove, { capture: true, passive: false });
+        document.addEventListener('pointerup', stashOnPointerUp, true);
+        document.addEventListener('pointercancel', stashOnPointerCancel, true);
+        window.addEventListener('scroll', stashOnHoldScroll, true);
+    };
+
+    // 按住期间页面滚动 → 不是长按，取消
+    function stashOnHoldScroll() { stashEndDrag(false); }
+
+    function stashOnPointerMove(evt) {
+        const st = stashDrag;
+        if (!st) return;
+        st.lastClientY = evt.clientY;
+        if (!st.active) {
+            if (Math.abs(evt.clientX - st.startX) > STASH_DRAG_SLOP || Math.abs(evt.clientY - st.startY) > STASH_DRAG_SLOP) stashEndDrag(false);
+            return;
+        }
+        stashApplyLayout(st);
+    }
+
+    function stashOnPointerUp() {
+        if (!stashDrag) return;
+        stashEndDrag(!!stashDrag.active);
+    }
+
+    function stashOnPointerCancel() {
+        if (!stashDrag) return;
+        stashEndDrag(!!stashDrag.active);
+    }
+
+    // 长按到点：进入拖动（震动反馈 + 抬高卡片），此后由指针位移驱动
+    function stashStartDrag(state) {
+        if (stashDrag !== state) return;
+        stashHoldTimer = null;
+        state.active = true;
+        // 以「进入拖动这一刻」为基准，长按期间页面若轻微滚动也不会跳位
+        state.startY = state.lastClientY;
+        state.startContainerTop = state.container.getBoundingClientRect().top;
+        window.removeEventListener('scroll', stashOnHoldScroll, true);
+        document.addEventListener('touchmove', stashBlockTouchScroll, { passive: false });
+        state.card.classList.add('zdr-stash-dragging');
+        state.card.style.touchAction = 'none';
+        if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) { /* ignore */ } }
+        stashApplyLayout(state);
+        stashAutoScrollTick(state);
+    }
+
+    // 进入拖动后手指滑动不再带动页面滚动（新浏览器由 touch-action 承担，这里做老版 iOS 兜底）
+    function stashBlockTouchScroll(e) {
+        if (stashDrag && stashDrag.active && e.cancelable) e.preventDefault();
+    }
+
+    // 某个顺序（存的是卡片原始下标）下每张卡片的目标位置：总高度不变，起点仍是 tops[0]
+    function stashSlotTops(seq, state) {
+        const want = {};
+        let pos = state.tops[0];
+        seq.forEach(function (j) { want[j] = pos; pos += state.heights[j] + state.gap; });
+        return want;
+    }
+
+    // 拖动中的排版：被拖卡片跟手，其余卡片按新顺序平滑让位
+    function stashApplyLayout(state) {
+        const containerTop = state.container.getBoundingClientRect().top;
+        const h0 = state.heights[state.index];
+        const minDy = state.tops[0] - state.tops[state.index];
+        const maxDy = state.tops[0] + state.totalH - h0 - state.tops[state.index];
+        let dy = (state.lastClientY - containerTop) - (state.startY - state.startContainerTop);
+        dy = Math.min(Math.max(dy, minDy), maxDy); // 限制在列表范围内，避免拖出太远
+        // 插入位置：其余卡片保持原有相对顺序，取「离被拖卡片当前位置最近的插槽」
+        // （不用中线比较：卡片高度不同时，中线法在列表最顶 / 最底会差几像素落不到位）
+        const base = state.cards.map(function (_, j) { return j; }).filter(function (j) { return j !== state.index; });
+        const desiredTop = state.tops[state.index] + dy;
+        let target = 0, bestDist = Infinity, seq = base.slice(), want = stashSlotTops(seq, state);
+        for (let k = 0; k < state.cards.length; k++) {
+            const s2 = base.slice();
+            s2.splice(k, 0, state.index);
+            const w = stashSlotTops(s2, state);
+            const dist = Math.abs(w[state.index] - desiredTop);
+            if (dist < bestDist - 0.001) { bestDist = dist; target = k; seq = s2; want = w; }
+        }
+        state.dy = dy; state.target = target; state.seq = seq; state.want = want;
+        state.cards.forEach(function (el, j) {
+            if (j === state.index) {
+                el.style.transition = 'none'; // 被拖卡片必须紧贴手指，不能带过渡延迟
+                el.style.transform = 'translate3d(0,' + dy.toFixed(1) + 'px,0) scale(1.01)';
+                return;
+            }
+            const delta = want[j] - state.tops[j];
+            el.style.transform = delta ? 'translate3d(0,' + delta.toFixed(1) + 'px,0)' : '';
+        });
+    }
+
+    // 拖到屏幕上下边缘时自动滚页：长列表也能把分组拖到任意位置
+    function stashAutoScrollTick(state) {
+        if (stashDrag !== state || !state.active) return;
+        const EDGE = 64, SPEED = 12;
+        const vh = window.innerHeight;
+        let v = 0;
+        if (state.lastClientY < EDGE) v = -Math.ceil((EDGE - state.lastClientY) / EDGE * SPEED);
+        else if (state.lastClientY > vh - EDGE) v = Math.ceil((state.lastClientY - (vh - EDGE)) / EDGE * SPEED);
+        if (v) { window.scrollBy(0, v); stashApplyLayout(state); } // 滚动后重新量容器位置，避免跳位
+        state.raf = requestAnimationFrame(function() { stashAutoScrollTick(state); });
+    }
+
+    // 归位动画落地：物理重排 DOM（顺序与存储一致）再清掉 transform
+    function flushStashSettle(target) {
+        const s = target || stashSettle;
+        if (!s) return;
+        if (stashSettle === s) stashSettle = null;
+        if (s.timer) clearTimeout(s.timer);
+        // 同一帧里「物理重排 + 清 transform」必须带上 transition:none，否则浏览器会把复位当成一次过渡 → 回弹
+        s.cards.forEach(function(el) { el.style.transition = 'none'; });
+        s.ordered.forEach(function(el) { s.container.appendChild(el); });
+        s.cards.forEach(function(el) { el.style.transform = ''; });
+        // 过渡下一帧再恢复（拖动中的卡片除外，它必须保持紧贴手指）
+        requestAnimationFrame(function() {
+            s.cards.forEach(function(el) {
+                if (el.style.transition === 'none' && !el.classList.contains('zdr-stash-dragging')) el.style.transition = '';
+            });
+        });
+    }
+
+    // 结束拖动：commit=true 落位（写存储 + 平滑归位），false 只清理（取消长按 / 未进入拖动）
+    function stashEndDrag(commit) {
+        const st = stashDrag;
+        stashDrag = null;
+        if (stashHoldTimer) { clearTimeout(stashHoldTimer); stashHoldTimer = null; }
+        document.removeEventListener('pointermove', stashOnPointerMove, { capture: true });
+        document.removeEventListener('pointerup', stashOnPointerUp, true);
+        document.removeEventListener('pointercancel', stashOnPointerCancel, true);
+        document.removeEventListener('touchmove', stashBlockTouchScroll, { passive: false });
+        window.removeEventListener('scroll', stashOnHoldScroll, true);
+        if (!st) return;
+        if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
+        st.card.classList.remove('zdr-stash-dragging');
+        st.card.style.touchAction = '';
+        const alive = st.card.isConnected !== undefined ? st.card.isConnected : document.documentElement.contains(st.card);
+        if (!commit || !st.seq || !alive) {
+            if (alive) st.cards.forEach(function(el) { el.style.transition = ''; el.style.transform = ''; });
+            return;
+        }
+        // 先写存储：不依赖后续 DOM 重排，归位动画期间面板被重绘也不会丢顺序
+        const ordered = st.seq.map(function(j) { return st.cards[j]; });
+        persistStashOrder(ordered, st.lottery);
+        // 再平滑归位：松手瞬间手指未必正对插槽，补一段 0.18s 过渡（与 CSS 让位过渡同曲线）
+        st.cards.forEach(function(el, j) {
+            el.style.transition = '';
+            el.style.transform = 'translate3d(0,' + (st.want[j] - st.tops[j]).toFixed(1) + 'px,0)';
+        });
+        flushStashSettle();
+        const settle = { cards: st.cards, ordered: ordered, container: st.container, timer: 0 };
+        settle.timer = setTimeout(function() { flushStashSettle(settle); }, 200);
+        stashSettle = settle;
+    }
+
     // 暂存容器折叠状态（按彩种分开记忆，本地持久化；默认展开）
     function loadSavedCollapsed() {
         try {
@@ -8003,9 +8234,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (collapsed) return html;
         list.forEach(s => {
             const marked = !!s.marked;
-            html += '<div style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
+            html += '<div class="zdr-stash-group zdr-hold" data-stash-id="' + s.id + '" data-stash-lottery="' + lottery + '"' +
+                ' title="长按本组可上下拖动排序 · 长按号码删除该号码"' +
+                ' onpointerdown="window._stashGroupHold(this,event)" oncontextmenu="event.preventDefault(); return false;"' +
+                ' style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 6px;margin-bottom:6px;">' +
-                '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;">' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
+                '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;"><span style="color:#94a3b8;font-weight:400;margin-right:4px;" aria-hidden="true">⋮⋮</span>' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
                 '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">' +
                 '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
                 '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;cursor:pointer;">导入</button>' +
@@ -8018,7 +8252,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     // 实色波色块：背景用对应波色，数字与生肖用白色
                     const bg = c === '红' ? '#dc2626' : (c === '蓝' ? '#2563eb' : '#16a34a');
                     const fg = '#ffffff';
-                    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;transition:opacity 0.12s, transform 0.12s;" ' +
+                    return '<span class="zdr-stash-num" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;background:' + bg + ';color:' + fg + ';font-size:0.78rem;font-weight:600;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;transition:opacity 0.12s, transform 0.12s;" ' +
                         'onpointerdown="window._stashNumHold(this,event,' + s.id + ',\'' + n + '\')" onpointermove="window._stashNumMove(this,event)" onpointerup="window._stashNumRelease(this)" onpointerleave="window._stashNumRelease(this)" onpointercancel="window._stashNumRelease(this)" ' +
                         'oncontextmenu="event.preventDefault(); return false;" ' +
                         'onclick="if (window._stashNumConsumeClick(this)) return; window.addSingleNumberToZdr(\'' + n + '\')" title="点击导入输入框 · 长按删除该号码">' +
