@@ -652,7 +652,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.136 · 2026-09-13 14:14</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.138 · 2026-09-14 23:30</div>
 
         </div>
     
@@ -6175,11 +6175,32 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
     window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
     const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
-    const IMPORT_PIN_LIMIT = 10; // 条目置顶上限（v1.64 起最多 10 条）
+    // v1.137：置顶拆成「自动置顶 + 手动置顶」两条线（作者 2026-09-14 要求）——
+    // 自动置顶 = 清单内新澳门条目、历史期数 ≥15、按胜率取前十（**默认就是 10 条**，不因手动置顶数压缩）；
+    // 手动置顶 = 长按手动加置顶的条目（上限 5 条）；正常状态下置顶总数 = 10 自动 + 5 手动 = 15 条。
+    // 香港条目完全不参与置顶（自动不挑、手动也禁止）。
+    const IMPORT_PIN_LIMIT = 15;                 // 置顶总数上限（v1.64 起 10 → v1.137 起 15；= 10 自动 + 5 手动）
+    const IMPORT_AUTO_PIN_LIMIT = 10;            // 自动置顶上限（胜率前十）
+    const IMPORT_MANUAL_PIN_LIMIT = 5;           // 手动置顶上限
+    const IMPORT_AUTO_PIN_MIN_PERIODS = 15;      // 自动置顶门槛：历史期数不足 15 期不参与（手动置顶不受此限）
+    const IMPORT_AUTO_PIN_STATE_KEY = 'zdr_import_autopin_v1'; // 自动置顶状态：当天是否已重算 + 当日手动取消抑制表
+    const IMPORT_CLEAR_HOUR = 5;                 // v1.137：清单 / 置顶子选项自动清空时刻（23:59 → 次日 05:00）
 
     function importTodayStr() {
         const d = new Date();
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // v1.137：昨天日期串（判定「跨天但还没到清空时刻」用；清单清空时刻改为次日 05:00）
+    function importYesterdayStr() {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // v1.137：当天是否已过清空时刻（05:00）——没过则跨天加载时清单保持完整，不提前清掉非置顶条目
+    function isImportClearTimePassed() {
+        return new Date().getHours() >= IMPORT_CLEAR_HOUR;
     }
 
     // 超过 10 期的历史条目自动删除：以清单内最大期数为基准只保留最近 10 期
@@ -6332,7 +6353,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5, 0);
         setTimeout(function() {
             const items = window.__importedStrategies || [];
-            const pinned = items.filter(function(it) { return it && it.pinned; });
+            const pinned = items.filter(function(it) { return it && it.pinned && it.lottery !== 'hk'; });
             if (pinned.length) {
                 ensureImportHistories();
                 const changed = advancePinnedStrategiesForDateChange(pinned, null, importTodayStr(), true);
@@ -6343,29 +6364,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     saveImportedStrategies();
                 }
             }
+            // v1.137：0:00 之后（开奖后的次日）按最新历史胜率重算自动置顶。
+            // 清单要到 05:00 才清空，此时非置顶条目还在，胜率前十的候选是完整的。
+            maybeAutoPinTopStrategies();
             schedulePinnedDayAdvance();
         }, Math.max(1000, next.getTime() - now.getTime()));
     }
 
-    function schedulePinnedPreDrawClear() {
-        const now = new Date();
-        let next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0, 0);
-        if (next.getTime() <= now.getTime()) next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 0, 0);
-        setTimeout(function() {
-            const items = window.__importedStrategies || [];
-            const pinned = items.filter(function(it) { return it && it.pinned; });
-            if (pinned.length) {
-                ensureImportHistories();
-                if (clearPinnedStrategyParts(pinned)) {
-                    window.__importedAgg = null;
-                    saveImportedStrategies();
-                    syncImportState();
-                    renderImportList();
-                }
-            }
-            schedulePinnedPreDrawClear();
-        }, Math.max(1000, next.getTime() - now.getTime()));
-    }
+    // v1.137：置顶条目子选项的定时清空（原 23:59 schedulePinnedPreDrawClear）并入 05:00 的
+    // scheduleMidnightClear 一起执行，这里不再单独排程（同一时刻先清子选项、再清清单）。
 
     // 页面加载时恢复当天导入条目；过期（非当天）则清空
     function loadImportedStrategies() {
@@ -6378,22 +6385,33 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 if (it.lottery !== 'hk' && it.lottery !== 'macau') it.lottery = 'macau'; // 旧数据兜底为新澳门
                 if (Array.isArray(it.parts)) it.parts.forEach(p => { if (p.checked === undefined) p.checked = true; });
                 it.pinned = !!it.pinned; // 置顶标记持久化（旧数据默认不置顶）
+                it.pinAuto = !!it.pinAuto; // v1.137：自动置顶标记持久化（旧数据默认既非自动）
+                // v1.137：香港条目完全不参与置顶——历史遗留的香港置顶标记一律清掉
+                if (it.lottery === 'hk' && (it.pinned || it.pinAuto)) { it.pinned = false; it.pinAuto = false; }
                 it.effects = buildItemEffects(it.parts || []);
             });
             if (data.date !== importTodayStr()) {
-                // v1.65：过期（非当天）数据清空但保留置顶条目——置顶跨天仍可见，其余状态不恢复
-                const pinned = data.items.filter(it => it.pinned);
-                if (!pinned.length) {
-                    localStorage.removeItem(IMPORT_STORAGE_KEY);
-                    return;
-                }
-                window.__importedStrategies = pinned;
+                // v1.137：清单清空时刻由 23:59 挪到次日 05:00——
+                // 05:00 之前打开页面时清单保持完整（含非置顶条目），只有清空时刻已过（或数据不是昨天的）
+                // 才按「只留置顶」处理；两种情况都先按完整清单重算自动置顶，否则 05:00 前打开页面没有候选。
+                const keepPinnedOnly = data.date !== importYesterdayStr() || isImportClearTimePassed();
+                window.__importedStrategies = data.items.slice();
                 ensureImportHistories();
-                advancePinnedStrategiesForDateChange(pinned, data.date, importTodayStr(), true);
+                const pinnedItems = data.items.filter(it => it.pinned && it.lottery !== 'hk');
+                if (pinnedItems.length) advancePinnedStrategiesForDateChange(pinnedItems, data.date, importTodayStr(), true);
                 window.__importedAgg = null;
                 window.__importActiveCat = null;
                 window.__importCatSnap = {};
-                saveImportedStrategies(); // 以当天日期重存，保证置顶条目后续加载不因日期过期被清
+                maybeAutoPinTopStrategies(); // 先按完整清单重算自动置顶（当天已算过则内部直接返回）
+                if (keepPinnedOnly) {
+                    // v1.65：过期（非当天）数据清空但保留置顶条目——置顶跨天仍可见，其余状态不恢复
+                    window.__importedStrategies = (window.__importedStrategies || []).filter(it => it.pinned && it.lottery !== 'hk');
+                }
+                if ((window.__importedStrategies || []).length) {
+                    saveImportedStrategies(); // 以当天日期重存，保证置顶条目后续加载不因日期过期被清
+                } else {
+                    try { localStorage.removeItem(IMPORT_STORAGE_KEY); } catch (e) { /* ignore */ }
+                }
                 return;
             }
             window.__importedStrategies = pruneImportedStrategies(data.items); // 加载时同步清理超 10 期历史条目
@@ -6406,18 +6424,36 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
             if (typeof enforceImportMutex === 'function') enforceImportMutex(window.__importActiveCat);
             if (mergedPinnedOnLoad > 0) saveImportedStrategies(); // 合并结果立即落盘，避免刷新后旧副本再次出现
+            // v1.137：当天首次打开页面时补一次自动置顶（每天最多一次；开奖数据未到会等数据到达后再算）
+            maybeAutoPinTopStrategies();
         } catch (e) { /* ignore */ }
     }
 
-    // 当天 23:59:30 自动清空导入条目（并重新排程次日）
+    // v1.137：清单清空时刻由「当天 23:59:30」改为「次日 05:00:30」（并重新排程次日）。
+    // 原因：0:00 的自动置顶重算要用完整清单挑「胜率前十」，23:59 就把非置顶条目清掉会让候选为空。
+    // 05:00 同一时刻按顺序做三件事：① 自动置顶兜底重算（当天已算过则内部直接返回）
+    // ② 清空置顶条目子选项（等当期开奖数据到齐后；数据未到则保留，避免丢掉尚未登记的子选项）
+    // ③ 清除非置顶条目（置顶跨天持续可见）。
     function scheduleMidnightClear() {
         const now = new Date();
-        const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 30, 0);
-        const delay = Math.max(0, next.getTime() - now.getTime());
+        const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), IMPORT_CLEAR_HOUR, 0, 30, 0);
+        if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1); // 当天 05:00 已过 → 排到次日
+        const delay = Math.max(1000, next.getTime() - now.getTime());
         setTimeout(() => {
-            // v1.65：23:59 自动清空时保留置顶条目（置顶跨天持续可见），仅清除普通条目
+            // ① 自动置顶兜底重算（用清空前的完整清单）
+            try { maybeAutoPinTopStrategies(true); } catch (e) { /* 自动置顶异常不影响清空流程 */ }
+            // ② 置顶条目子选项清空（原 23:59 的 clearPinnedStrategyParts 一并挪到 05:00）
+            const pinnedItems = (window.__importedStrategies || []).filter(it => it && it.pinned && it.lottery !== 'hk');
+            if (pinnedItems.length) {
+                ensureImportHistories();
+                if (clearPinnedStrategyParts(pinnedItems)) {
+                    window.__importedAgg = null;
+                    saveImportedStrategies();
+                }
+            }
+            // ③ 清除非置顶条目；v1.65：自动清空时保留置顶条目（置顶跨天持续可见）
             const items = window.__importedStrategies || [];
-            const pinned = items.filter(it => it.pinned);
+            const pinned = items.filter(it => it.pinned && it.lottery !== 'hk'); // 香港条目不能置顶，不在此保留
             if (pinned.length) {
                 window.__importedStrategies = pinned;
                 window.__importedAgg = null;
@@ -7040,9 +7076,129 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 开奖数据刷新后登记历史并刷新清单；置顶条目期数只由午夜确认任务推进。
     function refreshImportHistories() {
         ensureImportHistories();
+        maybeAutoPinTopStrategies(); // v1.137：开奖数据到达、历史登记完成后按需补一次自动置顶
         if (typeof renderImportList === 'function') renderImportList();
     }
     window.refreshImportHistories = refreshImportHistories;
+
+    // ========== v1.137：自动置顶（按历史胜率前十） ==========
+    // 作者 2026-09-14 确认的规则：
+    //  · 开奖后的次日，自动把清单内「新澳门、历史期数 ≥15 期」的条目按胜率（中次数 ÷ 已判定期数）取前十置顶；
+    //  · 香港条目完全不参与置顶（自动不挑、手动也禁止）；
+    //  · 自动置顶上限 10 条、手动置顶上限 5 条、置顶总数上限 15 条（自动名额 = min(10, 15 − 手动置顶数)）；
+    //  · 置顶组内一律按胜率由高到低排序（同胜率按期数多者优先，无战绩沉底）；
+    //  · 每天最多自动重算一次；手动取消某条自动置顶后「当日」不再补回，次日重算时恢复候选资格。
+    function loadAutoPinState() {
+        try {
+            const raw = localStorage.getItem(IMPORT_AUTO_PIN_STATE_KEY);
+            const d = raw ? JSON.parse(raw) : null;
+            if (d && typeof d === 'object') {
+                return {
+                    date: String(d.date || ''),
+                    suppressed: Array.isArray(d.suppressed) ? d.suppressed.slice(0, 200) : []
+                };
+            }
+        } catch (e) { /* ignore */ }
+        return { date: '', suppressed: [] };
+    }
+
+    function saveAutoPinState(state) {
+        try {
+            localStorage.setItem(IMPORT_AUTO_PIN_STATE_KEY, JSON.stringify({
+                date: String((state && state.date) || ''),
+                suppressed: (((state && state.suppressed) || []).slice(0, 200))
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 历史战绩统计（第三排胜率与自动置顶共用同一口径）：rate = 中次数 / 已判定期数（hit != null）
+    function importHistoryStats(it, histMap) {
+        const map = histMap || loadImportHistories();
+        const h = map[importHistoryKey(it)];
+        if (!h || !Array.isArray(h.periods)) return null;
+        let det = 0, hits = 0;
+        h.periods.forEach(p => { if (p && p.hit != null) { det++; if (p.hit) hits++; } });
+        return { total: h.periods.length, det: det, hits: hits, rate: det ? (hits / det) : null };
+    }
+
+    // 本地是否已有「昨天及更早」的新澳门开奖确认数据——用于判定「开奖后的次日」。
+    // 数据晚到时先不重算，等 refreshImportHistories 再触发；最晚当天 05:00（清空时刻）兜底算一次。
+    function hasDrawBeforeToday() {
+        const today = importTodayStr();
+        try {
+            const records = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords('macau', true) : [];
+            if (!Array.isArray(records) || !records.length) return false;
+            let latest = '';
+            records.forEach(function(r) {
+                const d = String((r && r.date) || '').slice(0, 10);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d > latest) latest = d;
+            });
+            return !!latest && latest < today;
+        } catch (e) { return false; }
+    }
+
+    // 按胜率前十重排自动置顶（不动手动置顶；香港条目一律不置顶）
+    function runAutoPinTopStrategies(state) {
+        const items = window.__importedStrategies || [];
+        const map = ensureImportHistories();
+        const st = state || loadAutoPinState();
+        const suppressed = st.suppressed || [];
+        // ① 先清掉旧的自动置顶标记 + 历史遗留的香港置顶（手动置顶保留）
+        items.forEach(function(it) {
+            if (!it) return;
+            if (it.pinAuto) { it.pinned = false; it.pinAuto = false; }
+            if (it.lottery === 'hk' && it.pinned) { it.pinned = false; it.pinAuto = false; }
+        });
+        // ② 候选：新澳门 + 历史期数 ≥15 + 胜率可算 + 当日未被手动取消；手动置顶的条目从自动候选里排除
+        const cands = [];
+        items.forEach(function(it, idx) {
+            if (!it || it.lottery === 'hk') return;
+            if (it.pinned) return; // 已是手动置顶：占手动名额，不参与自动前十评选
+            const key = importStrategyIdentityKey(it) || importHistoryKey(it);
+            if (key && suppressed.indexOf(key) >= 0) return; // 当日被手动取消的自动置顶不再补回
+            const stat = importHistoryStats(it, map);
+            if (!stat || stat.rate == null) return;
+            if (stat.total < IMPORT_AUTO_PIN_MIN_PERIODS) return; // 历史期数不足 15 期不参与自动置顶
+            cands.push({ it: it, rate: stat.rate, det: stat.det, idx: idx });
+        });
+        // ③ 胜率降序 → 已判定期数多者优先 → 清单原有顺序（稳定）
+        cands.sort(function(a, b) { return (b.rate - a.rate) || (b.det - a.det) || (a.idx - b.idx); });
+        // ④ v1.138：自动置顶固定按「胜率前十」10 条（作者确认：自动默认 10 条、手动最多 5 条、自动的可以取消），
+        // 不再因手动置顶条数压缩自动名额——手动置顶条目已从候选里排除，两条线互不挤占。
+        const slots = Math.min(IMPORT_AUTO_PIN_LIMIT, cands.length);
+        const picked = cands.slice(0, slots);
+        picked.forEach(function(c) { c.it.pinned = true; c.it.pinAuto = true; });
+        return picked.length;
+    }
+
+    // v1.137 起：开奖后的次日按胜率前十自动置顶。
+    // v1.138：不再限制「每天只重算一次」——作者的实际节奏是次日 12:00 后才拿到当天数据、晚上 21:30 前会分几次导入，
+    // 若当天只算一次，后导入的高胜率条目要等到第二天才会自动置顶。现在「清单 / 历史每次发生变化」都会重排：
+    // 触发点 = 0:00 置顶期数推进后、页面加载（含跨天恢复）、开奖数据到达登记历史后、导入后补记轮询、当天 05:00 兜底。
+    // 幂等 + 结果相同就短路（不落盘、不重渲染），所以不会反复抖动；作者当天手动取消的条目由抑制表挡住，不会当天被补回。
+    // force=true：忽略「开奖数据是否到齐」的前置检查（当天 05:00 兜底用）。
+    function maybeAutoPinTopStrategies(force) {
+        try {
+            const items = window.__importedStrategies || [];
+            if (!items.length) return false;
+            const today = importTodayStr();
+            const st = loadAutoPinState();
+            if (!force && !hasDrawBeforeToday() && !isImportClearTimePassed()) return false; // 等开奖数据，最晚 05:00 兜底
+            if (st.date !== today) st.suppressed = []; // 跨天：清掉「当日不再自动置顶」抑制表
+            // 置顶状态指纹（逐条比对 pinned / pinAuto 两个标记）：重算后完全一致就不落盘、不重绘
+            const flagSig = () => items.map(function(it) { return (it && it.pinned ? '1' : '0') + (it && it.pinAuto ? '1' : '0'); }).join('');
+            const before = flagSig();
+            runAutoPinTopStrategies(st);
+            st.date = today;
+            saveAutoPinState(st);
+            if (before === flagSig()) return false; // 自动置顶结果没变：不写清单、不重渲染（避免轮询期间反复落盘与重绘）
+            saveImportedStrategies();
+            if (typeof syncImportState === 'function') syncImportState();
+            if (typeof renderImportList === 'function') renderImportList();
+            return true;
+        } catch (e) { return false; }
+    }
+    window.maybeAutoPinTopStrategies = maybeAutoPinTopStrategies;
 
     // ========== v1.49：历史战绩自动补记 + 跨设备导出/导入 ==========
     // 判断当前是否已有任何可用的开奖数据（会话缓存 / 内存 / 本地存储）
@@ -7083,6 +7239,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 try { window.runPredict(); } catch (e) { /* ignore */ }
             }
             ensureImportHistories();
+            maybeAutoPinTopStrategies(); // v1.137：开奖数据晚到时，补记完历史再按需重算自动置顶
             if (typeof renderImportList === 'function') renderImportList();
             const items = window.__importedStrategies || [];
             const allRecorded = items.length > 0 && items.every(it => {
@@ -9237,6 +9394,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         if (clearBtn) clearBtn.style.display = 'block';
         const badge = (it) => '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;' + (it.lottery === 'hk' ? 'background:#fee2e2;color:#b91c1c;' : 'background:#dbeafe;color:#1d4ed8;') + '">' + (it.lottery === 'hk' ? '香港' : '新澳门') + '</span>';
+        // v1.137：置顶来源角标——手动（长按手动置顶），香港条目不会出现在置顶组
+        // v1.138：按作者要求去掉「自动」角标，只保留「手动」标记，避免手机端标题行拥挤
+        const pinSourceBadge = (it) => (it && it.pinned && it.lottery !== 'hk' && !it.pinAuto)
+            ? '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;background:#ede9fe;color:#6d28d9;">手动</span>'
+            : '';
         // v1.101：用 box2 实时开奖数据的权威期数对条目做只读核对角标（当期/下一期/未匹配）。
         // 读取不到实时数据时返回空串（完全回退现有规则），不改条目、不删条目、不动勾选。
         const realtimePeriodBadge = (it) => {
@@ -9261,20 +9423,27 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             : '已导入条目（共 ' + items.length + ' 条。）';
         const histMap = ensureImportHistories();
         // v1.62：置顶条目排在全部条目最上方（不分网站；上限 IMPORT_PIN_LIMIT 条）
-        const totalPinned = items.filter(x => x.pinned).length;
-        // v1.128：置顶组内也按「新澳门在前、香港在后」排列（与下方彩种大分区顺序一致）
-        const pinned = visibleItems.filter(it => it.pinned)
-            .sort((a, b) => (a.lottery === 'hk' ? 1 : 0) - (b.lottery === 'hk' ? 1 : 0));
-        const rest = visibleItems.filter(it => !it.pinned);
+        // v1.137：香港条目完全不参与置顶（历史遗留的香港置顶标记在加载时已清除，这里再兜底过滤一次）
+        const isPinnedItem = (it) => !!it && !!it.pinned && it.lottery !== 'hk';
+        const totalPinned = items.filter(isPinnedItem).length;
+        const autoPinnedCount = items.filter(it => isPinnedItem(it) && it.pinAuto).length;
+        const manualPinnedCount = totalPinned - autoPinnedCount;
+        // v1.137：置顶组内一律按胜率由高到低排序（同胜率按期数多者优先，无战绩沉底）
+        const pinned = visibleItems.filter(isPinnedItem)
+            .sort((a, b) => {
+                const sa = importHistoryStats(a, histMap), sb = importHistoryStats(b, histMap);
+                const ra = (sa && sa.rate != null) ? sa.rate : -1;
+                const rb = (sb && sb.rate != null) ? sb.rate : -1;
+                if (rb !== ra) return rb - ra;
+                return (sb ? sb.det : 0) - (sa ? sa.det : 0);
+            });
+        const rest = visibleItems.filter(it => !isPinnedItem(it));
         // v1.124：命中率高的条目优先显示——组内按历史命中率从高到低排序（不做开关、不加角标）。
         // 口径：已确定的历史期数中（hit!=null），中次数 / 已开奖期数；无战绩（无已开奖期数）视为无数据沉底。
         // 置顶条目不参与排序（置顶固定在最上）。冻结类（杀肖/杀码/杀尾）历史命中一并计入。
         const hitRateOf = (it) => {
-            const hh = histMap[importHistoryKey(it)];
-            if (!hh || !Array.isArray(hh.periods)) return null;
-            let det = 0, hits = 0;
-            hh.periods.forEach(p => { if (p && p.hit != null) { det++; if (p.hit) hits++; } });
-            return det ? (hits / det) : null;
+            const st = importHistoryStats(it, histMap); // v1.137：与自动置顶共用同一口径
+            return (st && st.rate != null) ? st.rate : null;
         };
         const pinRate = new Map();
         (visibleItems || []).forEach(it => pinRate.set(it, hitRateOf(it)));
@@ -9312,10 +9481,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             escHtml(name) + '（' + count + ' 条）</div>';
         const renderItem = (it) => {
             const realIndex = items.indexOf(it);
-            return '<div class="zdr-import-item' + (it.pinned ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
+            const pinnedRow = isPinnedItem(it); // v1.137：香港条目即使带旧置顶标记也按普通条目渲染
+            return '<div class="zdr-import-item' + (pinnedRow ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
-                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (it.pinned ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' +
+                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (pinnedRow ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + pinSourceBadge(it) + escHtml(it.title) + '</span>' +
                 '</label>' +
                 renderItemParts(realIndex, it) +
                 renderImportHistory(realIndex, it, histMap) +
@@ -9323,7 +9493,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         };
         let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>';
         if (pinned.length) {
-            listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT + '）</div>' + pinned.map(renderItem).join('') + '</div>';
+            // v1.137：表头显示「总数 / 总上限 · 自动 / 手动」，与「自动 ≤10 + 手动 ≤5」两条线对应
+            listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head" title="自动置顶：新澳门条目、历史期数≥15、按胜率取前十（开奖后的次日自动重排）；手动置顶最多 5 条；香港条目不能置顶">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT +
+                ' · 自动 ' + autoPinnedCount + '/' + IMPORT_AUTO_PIN_LIMIT + ' · 手动 ' + manualPinnedCount + '/' + IMPORT_MANUAL_PIN_LIMIT + '）</div>' +
+                pinned.map(renderItem).join('') + '</div>';
         }
         // 新澳门大分区（在上）
         if (macauRest.length) {
@@ -9358,7 +9531,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         t._tm = setTimeout(function() { t.classList.remove('show'); }, 1600);
     }
 
-    // 置顶/取消置顶（最多 IMPORT_PIN_LIMIT 条；置顶条目排在全部条目最上方）
+    // 置顶/取消置顶（v1.137：总上限 15 条 = 自动 ≤10 + 手动 ≤5；香港条目不能置顶）
     // v1.63：pinTo 显式指定 true=置顶 / false=取消置顶（长按改弹小菜单后由菜单按钮调用）
     window.toggleImportPin = function(index, pinTo) {
         const items = window.__importedStrategies;
@@ -9366,18 +9539,44 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const it = items[index];
         const activeCat = window.__importActiveCat;
         if (activeCat && it.lottery !== activeCat) return; // 已选类别时另一类条目不可操作
+        if (it.lottery === 'hk') { showPinToast('香港条目不能置顶'); return; } // v1.137：香港完全不参与置顶
         pushZdrHistory();
-        const totalPinned = items.filter(x => x.pinned).length;
+        const autoPinnedCount = items.filter(x => x.pinned && x.pinAuto && x.lottery !== 'hk').length;
+        const manualPinnedCount = items.filter(x => x.pinned && !x.pinAuto && x.lottery !== 'hk').length;
+        const totalPinned = autoPinnedCount + manualPinnedCount;
         const want = pinTo === undefined ? !it.pinned : !!pinTo;
         if (want === !!it.pinned) return; // 目标状态已达成
-        if (want && totalPinned >= IMPORT_PIN_LIMIT) {
-            showPinToast('最多置顶 ' + IMPORT_PIN_LIMIT + ' 条，请先取消其他置顶');
-            return;
+        const wasAutoPin = !!it.pinAuto;
+        if (want) {
+            // 先判手动名额：手动已满时给更贴合的提示（总数满通常就是 10 自动 + 5 手动造成）
+            if (manualPinnedCount >= IMPORT_MANUAL_PIN_LIMIT) {
+                showPinToast('手动置顶最多 ' + IMPORT_MANUAL_PIN_LIMIT + ' 条，请先取消其他手动置顶');
+                return;
+            }
+            if (totalPinned >= IMPORT_PIN_LIMIT) {
+                showPinToast('最多置顶 ' + IMPORT_PIN_LIMIT + ' 条，请先取消其他置顶');
+                return;
+            }
+            it.pinned = true;
+            it.pinAuto = false; // 手动置顶：占手动名额，不参与自动前十评选
+        } else {
+            it.pinned = false;
+            it.pinAuto = false;
+            if (wasAutoPin) {
+                // v1.137：手动取消自动置顶 → 当日不再自动补回（次日重算时清掉抑制表、恢复候选资格）
+                const st = loadAutoPinState();
+                const key = importStrategyIdentityKey(it) || importHistoryKey(it);
+                if (key && st.suppressed.indexOf(key) < 0) {
+                    st.suppressed.push(key);
+                    saveAutoPinState(st);
+                }
+            }
         }
-        it.pinned = want;
         saveImportedStrategies();
         renderImportList();
-        showPinToast(want ? '已置顶（' + (totalPinned + 1) + '/' + IMPORT_PIN_LIMIT + '）' : '已取消置顶');
+        showPinToast(want
+            ? '已置顶（置顶 ' + (totalPinned + 1) + '/' + IMPORT_PIN_LIMIT + ' · 手动 ' + (manualPinnedCount + 1) + '/' + IMPORT_MANUAL_PIN_LIMIT + '）'
+            : (wasAutoPin ? '已取消自动置顶（当日不再自动置顶）' : '已取消置顶'));
     };
 
     // v1.63：长按条目弹出的置顶小菜单（非全屏，锚定在条目旁，点空白处关闭）
@@ -10092,7 +10291,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       renderCategoryButtons();
       scheduleMidnightClear();
       schedulePinnedDayAdvance();
-      schedulePinnedPreDrawClear();
+      // v1.137：schedulePinnedPreDrawClear（23:59 置顶子选项清空）已并入 05:00 的 scheduleMidnightClear
     });
 
 
