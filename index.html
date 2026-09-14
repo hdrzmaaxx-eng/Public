@@ -652,7 +652,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.138 · 2026-09-14 23:30</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.139 · 2026-09-14 23:40</div>
 
         </div>
     
@@ -9394,11 +9394,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         if (clearBtn) clearBtn.style.display = 'block';
         const badge = (it) => '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;' + (it.lottery === 'hk' ? 'background:#fee2e2;color:#b91c1c;' : 'background:#dbeafe;color:#1d4ed8;') + '">' + (it.lottery === 'hk' ? '香港' : '新澳门') + '</span>';
-        // v1.137：置顶来源角标——手动（长按手动置顶），香港条目不会出现在置顶组
-        // v1.138：按作者要求去掉「自动」角标，只保留「手动」标记，避免手机端标题行拥挤
-        const pinSourceBadge = (it) => (it && it.pinned && it.lottery !== 'hk' && !it.pinAuto)
-            ? '<span class="zdr-import-badge" style="display:inline-block;margin-right:4px;border-radius:4px;background:#ede9fe;color:#6d28d9;">手动</span>'
-            : '';
+        // v1.137 起置顶条目曾带「自动 / 手动」来源角标；v1.138 去掉「自动」、v1.139 按作者要求把「手动」也去掉，
+        // 标题行只剩彩种角标 + 📌 图标（置顶来源仍由表头的「自动 a/10 · 手动 b/5」计数体现）。
         // v1.101：用 box2 实时开奖数据的权威期数对条目做只读核对角标（当期/下一期/未匹配）。
         // 读取不到实时数据时返回空串（完全回退现有规则），不改条目、不删条目、不动勾选。
         const realtimePeriodBadge = (it) => {
@@ -9485,7 +9482,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return '<div class="zdr-import-item' + (pinnedRow ? ' zdr-pinned' : '') + '" data-pin-index="' + realIndex + '" title="">' +
                 '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;">' +
                 '<input type="checkbox" ' + (it.checked ? 'checked' : '') + ' onchange="window.toggleImportItem(' + realIndex + ', this.checked)" style="flex-shrink:0;margin-top:2px;">' +
-                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (pinnedRow ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + pinSourceBadge(it) + escHtml(it.title) + '</span>' +
+                '<span class="zdr-import-title" title="' + escAttr(it.latest_data || '') + '" style="' + (it.checked ? '' : 'color:#94a3b8;') + '">' + (pinnedRow ? '<span class="zdr-import-pin-icon">📌</span>' : '') + badge(it) + escHtml(it.title) + '</span>' + // v1.139：已去掉置顶来源角标（「自动」/「手动」都不显示）
                 '</label>' +
                 renderItemParts(realIndex, it) +
                 renderImportHistory(realIndex, it, histMap) +
