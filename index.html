@@ -487,8 +487,14 @@
                 </div>
             </div>
             <!-- v1.132：拉手放在面板之后——收起时贴着结果框下沿，展开后落在抽屉面板下方 -->
-            <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
-                 aria-expanded="false" aria-controls="zdr-drawer-panel" title="下滑展开 · 上滑收起"></div>
+            <!-- v1.141：拉手行——拉手居中，两侧是「新澳门条目 / 香港条目」镜像按钮
+                 （镜像按钮只在同时存在香港与澳门条目、且原按钮已被滚过之后出现，见 updateCatMirror） -->
+            <div id="zdr-drawer-handle-row" class="zdr-drawer-handle-row">
+                <button id="zdr-cat-mirror-macau" class="zdr-cat-btn zdr-cat-macau zdr-cat-compact" type="button" style="display:none;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                <div id="zdr-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
+                     aria-expanded="false" aria-controls="zdr-drawer-panel" title="下滑展开 · 上滑收起"></div>
+                <button id="zdr-cat-mirror-hk" class="zdr-cat-btn zdr-cat-hk zdr-cat-compact" type="button" style="display:none;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+            </div>
         </div>
 
         <div class="button-container">
@@ -634,8 +640,8 @@
                     <button class="btn" id="btn-parse-hk" style="flex:1; height:46px; background: linear-gradient(105deg, #f59e0b, #d97706); color:white; border:none; font-size:16px; font-weight:bold; border-radius:6px;" onclick="window.parseAndApplyExtStrategy('hk')">导入香港条目</button>
                 </div>
                 <div id="ext-strategy-cat-bar" style="display:none; gap:8px; margin-top:8px;">
-                    <button id="ext-strategy-cat-macau" style="flex:1; padding:8px 12px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.85rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
-                    <button id="ext-strategy-cat-hk" style="flex:1; padding:8px 12px; border:1px solid #cbd5e1; background:#f1f5f9; color:#64748b; border-radius:6px; font-size:0.85rem; cursor:pointer; white-space:nowrap;" onclick="window.setImportActiveCat('hk')">香港条目</button>
+                    <button id="ext-strategy-cat-macau" class="zdr-cat-btn zdr-cat-macau" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
+                    <button id="ext-strategy-cat-hk" class="zdr-cat-btn zdr-cat-hk" onclick="window.setImportActiveCat('hk')">香港条目</button>
                 </div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
@@ -652,7 +658,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.139 · 2026-09-14 23:40</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.146 · 2026-09-15 23:15</div>
 
         </div>
     
@@ -2461,6 +2467,117 @@ function scrollToBottom(containerId) {
     background: #cbd5e1; transition: background 0.2s ease, width 0.2s ease;
 }
 .zdr-drawer-open .zdr-drawer-handle::after { background: #f59e0b; width: 40px; }
+/* ============================================================
+    v1.141 ~ v1.144：「新澳门条目 / 香港条目」分类按钮 + 抽屉拉手行
+     · v1.141 拉手两侧加镜像按钮（方案 A：导入面板里的原按钮保留）
+     · v1.142 按作者反馈改成「紧贴拉手、整组居中」（拉手不撑满、按钮不靠边）
+     · v1.143 按 UI 技能重做视觉与反馈（Emil Kowalski 设计工程 + 微交互规范）：
+         等宽让拉手视觉居中；白底浅描边 + 轻投影与抽屉面板同一语言；
+         选中态沿用面板的澳门蓝 / 香港红并加柔和外发光；悬停只在鼠标端生效；
+         按下 scale(0.96) 140ms 强 ease-out；键盘 focus-visible 清晰焦点圈；
+         出现时 160ms 淡入 + 轻微放大（@starting-style，旧浏览器自动退化为无动画）；
+         触屏用 ::after 扩大热区（视觉 26px，热区约 44px）；
+         动效全部包在 prefers-reduced-motion: no-preference 内
+     · v1.144 按作者反馈调版式与层次：按钮不再贴着拉手，而是各落在「拉手 ↔ 该侧边缘」这段的正中间
+         （三分区网格 1fr auto 1fr：左区居中 / 拉手居中 / 右区居中）；
+     · v1.145：磨砂改成**整条**——以按键高度为高的玻璃条横贯整行（半透明白 + backdrop-filter 模糊 +
+         内描边 + 外投影），按钮与拉手都浮在这条玻璃上；按钮自身改为接近纯白 + 轻投影，与玻璃条分层；
+         选中态用同色更深的投影，看起来是「立」在玻璃条上
+     · v1.146：修「拉手初现时往左偏」——镜像按钮隐藏时是 display:none，grid 里不占格子，
+          拉手会被自动排到第 1 列（左区）而偏左；改为给三个元素显式指定列（1 / 2 / 3），拉手永远在正中
+   ============================================================ */
+/* 三分区网格：左右各 1fr（按钮在各区正中）、中间 auto（拉手在整行正中）；
+   v1.145：整行铺一条「以按键高度为高」的磨砂玻璃条（横贯整行），按钮与拉手都浮在这条磨砂上 */
+.zdr-drawer-handle-row {
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0;
+    min-height: 26px;                 /* 条高 = 按键高度（桌面 26px / 手机 24px） */
+    background: rgba(255, 255, 255, 0.66);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    backdrop-filter: blur(12px) saturate(150%);
+    /* 都不用 border：改内阴影描边，条高才严格等于按键高度 */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.80),
+                inset 0 -1px 0 rgba(15, 23, 42, 0.07),
+                0 10px 20px -14px rgba(15, 23, 42, 0.50);
+}
+.zdr-drawer-handle-row > #zdr-drawer-handle { justify-self: center; margin: 0; }
+.zdr-drawer-handle-row > .zdr-cat-btn { justify-self: center; }
+/* v1.146：显式占列——按钮隐藏（display:none）时不会被自动重排，拉手永远待在中间那列 */
+.zdr-drawer-handle-row > #zdr-cat-mirror-macau { grid-column: 1; }
+.zdr-drawer-handle-row > #zdr-drawer-handle { grid-column: 2; }
+.zdr-drawer-handle-row > #zdr-cat-mirror-hk { grid-column: 3; }
+
+.zdr-cat-btn {
+    cursor: pointer; white-space: nowrap;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+/* 导入面板里的原按钮：沿用 v1.100 起的既有外观（未选中浅灰 / 选中蓝或红实心） */
+.zdr-cat-btn:not(.zdr-cat-compact) {
+    flex: 1; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;
+    border: 1px solid #cbd5e1; background: #f1f5f9; color: #64748b;
+}
+.zdr-cat-btn:not(.zdr-cat-compact).zdr-cat-macau.zdr-cat-on { border-color: #1d4ed8; background: #1d4ed8; color: #fff; font-weight: bold; }
+.zdr-cat-btn:not(.zdr-cat-compact).zdr-cat-hk.zdr-cat-on { border-color: #b91c1c; background: #b91c1c; color: #fff; font-weight: bold; }
+/* 拉手两侧的镜像按钮：等宽胶囊，坐在上面那条磨砂玻璃上（按钮本身接近纯白，靠投影与玻璃条分层） */
+.zdr-cat-btn.zdr-cat-compact {
+    position: relative; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 26px; min-width: 86px; padding: 0 12px; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.01em;
+    color: #334155;
+    border: 1px solid rgba(203, 213, 225, 0.85);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10),
+                inset 0 1px 0 rgba(255, 255, 255, 0.90);
+}
+.zdr-cat-btn.zdr-cat-compact.zdr-cat-macau.zdr-cat-on {
+    border-color: #1d4ed8; background: #1d4ed8; color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10),
+                0 10px 20px -8px rgba(29, 78, 216, 0.75),
+                inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.zdr-cat-btn.zdr-cat-compact.zdr-cat-hk.zdr-cat-on {
+    border-color: #b91c1c; background: #b91c1c; color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10),
+                0 10px 20px -8px rgba(185, 28, 28, 0.75),
+                inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+/* 触屏热区：视觉保持 26px，可点区域上下各扩 9px（≈44px，符合触摸目标建议） */
+.zdr-cat-btn.zdr-cat-compact::after { content: ''; position: absolute; inset: -9px -6px; border-radius: inherit; }
+.zdr-cat-btn:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+/* 悬停只在鼠标/触控板生效（触屏 tap 会触发伪 hover，容易造成假反馈） */
+@media (hover: hover) and (pointer: fine) {
+    /* 鼠标悬停：抬起更高一点，投影随之扩散（层次再拉开一档） */
+    .zdr-cat-btn.zdr-cat-compact:hover {
+        transform: translateY(-1.5px); color: #1e293b;
+        background: rgba(255, 255, 255, 0.86); border-color: rgba(148, 163, 184, 0.9);
+        box-shadow: 0 2px 4px rgba(15, 23, 42, 0.10),
+                    0 14px 26px -10px rgba(15, 23, 42, 0.45),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+    .zdr-cat-btn.zdr-cat-compact.zdr-cat-macau.zdr-cat-on:hover { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.12), 0 14px 26px -10px rgba(37, 99, 235, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+    .zdr-cat-btn.zdr-cat-compact.zdr-cat-hk.zdr-cat-on:hover { background: #dc2626; border-color: #dc2626; color: #fff; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.12), 0 14px 26px -10px rgba(220, 38, 38, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+}
+/* 动效：按下即时反馈 + 出现时淡入放大；减弱动效用户直接拿静态状态 */
+@media (prefers-reduced-motion: no-preference) {
+    .zdr-cat-btn.zdr-cat-compact {
+        transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 160ms ease,
+                    border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+        @starting-style { opacity: 0; transform: scale(0.96); }
+    }
+    .zdr-cat-btn.zdr-cat-compact:active { transform: scale(0.96); transition-duration: 90ms; }
+}
+@media (max-width: 600px) {
+    /* 手机端：磨砂条高跟着按键降到 24px、模糊半径小一点省电；按钮仍居各自区域正中 */
+    .zdr-drawer-handle-row { min-height: 24px; }
+    .zdr-cat-btn.zdr-cat-compact {
+        height: 24px; min-width: 74px; padding: 0 10px; font-size: 0.74rem;
+    }
+    .zdr-drawer-handle-row {
+        -webkit-backdrop-filter: blur(8px) saturate(150%);
+        backdrop-filter: blur(8px) saturate(150%);
+    }
+}
 .zdr-drawer-panel {
     display: none; background: #fff;
     border: 1px solid #fdba74; border-top: 3px solid #f59e0b;
@@ -3640,6 +3757,74 @@ function isValidKjRecord(r) {
 function filterValidKjRecords(list) {
   return (Array.isArray(list) ? list : []).filter(isValidKjRecord);
 }
+
+// ============================================================
+// v1.140：记录彩种判别（修复「香港 100 期显示成已开、开 33（狗）」的跨彩种错配）
+//   依据：澳门期号 = 该期开奖日在当年的第几天（2026-09-14 = 257 期、2026-04-10 = 100 期）；
+//   香港期号不是（2026-09-13 = 099 期，当日年内第 256 天）。
+//   两个彩种的 id 规则都是「年*1000 + 期号」，澳门 100 期与香港 100 期都算成 2026100，
+//   一旦数据按错彩种入库就会互相顶替（历史上就出现了香港 100 期被澳门 2026-04-10 那期覆盖）。
+//   为避免年初误判（澳门、香港都在 1 月 1 日开 001 期），只在期号 ≥ 60 时才用这条判据。
+// ============================================================
+function recordLotteryByDate(r) {
+  try {
+    if (!r) return '';
+    var q = parseInt(r.qishu, 10);
+    var d = String(r.date || '').slice(0, 10);
+    if (!isFinite(q) || q < 60) return '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+    var dt = new Date(d + 'T00:00:00');
+    if (isNaN(dt.getTime())) return '';
+    var doy = Math.round((dt.getTime() - new Date(dt.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+    return Math.abs(q - doy) <= 1 ? 'macau' : 'hk';
+  } catch (e) { return ''; }
+}
+// 一条记录是否可能属于指定彩种（判不出来 = 未知，一律不拦）
+function isRecordOfLottery(lottery, r) {
+  var guess = recordLotteryByDate(r);
+  return !guess || guess === lottery;
+}
+// 本地该彩种已有的期号集合（用于判别「没有开奖日期」的穿透推送数据）
+function lotteryPeriodSet(lottery) {
+  var set = new Set();
+  try {
+    var raw = localStorage.getItem('zdr_manual_data_' + lottery);
+    if (raw) {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) arr.forEach(function(r) { if (r && r.qishu != null && isFinite(parseInt(r.qishu, 10))) set.add(String(parseInt(r.qishu, 10))); });
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    var list = (typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery) : []) || [];
+    list.forEach(function(r) { if (r && r.qishu != null && isFinite(parseInt(r.qishu, 10))) set.add(String(parseInt(r.qishu, 10))); });
+  } catch (e) { /* ignore */ }
+  return set;
+}
+// 过滤掉「明确属于另一彩种」的记录：
+//   ① 有开奖日期的按日期判据逐条过滤；
+//   ② 整批都没有日期（穿透推送）时按「与本地期号的交集」判——只在「命中另一彩种、且与本彩种零交集」时整批丢弃。
+function filterRecordsCrossLottery(lottery, records) {
+  var list = Array.isArray(records) ? records : [];
+  if (!list.length) return list;
+  var kept = list.filter(function(r) { return isRecordOfLottery(lottery, r); });
+  if (kept.length !== list.length) return kept;
+  if (list.some(function(r) { return !!recordLotteryByDate(r); })) return kept;
+  var nums = list.map(function(r) { return parseInt(r && r.qishu, 10); }).filter(isFinite);
+  if (!nums.length) return kept;
+  var other = lottery === 'macau' ? 'hk' : 'macau';
+  var mine = lotteryPeriodSet(lottery), theirs = lotteryPeriodSet(other);
+  var inMine = 0, inTheirs = 0;
+  nums.forEach(function(q) { if (mine.has(String(q))) inMine++; if (theirs.has(String(q))) inTheirs++; });
+  if (!inMine && inTheirs) return [];
+  return kept;
+}
+// 由标题兜底判别彩种（导入数据没带彩种字段时用；「香港」优先——澳门标题里不会出现「香港」）
+function guessLotteryFromTitle(title) {
+  var t = String(title || '');
+  if (/香港/.test(t)) return 'hk';
+  if (/新澳门|澳门/.test(t)) return 'macau';
+  return '';
+}
 // box2 实时开奖组件的当期 7 个球位是否都已读到号码（读不到 / 未填满 = 当期还没出全）
 function isRealtimeResultComplete(rd) {
   try {
@@ -3654,7 +3839,8 @@ function isRealtimeResultComplete(rd) {
     return true;
   } catch (e) { return false; }
 }
-// 清理本机缓存（zdr_manual_data_<彩种>）里已经写入的无效/占位记录，返回清理条数
+// 清理本机缓存（zdr_manual_data_<彩种>）里已经写入的无效/占位记录 + 跨彩种错配记录，返回清理条数。
+// v1.140：同时把「被这些错配记录喂出来的历史期」从历史库里删掉（只删期号命中的那些期，其它期不动）。
 function purgeInvalidLocalKjRecords(lottery) {
   try {
     var key = 'zdr_manual_data_' + lottery;
@@ -3662,12 +3848,43 @@ function purgeInvalidLocalKjRecords(lottery) {
     if (!raw) return 0;
     var list = JSON.parse(raw);
     if (!Array.isArray(list)) return 0;
-    var kept = filterValidKjRecords(list);
+    var valid = filterValidKjRecords(list);
+    var kept = filterRecordsCrossLottery(lottery, valid);
     if (kept.length === list.length) return 0;
+    var keptSet = new Set(kept.map(function(r) { return String(parseInt(r && r.qishu, 10)); }));
+    var dirty = [];
+    valid.forEach(function(r) {
+      var q = String(parseInt(r && r.qishu, 10));
+      if (/^\d+$/.test(q) && !keptSet.has(q) && dirty.indexOf(q) < 0) dirty.push(q);
+    });
     localStorage.setItem(key, JSON.stringify(kept));
     if (typeof window.invalidateLocalRecordsCache === 'function') window.invalidateLocalRecordsCache(lottery);
-    console.warn('⚠️ 已清理本机缓存中 ' + (list.length - kept.length) + ' 条号码未出全的占位记录');
+    var removedHistory = purgeHistoryPeriods(lottery, dirty);
+    console.warn('⚠️ 已清理本机缓存中 ' + (list.length - kept.length) + ' 条占位 / 跨彩种错配记录' + (removedHistory ? '，并移除 ' + removedHistory + ' 条受影响的历史期' : ''));
     return list.length - kept.length;
+  } catch (e) { return 0; }
+}
+// 删除历史库里「该彩种 + 指定期号」的历史期（v1.140 自愈用；期号集合为空则不动）
+function purgeHistoryPeriods(lottery, periods) {
+  try {
+    if (!Array.isArray(periods) || !periods.length) return 0;
+    if (typeof loadImportHistories !== 'function' || typeof saveImportHistories !== 'function') return 0;
+    var map = loadImportHistories();
+    var want = new Set(periods);
+    var removed = 0;
+    Object.keys(map).forEach(function(k) {
+      var h = map[k];
+      if (!h || !Array.isArray(h.periods)) return;
+      if ((h.lottery || String(k).split('|')[0]) !== lottery) return;
+      var next = h.periods.filter(function(p) {
+        var q = (p && p.qishu != null) ? String(parseInt(p.qishu, 10)) : '';
+        if (q && want.has(q)) { removed++; return false; }
+        return true;
+      });
+      if (next.length !== h.periods.length) h.periods = next;
+    });
+    if (removed) saveImportHistories(map);
+    return removed;
   } catch (e) { return 0; }
 }
 
@@ -6027,6 +6244,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                       console.warn("穿透数据全为号码未出全的占位行，已忽略本次更新");
                       return;
                   }
+                  // v1.140：穿透数据可能来自另一彩种的源站页面（澳门 100 期与香港 100 期 id 都是 2026100，会互相顶替）。
+                  // 整批判为另一彩种时直接忽略本次更新（不渲染、不写缓存），部分错配时只丢掉错配记录。
+                  var crossKept = filterRecordsCrossLottery(currentLottery, payload.data);
+                  if (!crossKept.length) {
+                      console.warn("穿透数据判为另一彩种，已忽略本次更新");
+                      var crossBar = document.getElementById("bar");
+                      if (crossBar) { crossBar.className = "status-bar status-be"; crossBar.innerHTML = "⚠️ 本次穿透数据判为另一彩种，已忽略"; }
+                      return;
+                  }
+                  if (crossKept.length !== payload.data.length) {
+                      console.warn("穿透数据中 " + (payload.data.length - crossKept.length) + " 条判为另一彩种，已丢弃");
+                      payload.data = crossKept;
+                  }
                   
                   // ========== 新增：穿透数据标准化（补 id/year，澳门按每天一期推导 date）+ 最新在前排序 ==========
                   // 源站 #msg li 提取出的记录只有 {qishu, num}，无 id/date 且顺序不保证最新在前，
@@ -6066,8 +6296,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                       // 清理历史遗留的无 id 脏数据（旧版穿透写入导致 findIndex 误匹配、排序失效）
                       localData = localData.filter(function(d) { return d && d.id != null; });
                       
-                      // 取前 60 期数据作为高精度基准库（足以覆盖近期的所有缺失）
-                      var preciseData = payload.data.slice(0, 60);
+                      // 取前 60 期数据作为高精度基准库（足以覆盖近期的所有缺失）；
+                      // v1.140：再按彩种过滤一次，避免把另一彩种的记录写进本彩种缓存
+                      var preciseData = filterRecordsCrossLottery(currentLottery, payload.data).slice(0, 60);
+                      if (!preciseData.length) console.warn("本批穿透数据判为另一彩种，已跳过写入本机缓存");
                       preciseData.forEach(function(pRecord) {
                           var existingIndex = localData.findIndex(function(d) { return d.id === pRecord.id; });
                           if (existingIndex !== -1) {
@@ -6806,6 +7038,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         try {
             if (!Array.isArray(records) || !records.length) return;
             records = filterValidKjRecords(records); // v1.134：号码未出全的占位期不写入本机缓存
+            records = filterRecordsCrossLottery(lottery, records); // v1.140：明确属于另一彩种的记录不写入本机缓存
             if (!records.length) return;
             const storageKey = 'zdr_manual_data_' + lottery;
             let localData = [];
@@ -6901,6 +7134,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (rYear !== year) return;
             if (r && r.qishu != null && parseInt(r.qishu, 10) === period && (!best || r.id > best.id)) best = r;
         });
+        // v1.140：判为另一彩种的记录不得当作本彩种开奖（香港 100 期曾被澳门 2026-04-10 那期顶替 → 显示「开 33（狗）」）
+        if (best && !isRecordOfLottery(lottery, best)) return null;
+        // v1.140：开奖日期在未来的记录不算已开奖（防源站预填 / 占位行）
+        if (best && /^\d{4}-\d{2}-\d{2}$/.test(String(best.date || '').slice(0, 10)) && String(best.date).slice(0, 10) > importTodayStr()) return null;
         return best;
     }
 
@@ -9703,30 +9940,42 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         btn.textContent = visible.some(it => it.checked) ? '取消全选' : '全部启用';
     }
 
+    // v1.141 起：分类按钮的统一外观（导入面板里的原按钮 + 抽屉拉手两侧的镜像按钮共用一套配色）。
+    // v1.143：改为「切 CSS 类」而不是写 style.cssText —— 内联样式无法表达 :hover / :active / :focus-visible，
+    // 把视觉全部交给 CSS（.zdr-cat-btn / -macau / -hk / -on / -compact），这样镜像按钮才有悬停、按下、
+    // 键盘焦点与入场动效；原按钮的外观规则写成 :not(.zdr-cat-compact)，与 v1.100 起完全一致。
+    function applyCatButtonStyle(btn, kind, active, compact) {
+        if (!btn) return;
+        btn.classList.toggle('zdr-cat-btn', true);
+        btn.classList.toggle('zdr-cat-macau', kind === 'macau');
+        btn.classList.toggle('zdr-cat-hk', kind === 'hk');
+        btn.classList.toggle('zdr-cat-on', active === kind);
+        btn.classList.toggle('zdr-cat-compact', !!compact);
+        btn.disabled = false;
+    }
+
     // 渲染「新澳门条目/香港条目」筛选按钮（有香港条目时显示；点击后清单只显示该类别条目，可来回切换）
+    // v1.141：同时同步抽屉拉手两侧的镜像按钮与抽屉上的可用性标记（镜像按钮的显示时机由抽屉脚本按滚动位置决定）
     function renderCategoryButtons() {
         const bar = document.getElementById('ext-strategy-cat-bar');
         if (!bar) return;
         const items = window.__importedStrategies || [];
         const hasHk = items.some(it => it.lottery === 'hk');
-        if (!items.length || !hasHk) {
-            bar.style.display = 'none';
-            return;
-        }
-        bar.style.display = 'flex';
-        const btnM = document.getElementById('ext-strategy-cat-macau');
-        const btnH = document.getElementById('ext-strategy-cat-hk');
+        const show = items.length > 0 && hasHk;
         const active = window.__importActiveCat;
-        if (btnM) {
-            // 新澳门：蓝色主题（边框/文字/选中底色均为蓝色系）
-            btnM.style.cssText = 'flex:1;padding:8px 12px;border-radius:6px;font-size:0.85rem;white-space:nowrap;' + (active === 'macau' ? 'border:1px solid #1d4ed8;background:#1d4ed8;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
-            btnM.disabled = false;
+        const drawerEl = document.getElementById('zdr-drawer');
+        if (drawerEl) drawerEl.classList.toggle('zdr-cat-available', show);
+        applyCatButtonStyle(document.getElementById('zdr-cat-mirror-macau'), 'macau', active, true);
+        applyCatButtonStyle(document.getElementById('zdr-cat-mirror-hk'), 'hk', active, true);
+        if (!show) {
+            bar.style.display = 'none';
+        } else {
+            bar.style.display = 'flex';
+            applyCatButtonStyle(document.getElementById('ext-strategy-cat-macau'), 'macau', active);
+            applyCatButtonStyle(document.getElementById('ext-strategy-cat-hk'), 'hk', active);
         }
-        if (btnH) {
-            // 香港：红色主题（边框/文字/选中底色均为红色系）
-            btnH.style.cssText = 'flex:1;padding:8px 12px;border-radius:6px;font-size:0.85rem;white-space:nowrap;' + (active === 'hk' ? 'border:1px solid #b91c1c;background:#b91c1c;color:#fff;font-weight:bold;cursor:pointer;' : 'border:1px solid #cbd5e1;background:#f1f5f9;color:#64748b;cursor:pointer;');
-            btnH.disabled = false;
-        }
+        // 清单/类别变化后立刻复核镜像按钮（滚动位置没变时也要跟着变）
+        if (typeof window.__zdrUpdateCatMirror === 'function') window.__zdrUpdateCatMirror();
     }
 
     // 类别互斥：保证同一时刻只有一种类别有勾选条目（两类不能有交集）
@@ -10090,6 +10339,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             let importCount = 0;
             let updatedPinnedCount = 0;
             let staleCount = 0;
+            let titleGuessedCount = 0; // v1.140：数据没带彩种、按标题兜底归类的条数（用于反馈提示）
             window.__importedStrategies = window.__importedStrategies || [];
 
             data.forEach(item => {
@@ -10100,8 +10350,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     return;
                 }
                 const title = item.title || '未命名策略';
-                // 复制按钮带 lottery 时按原分类导入，否则按点击的按钮分类
-                const itemLottery = (item.lottery === 'hk' || item.lottery === 'macau') ? item.lottery : lottery;
+                // 复制按钮带 lottery 时按原分类导入；数据没带彩种时先按标题兜底判别（v1.140），最后才用点击的按钮分类。
+                // 否则「一键解析并选入」会把香港条目整批归成新澳门，于是它去查澳门同期号（香港 100 期 → 澳门 100 期 33 狗）。
+                const guessedLottery = guessLotteryFromTitle(title);
+                const itemLottery = (item.lottery === 'hk' || item.lottery === 'macau')
+                    ? item.lottery
+                    : (guessedLottery || lottery);
+                if (!item.lottery && guessedLottery && guessedLottery !== lottery) titleGuessedCount++;
                 const incoming = { title, latest_data: str, lottery: itemLottery, checked: true, parts: parts, effects: buildItemEffects(parts) };
                 if (isStaleImportedPeriod(incoming, itemLottery)) {
                     staleCount++;
@@ -10156,6 +10411,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     + (updatedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已更新置顶条目 ${updatedPinnedCount} 条）</span>` : '')
                     + (staleCount > 0 ? `<span style="color:#b45309;">（已过滤旧期条目 ${staleCount} 条）</span>` : '')
                     + (mergedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已合并置顶重复条目 ${mergedPinnedCount} 条）</span>` : '')
+                    + (titleGuessedCount > 0 ? `<span style="color:#b45309;">（其中 ${titleGuessedCount} 条按标题判定为香港条目）</span>` : '')
                     + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
@@ -10274,6 +10530,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
       // 恢复当天导入条目（本地持久化；非当天自动清空），并排程 23:59 自动清空
       loadImportedStrategies();
+      // v1.140：启动时对两个彩种各跑一次缓存自愈——清掉号码未出全的占位行与跨彩种错配记录，
+      // 并把「被错配记录喂出来的历史期」从历史条目库里移除（只删期号命中的那些期）
+      try { purgeInvalidLocalKjRecords('macau'); purgeInvalidLocalKjRecords('hk'); } catch (e) { /* ignore */ }
       updateParseButtonsVisibility();
       extInput.addEventListener('input', updateParseButtonsVisibility);
       if ((window.__importedStrategies || []).length) {
@@ -10757,6 +11016,31 @@ window.saveSuppData = function() {
     var OPEN_THRESHOLD = 20; // 上/下拉位移达到该值即触发展开或收起
     var SLOP = 6;            // 超过该位移视为「拖动」，抬手不当作轻点
 
+    // ===== v1.141：拉手两侧的「新澳门条目 / 香港条目」镜像按钮 =====
+    // 方案 A：导入面板里的原按钮保留不动；只有「同时存在香港与澳门条目」（drawer 上有 zdr-cat-available，
+    // 由 renderCategoryButtons 写入）+ 抽屉已吸顶 + 原按钮已被滚过（滚到吸顶区之上）时，才在拉手两侧显示镜像按钮，
+    // 这样滚动查看清单时随时能切换类别，滚回上面又只剩原位那一排按钮。
+    var mirrorM = document.getElementById('zdr-cat-mirror-macau');
+    var mirrorH = document.getElementById('zdr-cat-mirror-hk');
+    var catBarEl = document.getElementById('ext-strategy-cat-bar');
+    var mirrorShown = false;
+    function updateCatMirror() {
+        if (!mirrorM || !mirrorH || !catBarEl) return;
+        var avail = drawer.classList.contains('zdr-cat-available');
+        var passed = false;
+        try {
+            var r = catBarEl.getBoundingClientRect();
+            var coverBottom = STICK_TOP + (box.offsetHeight || 0); // 抽屉吸顶位置 = 结果框吸顶 top + 结果框高度
+            passed = r.height > 0 && r.bottom <= coverBottom + 2;
+        } catch (e) { passed = false; }
+        var show = !!(avail && stuck && passed);
+        if (show === mirrorShown) return;
+        mirrorShown = show;
+        mirrorM.style.display = show ? '' : 'none';
+        mirrorH.style.display = show ? '' : 'none';
+    }
+    window.__zdrUpdateCatMirror = updateCatMirror; // 供 renderCategoryButtons 在清单变化后即时复核
+
     function readBoxMetrics() {
         if (!window.getComputedStyle) return;
         var cs = window.getComputedStyle(box);
@@ -10796,10 +11080,12 @@ window.saveSuppData = function() {
         var r = box.getBoundingClientRect();
         var visible = r.height > 0 || r.width > 0;
         var next = visible && r.top <= STICK_TOP + 1.5;
-        if (next === stuck) return;
-        stuck = next;
-        drawer.classList.toggle('zdr-drawer-stuck', stuck);
-        if (!stuck) window.setZdrDrawer(false); // 未吸顶：拉手隐藏，抽屉同步收起
+        if (next !== stuck) {
+            stuck = next;
+            drawer.classList.toggle('zdr-drawer-stuck', stuck);
+            if (!stuck) window.setZdrDrawer(false); // 未吸顶：拉手隐藏，抽屉同步收起
+        }
+        updateCatMirror(); // v1.141：每次滚动/尺寸变化都复核镜像按钮（原按钮被滚过才显示）
     }
     function scheduleStuckCheck() {
         if (rafId) return;
