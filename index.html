@@ -659,7 +659,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.151 · 2026-09-17 21:01</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.152 · 2026-09-17 21:45</div>
 
         </div>
     
@@ -3895,6 +3895,221 @@ function isRealtimeResultComplete(rd) {
     return true;
   } catch (e) { return false; }
 }
+// ============================================================
+// v1.152：box2 实时开奖「页面直连」通道（不再依赖 iframe + 油猴脚本回传）
+//   站方的 am.html / hk.html 只是空壳，号码由其 JS 经 WebSocket 推送；
+//   本页面自己开 WebSocket 读回当期数据，写入 window.__realtimeDraw 供期数核对 /
+//   香港开奖日判定 / 数据新鲜度判断原样使用（只读，不改条目、不删条目、不动勾选）。
+//   —— 港澳严格分离（三条一起才成立）：
+//     ① 澳门 / 香港各开一条独立连接：站方同一连接换命令会回 "unknow message." 并断开；
+//     ② 收到数据一律按「回包前缀」归位（am=新澳门 / hk=香港），前缀不符的当非数据消息忽略；
+//     ③ 两个彩种分别写入 __realtimeDraw.macau / __realtimeDraw.hk，互不覆盖。
+//   读取失败（无网络 / 站方改协议）时什么都不写，完全回退现有规则（含主脚本回传）。
+// ============================================================
+(function () {
+    if (typeof WebSocket === 'undefined') return;
+    // 站方回包示例：
+    //   hk101,41,47,17,4,31,48,8,102,2026/09/19/六/21点32分,,5,214323000|101,虎,猴,虎,兔,鼠,羊,猪,...
+    //   am260,25,26,44,32,6,48,20,261,2026/09/18/五/21点32分,,5,213928000|260,马,蛇,猪,猪,牛,羊,猪,...
+    //   字段：r[0]=当期期号 · r[1..6]=六个平码 · r[7]=特码 · r[8]=下一期期号 · r[9]=下一期开奖日期
+    //   竖线后半段 = 每个号码对应的生肖（顺序与号码一一对应）
+    var RT_URLS = ['wss://d.2026ws.app:2026/kj', 'wss://webapi.sxhwqc.com:2025/kj'];
+    var RT_CHANNELS = [
+        { cmd: 'am', lottery: 'macau' }, // 新澳门
+        { cmd: 'hk', lottery: 'hk' }     // 香港
+    ];
+    var RT_BALL_RED = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
+    var RT_BALL_BLUE = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
+    var RT_BALL_GREEN = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49];
+    var RT_WEEKDAY = { '一': '星期一', '二': '星期二', '三': '星期三', '四': '星期四', '五': '星期五', '六': '星期六', '日': '星期日' };
+    var RT_HEARTBEAT_MS = 30000;      // 站方节奏：每 30s 发一次 heartbeat
+    var RT_ACK_TIMEOUT_MS = 45000;    // 45s 收不到 hb_ack 视为掉线，主动重连
+    var RT_STALE_MS = 10 * 60 * 1000; // 数据超过 10 分钟就换一条新连接重取
+    var RT_START_DELAY_MS = 1200;
+    var rtSignatures = {};            // 分彩种记录上次入库特征，数据没变化就不再重绘
+
+    function rtColorOf(numText) {
+        var n = parseInt(numText, 10);
+        if (!isFinite(n)) return '';
+        if (RT_BALL_RED.indexOf(n) > -1) return '红';
+        if (RT_BALL_BLUE.indexOf(n) > -1) return '蓝';
+        if (RT_BALL_GREEN.indexOf(n) > -1) return '绿';
+        return '';
+    }
+
+    // 「2026/09/19/六/21点32分」→「9月19日 星期六 21:32」（与站方页面显示口径一致；解析不出返回空串）
+    function rtHumanTime(raw) {
+        try {
+            var p = String(raw || '').split('/');
+            if (p.length < 5) return '';
+            return p[1] + '月' + p[2] + '日 ' + (RT_WEEKDAY[p[3]] || '') + ' ' + p[4].replace('点', ':').replace('分', '');
+        } catch (e) { return ''; }
+    }
+
+    // 解析一条站方回包；返回 null = 不是开奖数据（connected / hb_ack / 心跳等）
+    // 彩种一律取「回包前缀」，不看本连接发的是什么命令 —— 港澳不会互相顶替。
+    function parseRealtimePayload(msg) {
+        try {
+            var raw = String(msg == null ? '' : msg).trim();
+            var prefix = raw.slice(0, 2).toLowerCase();
+            var lottery = prefix === 'am' ? 'macau' : (prefix === 'hk' ? 'hk' : '');
+            if (!lottery) return null;
+            var seg = raw.slice(2).split('|');
+            var nums = String(seg[0] || '').split(',');
+            var txts = String(seg[1] || '').split(',');
+            var curPeriod = String(nums[0] == null ? '' : nums[0]).trim();
+            var nextPeriod = String(nums[8] == null ? '' : nums[8]).trim();
+            var nextTime = String(nums[9] == null ? '' : nums[9]).trim();
+            var result = [];
+            for (var i = 1; i <= 7; i++) {
+                var numText = String(nums[i] == null ? '' : nums[i]).trim();
+                var v = parseInt(numText, 10);
+                // 与站方页面一致：1~9 补前导零（站方球面显示 04 / 08）
+                var shown = (isFinite(v) && v > 0 && v < 10) ? ('0' + v) : numText;
+                result.push({
+                    num: shown,
+                    zodiac: String(txts[i] == null ? '' : txts[i]).trim(),
+                    color: rtColorOf(shown)
+                });
+            }
+            if (!curPeriod && !nextPeriod && !nextTime) return null; // 空壳不覆盖已有数据
+            return {
+                lottery: lottery,
+                curPeriod: curPeriod,
+                nextPeriod: nextPeriod,
+                nextDateTime: rtHumanTime(nextTime),
+                nextTime: nextTime,
+                result: result,
+                extracted_at: new Date().toLocaleString(),
+                source: 'box2-ws'
+            };
+        } catch (e) { return null; }
+    }
+
+    function rtNotifyBadges(tries) {
+        if (typeof window.__refreshRealtimeBadges === 'function') {
+            try { window.__refreshRealtimeBadges(); } catch (e) { /* ignore */ }
+            return;
+        }
+        if ((tries || 0) < 3) setTimeout(function () { rtNotifyBadges((tries || 0) + 1); }, 1500);
+    }
+
+    // 写入 window.__realtimeDraw：澳门 / 香港各占一个槽位，绝不互相覆盖
+    function rtStore(d) {
+        if (!d || (d.lottery !== 'macau' && d.lottery !== 'hk')) return;
+        var store = window.__realtimeDraw;
+        if (!store || typeof store !== 'object') { store = {}; window.__realtimeDraw = store; }
+        store[d.lottery] = d;
+        var sig = [d.curPeriod, d.nextPeriod, d.nextTime].join('|') + '|' + d.result.map(function (x) { return x.num; }).join(',');
+        if (rtSignatures[d.lottery] === sig) return; // 期号与号码都没变，不必重绘
+        rtSignatures[d.lottery] = sig;
+        rtNotifyBadges();
+    }
+
+    // 一个彩种一条连接：连上只订阅一次命令，之后靠 heartbeat / hb_ack 保活，掉线指数退避重连
+    function rtCreateChannel(ch) {
+        var st = { ws: null, urlIdx: 0, fails: 0, reconnectTimer: null, heartbeatTimer: null, ackTimer: null, lastDataAt: 0 };
+        function clearTimers() {
+            if (st.heartbeatTimer) { clearInterval(st.heartbeatTimer); st.heartbeatTimer = null; }
+            if (st.ackTimer) { clearTimeout(st.ackTimer); st.ackTimer = null; }
+        }
+        function send(text) {
+            try {
+                if (st.ws && st.ws.readyState === 1) { st.ws.send(text); return true; }
+            } catch (e) { /* ignore */ }
+            return false;
+        }
+        function scheduleReconnect() {
+            if (st.reconnectTimer) return;
+            var delay = Math.min(3000 * Math.pow(1.5, st.fails), 30000);
+            st.reconnectTimer = setTimeout(function () { st.reconnectTimer = null; connect(); }, delay);
+        }
+        function startHeartbeat() {
+            clearTimers();
+            st.heartbeatTimer = setInterval(function () {
+                if (!send('heartbeat')) return;
+                if (st.ackTimer) clearTimeout(st.ackTimer);
+                st.ackTimer = setTimeout(function () { recycle('心跳无响应'); }, RT_ACK_TIMEOUT_MS);
+            }, RT_HEARTBEAT_MS);
+        }
+        function recycle(reason) {
+            var ws = st.ws;
+            if (ws) { ws.__deliberate = true; try { ws.close(4000, reason || 'refresh'); } catch (e) { /* ignore */ } }
+            st.ws = null;
+            clearTimers();
+            scheduleReconnect();
+        }
+        function connect() {
+            var url = RT_URLS[st.urlIdx % RT_URLS.length];
+            var ws;
+            try { ws = new WebSocket(url); } catch (e) { st.fails++; scheduleReconnect(); return; }
+            st.ws = ws;
+            ws.onopen = function () {
+                st.fails = 0;
+                send(ch.cmd); // 每条连接只订阅一次（换命令会被站方断开）
+                startHeartbeat();
+            };
+            ws.onmessage = function (ev) {
+                var msg = String((ev && ev.data) || '');
+                if (msg.indexOf('hb_ack') > -1) {
+                    if (st.ackTimer) { clearTimeout(st.ackTimer); st.ackTimer = null; }
+                    return;
+                }
+                var d = parseRealtimePayload(msg);
+                if (!d) return;
+                if (d.lottery !== ch.lottery) {
+                    // 回包前缀才是权威归属：万一连接与数据不符，按数据归位并留一条告警，避免港澳互相顶替
+                    console.warn('[实时开奖] ' + ch.cmd + ' 通道收到 ' + d.lottery + ' 的数据，已按回包前缀归位');
+                }
+                st.lastDataAt = Date.now();
+                rtStore(d);
+            };
+            ws.onerror = function () { /* 统一交给 onclose 处理 */ };
+            ws.onclose = function () {
+                if (st.ws === ws) st.ws = null;
+                clearTimers();
+                if (!ws.__deliberate) {
+                    st.fails++;
+                    if (st.fails % 3 === 0) st.urlIdx++; // 连续失败 3 次换备用地址
+                }
+                scheduleReconnect();
+            };
+        }
+        return {
+            lottery: ch.lottery,
+            cmd: ch.cmd,
+            refresh: function (reason) {
+                if (!st.ws) {
+                    if (st.reconnectTimer) { clearTimeout(st.reconnectTimer); st.reconnectTimer = null; }
+                    connect();
+                    return;
+                }
+                if (st.ws.readyState === 1) recycle(reason || 'refresh');
+            },
+            isOpen: function () { return !!(st.ws && st.ws.readyState === 1); },
+            isStale: function () { return !st.lastDataAt || (Date.now() - st.lastDataAt) > RT_STALE_MS; }
+        };
+    }
+
+    var rtChannels = RT_CHANNELS.map(rtCreateChannel);
+    function rtRefreshAll(reason) { rtChannels.forEach(function (c) { c.refresh(reason); }); }
+    function rtRefreshStale() {
+        rtChannels.forEach(function (c) { if (c.isStale() || !c.isOpen()) c.refresh('stale'); });
+    }
+
+    // 调试 / 手动刷新入口（不影响页面其它逻辑）
+    window.__box2Realtime = {
+        refresh: function () { rtRefreshAll('manual'); },
+        snapshot: function () { return window.__realtimeDraw || null; }
+    };
+
+    setTimeout(rtRefreshAll, RT_START_DELAY_MS);                                  // 页面加载完先各取一次
+    setInterval(rtRefreshStale, 5 * 60 * 1000);                                   // 数据过期就换新连接重取
+    document.addEventListener('visibilitychange', function () {                   // 手机端切回前台补一次
+        if (document.visibilityState === 'visible') rtRefreshStale();
+    });
+    window.addEventListener('online', rtRefreshStale);                            // 网络恢复补一次
+})();
 // 清理本机缓存（zdr_manual_data_<彩种>）里已经写入的无效/占位记录 + 跨彩种错配记录，返回清理条数。
 // v1.140：同时把「被这些错配记录喂出来的历史期」从历史库里删掉（只删期号命中的那些期，其它期不动）。
 function purgeInvalidLocalKjRecords(lottery) {
