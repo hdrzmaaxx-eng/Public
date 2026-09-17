@@ -648,8 +648,6 @@
                 <div id="ext-strategy-source-summary" class="zdr-src-summary" style="display:none;" title="一键解析的本轮提取情况：提取到的数量 / 应提取总数（提取到的数量含置顶条目）"></div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
-                    <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
-                    <button id="ext-strategy-copy-btn" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.copyImportStrategies()">复制全部</button>
                 </div>
                 <div id="ext-strategy-list" style="margin-top:8px; color:#92400e; border-top:1px dashed #fcd34d; padding-top:6px;"></div>
                 <button id="ext-strategy-clear-btn" style="margin-top:8px; width:100%; height:34px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; border-radius:6px; font-size:13px; cursor:pointer; display:none;" onclick="window.clearImportStrategies()">清空导入清单</button>
@@ -661,7 +659,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.149 · 2026-09-17 20:42</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.151 · 2026-09-17 21:01</div>
 
         </div>
     
@@ -2383,6 +2381,18 @@ function scrollToBottom(containerId) {
    导入条目 / 历史战绩字号（桌面基准 + 移动端加大）
    ============================================================ */
 .zdr-import-head { font-size: 0.95rem; }
+/* v1.150：清单标题行 = 「已导入条目（共 N 条。）」+ 右侧两个按钮（取消全选/全部启用、复制全部） */
+.zdr-import-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.zdr-import-head .zdr-import-head-text { flex: 1 1 auto; min-width: 0; }
+.zdr-import-head-btn {
+    flex-shrink: 0; white-space: nowrap; cursor: pointer;
+    padding: 4px 10px; border: 1px solid #fcd34d; background: #fffbeb; color: #d97706;
+    border-radius: 6px; font-size: 0.75rem; font-weight: 400; line-height: 1.4;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    transition: background-color .15s ease, transform .1s ease;
+}
+.zdr-import-head-btn:hover { background: #fef3c7; }
+.zdr-import-head-btn:active { transform: scale(0.97); }
 .zdr-import-title { font-size: 0.9rem; }
 .zdr-import-badge { font-size: 0.68rem; line-height: 1.5; padding: 0 5px; }
 .zdr-import-site-head { font-size: 0.78rem; }
@@ -2455,6 +2465,7 @@ function scrollToBottom(containerId) {
 #ext-strategy-list input[type="checkbox"] { width: 15px; height: 15px; }
 @media (max-width: 600px) {
     .zdr-import-head { font-size: 1rem; }
+    .zdr-import-head-btn { font-size: 0.8rem; padding: 5px 11px; }
     .zdr-import-title { font-size: 0.95rem; }
     .zdr-import-badge { font-size: 0.78rem; padding: 0 6px; }
     .zdr-import-site-head { font-size: 0.85rem; }
@@ -10098,7 +10109,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 renderImportHistory(realIndex, it, histMap) +
                 '</div>';
         };
-        let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' + headText + '</div>';
+        // v1.150：「取消全选 / 全部启用」与「复制全部」两个按钮放在清单标题行右侧
+        //（反馈文字那一行不再挂按钮，改为独占一行；按钮 id / onclick 不变，仍走 updateToggleAllButton 控制显隐与文案）
+        let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' +
+            '<span class="zdr-import-head-text">' + headText + '</span>' +
+            '<button id="ext-strategy-toggle-all" class="zdr-import-head-btn" style="display:none;" onclick="window.toggleAllImportItems()">取消全选</button>' +
+            '<button id="ext-strategy-copy-btn" class="zdr-import-head-btn" style="display:none;" onclick="window.copyImportStrategies()">复制全部</button>' +
+            '</div>';
         if (pinned.length) {
             // v1.137：表头显示「总数 / 总上限 · 自动 / 手动」，与「自动 ≤10 + 手动 ≤5」两条线对应
             listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head" title="自动置顶：新澳门条目、历史期数≥15、按胜率取前十（开奖后的次日自动重排）；手动置顶最多 5 条；香港条目不能置顶">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT +
@@ -10881,7 +10898,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
                 scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                // v1.151：不再滚回页面顶部——按作者要求「提取到条目后保持页面不动」
+                //（旧版这里会平滑滚回页面顶部；已整句删除，避免一键解析后页面跳动）
             } else {
                 feedbackEl.innerHTML = (staleCount > 0
                     ? '<span style="color:#b45309;">⏭️ 已过滤旧期条目 ' + staleCount + ' 条，未导入。</span>'
