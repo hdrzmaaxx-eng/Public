@@ -643,6 +643,9 @@
                     <button id="ext-strategy-cat-macau" class="zdr-cat-btn zdr-cat-macau" onclick="window.setImportActiveCat('macau')">新澳门条目</button>
                     <button id="ext-strategy-cat-hk" class="zdr-cat-btn zdr-cat-hk" onclick="window.setImportActiveCat('hk')">香港条目</button>
                 </div>
+                <!-- v1.147：一键解析的「来源提取情况」（分子＝清单内该来源条目数，含置顶条目；分母＝本轮应提取条数），
+                     由 window.__importSourceExpect（主脚本 v4.72 在自动获取前写入）驱动 -->
+                <div id="ext-strategy-source-summary" class="zdr-src-summary" style="display:none;" title="一键解析的本轮提取情况：提取到的数量 / 应提取总数（提取到的数量含置顶条目）"></div>
                 <div style="display:flex; align-items:flex-start; gap:8px;">
                     <div id="ext-strategy-feedback" style="flex:1; font-size:0.85rem; color:#64748b; margin-top:8px; min-height:20px;"></div>
                     <button id="ext-strategy-toggle-all" style="margin-top:8px; padding:4px 10px; border:1px solid #fcd34d; background:#fffbeb; color:#d97706; border-radius:6px; font-size:0.75rem; cursor:pointer; flex-shrink:0; white-space:nowrap; display:none;" onclick="window.toggleAllImportItems()">取消全选</button>
@@ -658,7 +661,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.146 · 2026-09-15 23:15</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.149 · 2026-09-17 20:42</div>
 
         </div>
     
@@ -2400,6 +2403,45 @@ function scrollToBottom(containerId) {
 .zdr-import-site-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; }
 /* v1.128：彩种大分区标题条（新澳门一整块在上、香港一整块在下） */
 .zdr-import-cat-head { font-size: 0.88rem; font-weight: 800; border-radius: 8px; padding: 5px 10px; margin: 10px 0 4px; }
+/* v1.147：一键解析的「来源提取情况」——分类菜单栏下方一行小胶囊（分子＝清单内该来源条目数，含置顶条目） */
+.zdr-src-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.zdr-src-chip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    padding: 3px 9px; border-radius: 999px; box-sizing: border-box;
+    font-size: 0.74rem; line-height: 1.5; font-weight: 600;
+    border: 1px solid #e2e8f0; background: #f8fafc; color: #475569;
+    -webkit-user-select: none; user-select: none;
+}
+.zdr-src-chip .zdr-src-count { font-weight: 800; font-variant-numeric: tabular-nums; }
+.zdr-src-chip .zdr-src-miss { font-weight: 600; }
+.zdr-src-chip.zdr-src-ok { border-color: #bbf7d0; background: #f0fdf4; color: #15803d; }
+.zdr-src-chip.zdr-src-warn { border-color: #fde68a; background: #fffbeb; color: #b45309; }
+.zdr-src-chip.zdr-src-bad { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.zdr-src-chip.zdr-src-unparsed { border-color: #ddd6fe; background: #f5f3ff; color: #6d28d9; }
+.zdr-src-chip.zdr-src-skip { border-style: dashed; background: #f8fafc; color: #94a3b8; font-weight: 500; }
+/* v1.147：编辑历史条目——删除二次确认的锚定小气泡（紧贴按钮弹出，不遮整页） */
+.zdr-he-confirm-pop {
+    position: fixed; z-index: 10003; width: max-content; max-width: min(280px, calc(100vw - 24px));
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    box-shadow: 0 12px 28px -8px rgba(15, 23, 42, 0.35), 0 2px 6px rgba(15, 23, 42, 0.08);
+    padding: 10px 12px; box-sizing: border-box;
+}
+.zdr-he-confirm-msg { font-size: 13px; line-height: 1.55; color: #334155; margin-bottom: 9px; word-break: break-all; }
+.zdr-he-confirm-actions { display: flex; gap: 8px; }
+.zdr-he-confirm-actions button {
+    flex: 1; border: none; border-radius: 8px; padding: 7px 10px; font-size: 13px; font-weight: 700;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    transition: background-color .15s ease, transform .1s ease;
+}
+.zdr-he-confirm-cancel { background: #f1f5f9; color: #475569; }
+.zdr-he-confirm-cancel:hover { background: #e2e8f0; }
+.zdr-he-confirm-ok { background: #dc2626; color: #fff; box-shadow: 0 2px 6px -2px rgba(220, 38, 38, .7); }
+.zdr-he-confirm-ok:hover { background: #b91c1c; }
+.zdr-he-confirm-ok:active, .zdr-he-confirm-cancel:active { transform: scale(0.97); }
+@keyframes zdrHePopIn { from { opacity: 0; transform: translateY(-3px) scale(.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+    .zdr-he-confirm-pop { animation: zdrHePopIn .14s cubic-bezier(.22, .61, .36, 1) both; }
+}
 .zdr-import-site-group .zdr-import-site-head { margin: 2px 0 4px; }
 .zdr-import-pinned-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; background: #fffbeb; border: 1px solid #fde68a; }
 .zdr-import-pinned-head { font-size: 0.8rem; font-weight: 700; color: #b45309; margin: 2px 0 4px; padding-left: 6px; border-left: 3px solid #f59e0b; }
@@ -2420,6 +2462,9 @@ function scrollToBottom(containerId) {
     .zdr-import-chip { font-size: 0.82rem; padding: 2px 9px; }
     .zdr-import-site-group { padding: 10px 8px 12px; }
     .zdr-import-cat-head { font-size: 0.95rem; padding: 7px 10px; }
+    /* v1.147：来源提取情况在手机上跟着放大一档，换行铺满 */
+    .zdr-src-summary { gap: 5px; margin-top: 6px; }
+    .zdr-src-chip { font-size: 0.78rem; padding: 4px 10px; }
     .zdr-import-pinned-group { padding: 10px 8px 12px; }
     .zdr-import-pinned-head { font-size: 0.85rem; }
     .zdr-import-item { padding: 9px 8px 10px; margin-bottom: 8px; }
@@ -7661,7 +7706,69 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     const __heBtnDel = __heBtn + 'background:#fef2f2;color:#dc2626;border:1px solid #fecaca;';
     const __heBtnOp = __heBtn + 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;';
     const __heBtnAdd = __heBtn + 'background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;';
-    function histEditRender() {
+    // v1.147：编辑器的滚动容器是内容里那层（.zdr-he-scroll），不是外层 .zdr-modal-body——
+    // 旧代码读 .zdr-modal-body.scrollTop 恒为 0，所以删期 / 新增后整表重绘必回到最顶部。
+    function heScroller() {
+        return document.querySelector('#zdrDialogOverlay .zdr-he-scroll');
+    }
+    // 单个期数行（子条目内容原样显示；点「补充」就地改成 textarea）
+    function hePeriodRowHtml(e, p, pi) {
+        const pending = p.hit == null;
+        const hit = pending ? '待补' : (p.hit ? '中' : '不中');
+        const hitColor = pending ? '#64748b' : (p.hit ? '#dc2626' : '#9ca3af');
+        const rawPt = String(p.partsText == null ? '' : p.partsText);
+        return '<div class="zdr-he-row" data-e="' + e + '" data-pi="' + pi + '" style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px dashed #eef2f7;">' +
+            '<span style="flex-shrink:0;min-width:50px;font-weight:600;color:#475569;padding-top:1px;">第' + escHtml(String(p.qishu)) + '期</span>' +
+            '<span style="flex-shrink:0;color:' + hitColor + ';padding-top:1px;">' + hit + '</span>' +
+            '<span class="zdr-he-pt" data-text="' + escAttr(rawPt) + '" style="flex:1;color:#64748b;word-break:break-all;line-height:1.5;">' + escHtml(rawPt) + '</span>' +
+            '<button class="zdr-he-op" onclick="window.__histEditorStartEdit(' + e + ',' + pi + ',this)" title="补充/编辑子条目" style="' + __heBtnOp + '">补充</button>' +
+            '<button class="zdr-he-op" onclick="window.__histEditorDeletePeriod(' + e + ',' + pi + ',this)" title="删除该期" style="' + __heBtnDel + '">删期</button>' +
+            '</div>';
+    }
+    function hePeriodsHtml(entry, e) {
+        const periods = (entry && Array.isArray(entry.periods) ? entry.periods : []);
+        if (!periods.length) return '<div style="color:#94a3b8;font-size:12px;padding:6px 0;">（无期数记录）</div>';
+        return periods.map((p, pi) => hePeriodRowHtml(e, p, pi)).join('');
+    }
+    function heEntryHtml(entry, key, e) {
+        const expanded = !!__histEditorExpanded[key];
+        const lottery = entry.lottery || String(key).split('|')[0];
+        const badge = lottery === 'hk'
+            ? '<span style="background:#fee2e2;color:#b91c1c;border-radius:4px;padding:0 5px;margin-right:5px;">香港</span>'
+            : '<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:0 5px;margin-right:5px;">新澳门</span>';
+        const title = escHtml(entry.title || historyTitleFromKey(key) || key);
+        return '<div class="zdr-he-entry" data-e="' + e + '" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;background:#fff;overflow:hidden;">' +
+            '<div class="zdr-he-head" onclick="window.__histEditorToggle(' + e + ')" title="' + (expanded ? '点击收起子条目' : '点击展开子条目') + '" style="font-weight:700;color:#334155;line-height:1.5;padding:8px 10px;cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
+            '<span class="zdr-he-arrow" style="color:#94a3b8;flex-shrink:0;">' + (expanded ? '▾' : '▸') + '</span>' +
+            badge + '<span style="flex:1;min-width:120px;">' + title + '</span>' +
+            '<span style="flex-shrink:0;">' +
+            '<button onclick="window.__histEditorAddPeriod(' + e + ',this);event.stopPropagation();" title="新增一期并补充子条目" style="' + __heBtnAdd + '">+ 新增期数</button>' +
+            '<button onclick="window.__histEditorDeleteKey(' + e + ',this);event.stopPropagation();" title="删除该历史条目" style="' + __heBtnDel + '">删除本条</button>' +
+            '</span>' +
+            '</div>' +
+            '<div class="zdr-he-periods" style="display:' + (expanded ? 'block' : 'none') + ';padding:0 10px 8px;border-top:1px solid #f1f5f9;">' + hePeriodsHtml(entry, e) + '</div>' +
+            '</div>';
+    }
+    function heListHtml() {
+        return __histEditKeys.map((key, e) => heEntryHtml(__histEditMap[key] || {}, key, e)).join('');
+    }
+    // 就地刷新整表（只换滚动容器里的内容，不重建滚动容器本身），滚动位置保持不变——
+    // 删期 / 删除本条 / 补充保存都走这里，页面不会回到最上方。removedHeight 用于补偿被删元素的高度。
+    function heRefreshList(removedHeight) {
+        const sc = heScroller();
+        if (!sc) { histEditRender(false); return; }
+        const prev = sc.scrollTop;
+        sc.innerHTML = heListHtml();
+        sc.scrollTop = removedHeight ? Math.max(0, prev - removedHeight) : prev;
+    }
+    function heEnsureEntryVisible(e) {
+        const sc = heScroller();
+        const node = document.querySelector('#zdrDialogOverlay .zdr-he-entry[data-e="' + e + '"]');
+        if (!sc || !node) return;
+        const nr = node.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+        if (nr.top < sr.top || nr.bottom > sr.bottom) node.scrollIntoView({ block: 'nearest' });
+    }
+    function histEditRender(resetScroll) {
         const map = __histEditMap || {};
         __histEditKeys = Object.keys(map);
         if (!__histEditKeys.length) {
@@ -7672,47 +7779,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             });
             return;
         }
-        let html = '<div style="text-align:left;font-size:13px;max-height:60vh;overflow:auto;padding-right:2px;">';
-        __histEditKeys.forEach((key, e) => {
-            const entry = map[key] || {};
-            const expanded = !!__histEditorExpanded[key];
-            const lottery = entry.lottery || String(key).split('|')[0];
-            const badge = lottery === 'hk'
-                ? '<span style="background:#fee2e2;color:#b91c1c;border-radius:4px;padding:0 5px;margin-right:5px;">香港</span>'
-                : '<span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:0 5px;margin-right:5px;">新澳门</span>';
-            const title = escHtml(entry.title || historyTitleFromKey(key) || key);
-            html += '<div class="zdr-he-entry" data-e="' + e + '" style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px;background:#fff;overflow:hidden;">';
-            html += '<div class="zdr-he-head" onclick="window.__histEditorToggle(' + e + ')" title="' + (expanded ? '点击收起子条目' : '点击展开子条目') + '" style="font-weight:700;color:#334155;line-height:1.5;padding:8px 10px;cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
-                '<span class="zdr-he-arrow" style="color:#94a3b8;flex-shrink:0;">' + (expanded ? '▾' : '▸') + '</span>' +
-                badge + '<span style="flex:1;min-width:120px;">' + title + '</span>' +
-                '<span style="flex-shrink:0;">' +
-                '<button onclick="window.__histEditorAddPeriod(' + e + ');event.stopPropagation();" title="新增一期并补充子条目" style="' + __heBtnAdd + '">+ 新增期数</button>' +
-                '<button onclick="window.__histEditorDeleteKey(' + e + ');event.stopPropagation();" title="删除该历史条目" style="' + __heBtnDel + '">删除本条</button>' +
-                '</span>' +
-                '</div>';
-            const periods = (Array.isArray(entry.periods) ? entry.periods : []);
-            html += '<div class="zdr-he-periods" style="display:' + (expanded ? 'block' : 'none') + ';padding:0 10px 8px;border-top:1px solid #f1f5f9;">';
-            if (!periods.length) {
-                html += '<div style="color:#94a3b8;font-size:12px;padding:6px 0;">（无期数记录）</div>';
-            } else {
-                periods.forEach((p, pi) => {
-                    const pending = p.hit == null;
-                    const hit = pending ? '待补' : (p.hit ? '中' : '不中');
-                    const hitColor = pending ? '#64748b' : (p.hit ? '#dc2626' : '#9ca3af');
-                    const rawPt = String(p.partsText == null ? '' : p.partsText);
-                    html += '<div class="zdr-he-row" data-e="' + e + '" data-pi="' + pi + '" style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px dashed #eef2f7;">' +
-                        '<span style="flex-shrink:0;min-width:50px;font-weight:600;color:#475569;padding-top:1px;">第' + escHtml(String(p.qishu)) + '期</span>' +
-                        '<span style="flex-shrink:0;color:' + hitColor + ';padding-top:1px;">' + hit + '</span>' +
-                        '<span class="zdr-he-pt" data-text="' + escAttr(rawPt) + '" style="flex:1;color:#64748b;word-break:break-all;line-height:1.5;">' + escHtml(rawPt) + '</span>' +
-                        '<button class="zdr-he-op" onclick="window.__histEditorStartEdit(' + e + ',' + pi + ',this)" title="补充/编辑子条目" style="' + __heBtnOp + '">补充</button>' +
-                        '<button class="zdr-he-op" onclick="window.__histEditorDeletePeriod(' + e + ',' + pi + ')" title="删除该期" style="' + __heBtnDel + '">删期</button>' +
-                        '</div>';
-                });
-            }
-            html += '</div>';
-        });
-        html += '</div>';
-        const prevScroll = (document.querySelector('#zdrDialogOverlay .zdr-modal-body') || {}).scrollTop || 0;
+        const sc = heScroller();
+        const prevScroll = (resetScroll || !sc) ? 0 : sc.scrollTop;
+        const html = '<div class="zdr-he-scroll" style="text-align:left;font-size:13px;max-height:60vh;overflow:auto;padding-right:2px;">' + heListHtml() + '</div>';
         window.zdrOpen({
             title: '编辑历史条目（删除 / 补充子条目）',
             titleAlign: 'left',
@@ -7721,8 +7790,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             onOpen: function() {
                 const modal = document.querySelector('#zdrDialogOverlay .zdr-modal');
                 if (modal) modal.style.maxWidth = '620px';
-                const body = document.querySelector('#zdrDialogOverlay .zdr-modal-body');
-                if (body) body.scrollTop = prevScroll;
+                const sc2 = heScroller();
+                if (sc2) sc2.scrollTop = prevScroll;
             }
         });
     }
@@ -7742,22 +7811,91 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (arrow) arrow.textContent = expanded ? '▾' : '▸';
         if (head) head.title = expanded ? '点击收起子条目' : '点击展开子条目';
     };
-    window.__histEditorDeleteKey = function(e) {
-        const key = __histEditKeys[e];
-        if (key == null || !__histEditMap || !(key in __histEditMap)) return;
-        delete __histEditMap[key];
-        saveImportHistories(__histEditMap);
-        if (typeof renderImportList === 'function') renderImportList();
-        histEditRender();
-    };
-    window.__histEditorDeletePeriod = function(e, pi) {
+    // v1.147：删除前的二次确认——紧贴按钮弹出的小气泡（点外部 / Esc / 滚动即取消），不再直接删。
+    let __heConfirmCleanup = null;
+    function heCloseConfirmPop() {
+        const pop = document.getElementById('zdr-he-confirm-pop');
+        if (pop && pop.parentNode) pop.parentNode.removeChild(pop);
+        if (__heConfirmCleanup) { try { __heConfirmCleanup(); } catch (e) { /* ignore */ } __heConfirmCleanup = null; }
+    }
+    function heConfirmPop(anchor, message, onOk) {
+        heCloseConfirmPop();
+        if (!anchor) { if (window.confirm(message)) onOk(); return; }
+        const pop = document.createElement('div');
+        pop.id = 'zdr-he-confirm-pop';
+        pop.className = 'zdr-he-confirm-pop';
+        pop.innerHTML = '<div class="zdr-he-confirm-msg">' + escHtml(message) + '</div>' +
+            '<div class="zdr-he-confirm-actions">' +
+            '<button type="button" class="zdr-he-confirm-cancel">取消</button>' +
+            '<button type="button" class="zdr-he-confirm-ok">删除</button>' +
+            '</div>';
+        pop.style.top = '-9999px';
+        pop.style.left = '-9999px';
+        document.body.appendChild(pop);
+        // 定位：优先贴在按钮下方，下面放不下就翻到上方；水平方向夹在视口内（手机窄屏也完整可见）
+        const ar = anchor.getBoundingClientRect();
+        const pr = pop.getBoundingClientRect();
+        let top = ar.bottom + 6;
+        if (top + pr.height > window.innerHeight - 8) top = Math.max(8, ar.top - pr.height - 6);
+        let left = ar.right - pr.width;
+        left = Math.min(Math.max(8, left), Math.max(8, window.innerWidth - pr.width - 8));
+        pop.style.top = top + 'px';
+        pop.style.left = left + 'px';
+        const onDocDown = function(ev) { if (pop.contains(ev.target)) return; heCloseConfirmPop(); };
+        const onKey = function(ev) { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); heCloseConfirmPop(); } };
+        const onViewChange = function() { heCloseConfirmPop(); };
+        setTimeout(function() { document.addEventListener('pointerdown', onDocDown, true); }, 0);
+        document.addEventListener('keydown', onKey, true);
+        window.addEventListener('scroll', onViewChange, true);
+        window.addEventListener('resize', onViewChange);
+        __heConfirmCleanup = function() {
+            document.removeEventListener('pointerdown', onDocDown, true);
+            document.removeEventListener('keydown', onKey, true);
+            window.removeEventListener('scroll', onViewChange, true);
+            window.removeEventListener('resize', onViewChange);
+        };
+        pop.querySelector('.zdr-he-confirm-cancel').onclick = function() { heCloseConfirmPop(); };
+        pop.querySelector('.zdr-he-confirm-ok').onclick = function() { heCloseConfirmPop(); onOk(); };
+    }
+    // 删除某期：确认后就地移除该行（不整表重绘），滚动位置保持不变
+    window.__histEditorDeletePeriod = function(e, pi, btn) {
         const key = __histEditKeys[e];
         const entry = key != null && __histEditMap ? __histEditMap[key] : null;
-        if (!entry || !Array.isArray(entry.periods)) return;
-        entry.periods.splice(pi, 1);
-        saveImportHistories(__histEditMap);
-        if (typeof renderImportList === 'function') renderImportList();
-        histEditRender();
+        if (!entry || !Array.isArray(entry.periods) || !entry.periods[pi]) return;
+        const qishu = String(entry.periods[pi].qishu == null ? '' : entry.periods[pi].qishu);
+        heConfirmPop(btn, '删除「第' + qishu + '期」这条记录？', function() {
+            const sc = heScroller();
+            const row = document.querySelector('#zdrDialogOverlay .zdr-he-row[data-e="' + e + '"][data-pi="' + pi + '"]');
+            // 被删行在可视区上方时才补偿高度，避免视觉上“内容跳一下”
+            let removedHeight = 0;
+            if (row && sc && row.getBoundingClientRect().top < sc.getBoundingClientRect().top) removedHeight = row.offsetHeight;
+            entry.periods.splice(pi, 1);
+            saveImportHistories(__histEditMap);
+            if (typeof renderImportList === 'function') renderImportList();
+            heRefreshList(removedHeight);
+        });
+    };
+    // 删除整条历史：确认后就地移除该条目块（不整表重绘），滚动位置保持不变
+    window.__histEditorDeleteKey = function(e, btn) {
+        const key = __histEditKeys[e];
+        if (key == null || !__histEditMap || !(key in __histEditMap)) return;
+        const entry = __histEditMap[key] || {};
+        const name = entry.title || historyTitleFromKey(key) || key;
+        heConfirmPop(btn, '删除整条「' + name + '」及其全部期数？', function() {
+            const sc = heScroller();
+            const node = document.querySelector('#zdrDialogOverlay .zdr-he-entry[data-e="' + e + '"]');
+            let removedHeight = 0;
+            if (node && sc && node.getBoundingClientRect().top < sc.getBoundingClientRect().top) {
+                removedHeight = Math.min(node.offsetHeight + 10, sc.scrollTop);
+            }
+            delete __histEditMap[key];
+            delete __histEditorExpanded[key];
+            saveImportHistories(__histEditMap);
+            if (typeof renderImportList === 'function') renderImportList();
+            __histEditKeys = Object.keys(__histEditMap);
+            if (!__histEditKeys.length) { histEditRender(true); return; }
+            heRefreshList(removedHeight);
+        });
     };
     // 补充/编辑子条目：把某期 partsText 就地替换为 textarea，保存后更新并尽量重建 parts 快照（供晚到开奖数据补全）
     window.__histEditorStartEdit = function(e, pi, btn) {
@@ -7781,37 +7919,140 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const p = entry.periods[pi];
             const val = String(ta.value == null ? '' : ta.value).trim();
             p.partsText = val;
-            try {
-                const parsed = processImportedItem(val, entry.title || key);
-                if (Array.isArray(parsed.parts) && parsed.parts.length) p.parts = parsed.parts;
-            } catch (err) { /* 解析失败仅保留文本 */ }
+            // v1.147：按「该条目的规则」解析（不再只走通用解析），与历史口径保持一致
+            const parsed = heParseByEntryRule(val, entry, key);
+            if (Array.isArray(parsed.parts) && parsed.parts.length) p.parts = parsed.parts;
             saveImportHistories(__histEditMap);
             if (typeof renderImportList === 'function') renderImportList();
-            histEditRender();
+            heRefreshList(); // 就地刷新（滚动位置保持），不再回到最上方
         };
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = '取消';
         cancelBtn.style.cssText = __heBtnOp;
-        cancelBtn.onclick = function() { histEditRender(); };
+        cancelBtn.onclick = function() { heRefreshList(); };
         ptEl.replaceWith(ta);
         row.appendChild(saveBtn);
         row.appendChild(cancelBtn);
     };
+    // v1.147：按「该条目的规则」解析——条目已有期数的 parts 决定它属于哪些类别（尾数 / 头数 / 波色 / 五行 /
+    // 组字 / 选肖选码 / 冻结类），标题关键词兜底。新增期数与补充子条目都用同一套类别解析，
+    // 避免「尾数条目里的 1.3.5.7」被通用规则当成特码号码，保证与这条历史的口径一致。
+    function heRuleCats(entry, key) {
+        const cats = Object.create(null);
+        const periods = (entry && Array.isArray(entry.periods)) ? entry.periods : [];
+        periods.forEach(function(p) {
+            ((p && Array.isArray(p.parts)) ? p.parts : []).forEach(function(pt) {
+                if (pt && pt.cat) cats[pt.cat] = (cats[pt.cat] || 0) + 1;
+            });
+        });
+        const title = String((entry && entry.title) || historyTitleFromKey(key) || '');
+        const add = function(c) { if (cats[c] == null) cats[c] = 0; };
+        if (/尾/.test(title)) add('lastDigit');
+        if (/头/.test(title)) add('firstDigit');
+        if (/波/.test(title)) add('color');
+        if (/五行|三行/.test(title)) add('element');
+        if (/风雨雷电/.test(title)) add('weather');
+        if (/春夏秋冬|四季/.test(title)) add('season');
+        if (/琴棋书画/.test(title)) add('art');
+        return Object.keys(cats);
+    }
+    const HE_CAT_NAMES = {
+        numbers: '选肖/选码', frozen: '杀肖/杀码', lastDigit: '尾数', firstDigit: '头数',
+        color: '波色', element: '五行', weather: '风雨雷电', season: '春夏秋冬', art: '琴棋书画'
+    };
+    function heRuleHint(cats) {
+        const has = function(c) { return cats.indexOf(c) > -1; };
+        const names = cats.filter(function(c) { return HE_CAT_NAMES[c]; }).map(function(c) { return HE_CAT_NAMES[c]; });
+        let placeholder = '例如 选肖:羊 猪 猴';
+        if (has('lastDigit')) placeholder = '例如 1.3.5.7尾';
+        else if (has('firstDigit')) placeholder = '例如 0.1.2头';
+        else if (has('color')) placeholder = '例如 红波+绿波';
+        else if (has('element')) placeholder = '例如 金 木 水';
+        else if (has('weather')) placeholder = '例如 风雨雷电:风雨';
+        else if (has('season')) placeholder = '例如 春夏秋冬:春夏';
+        else if (has('art')) placeholder = '例如 琴棋书画:琴棋';
+        return { text: names.join(' / '), placeholder: placeholder };
+    }
+    // 全角 / 带圈数字归一（与 processImportedItem 内的标记解析同口径）
+    function heNormalizeRuleText(s) {
+        return String(s == null ? '' : s)
+            .replace(/[０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+            .replace(/[①-⑩]/g, function(c) { return String('①②③④⑤⑥⑦⑧⑨⑩'.indexOf(c) + 1); });
+    }
+    // 按条目类别定向解析（通用解析给出的类别与该条目不符、或完全没解析出来时的兜底）
+    function heDirectedParts(text, cats) {
+        const body = heNormalizeRuleText(text);
+        const noPeriod = body.replace(/\d+\s*期/g, ' ');
+        const digits = (noPeriod.match(/\d/g) || []);
+        const nums = Array.from(new Set((noPeriod.match(/\d+/g) || [])
+            .filter(function(n) { return n.length <= 2; })
+            .map(function(n) { return parseInt(n, 10); })
+            .filter(function(v) { return !isNaN(v) && v >= 1 && v <= 49; })
+            .map(function(v) { return String(v).padStart(2, '0'); })));
+        const zods = Array.from(new Set(noPeriod.match(/[鼠牛虎兔龙蛇马羊猴鸡狗猪]/g) || []));
+        const colors = Array.from(new Set(noPeriod.match(/[红蓝绿]/g) || []));
+        const elements = Array.from(new Set(noPeriod.match(/[金木水火土]/g) || []));
+        const isKill = /(绝杀|死杀|必杀|杀|禁出)/.test(noPeriod);
+        const has = function(c) { return cats.indexOf(c) > -1; };
+        const out = [];
+        const seen = Object.create(null);
+        const push = function(cat, label, value, display, kind) {
+            const k = cat + '|' + label + '|' + value;
+            if (seen[k]) return;
+            seen[k] = 1;
+            out.push({ cat: cat, label: label, value: value, display: display, kind: kind, checked: true });
+        };
+        if (has('lastDigit')) digits.forEach(function(d) { push(isKill ? 'frozen' : 'lastDigit', isKill ? '杀尾' : '尾数', d, d + '尾', 'digit'); });
+        if (has('firstDigit')) digits.forEach(function(d) { push(isKill ? 'frozen' : 'firstDigit', isKill ? '杀头' : '头数', d, d, 'digit'); });
+        if (has('color')) colors.forEach(function(c) { push(isKill ? 'frozen' : 'color', isKill ? '杀波色' : '波色', c, c + '波', 'colorChar'); });
+        if (has('element')) elements.forEach(function(el) { push('element', '五行', el, el, 'char'); });
+        if (has('numbers')) {
+            zods.forEach(function(z) { push(isKill ? 'frozen' : 'numbers', isKill ? '杀肖' : '选肖', z, z, 'zodiac'); });
+            nums.forEach(function(n) { push(isKill ? 'frozen' : 'numbers', isKill ? '杀码' : '特码', n, n, 'num'); });
+        }
+        // 纯冻结类条目（如「绝杀二肖」「死杀」）：生肖 / 数字一律按杀处理
+        if (has('frozen') && !has('numbers')) {
+            zods.forEach(function(z) { push('frozen', '杀肖', z, z, 'zodiac'); });
+            nums.forEach(function(n) { push('frozen', '杀码', n, n, 'num'); });
+        }
+        return out;
+    }
+    function heParseByEntryRule(text, entry, key) {
+        const raw = String(text == null ? '' : text).trim();
+        const empty = { parts: [], hits: [] };
+        if (!raw) return empty;
+        let generic = null;
+        try { generic = processImportedItem(raw, (entry && entry.title) || key); } catch (e) { generic = null; }
+        const cats = heRuleCats(entry, key);
+        if (!cats.length) return generic || empty; // 无历史子选项、标题也无线索：完全沿用通用解析
+        if (generic && Array.isArray(generic.parts) && generic.parts.length) {
+            const kept = generic.parts.filter(function(p) { return p && cats.indexOf(p.cat) > -1; });
+            if (kept.length === generic.parts.length) return generic; // 通用解析已完全符合该条目规则
+            if (kept.length) {
+                return { parts: kept.map(function(p) { return Object.assign({}, p, { checked: p.checked !== false }); }), hits: generic.hits || [] };
+            }
+        }
+        const directed = heDirectedParts(raw, cats);
+        if (directed.length) return { parts: directed, hits: [] };
+        return generic || empty;
+    }
     // 新增一期：独立浮层（不覆盖/不退出编辑器），期数与子条目内容放同一弹窗，尽量重建 parts 快照。
-    // 取消/背景/Esc 只关闭本浮层，回到编辑历史条目；提交成功后关闭浮层并刷新编辑器。
-    function openHistAddForm(onSubmit) {
+    // 取消/背景/Esc 只关闭本浮层，回到编辑历史条目；提交成功后关闭浮层并刷新编辑器（滚动位置保持）。
+    function openHistAddForm(entry, key, onSubmit) {
         const old = document.getElementById('zdr-he-add-overlay');
         if (old && old.parentNode) old.parentNode.removeChild(old);
+        const rule = heRuleHint(heRuleCats(entry, key));
         const overlay = document.createElement('div');
         overlay.id = 'zdr-he-add-overlay';
         overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
         overlay.innerHTML = '<div style="background:#fff;width:100%;max-width:460px;border-radius:12px;padding:22px 22px 18px;box-sizing:border-box;box-shadow:0 10px 30px rgba(0,0,0,.2);">' +
-            '<div style="text-align:left;font-size:16px;font-weight:700;color:#334155;margin-bottom:14px;">新增历史期数</div>' +
+            '<div style="text-align:left;font-size:16px;font-weight:700;color:#334155;margin-bottom:6px;">新增历史期数</div>' +
+            (rule.text ? '<div style="text-align:left;font-size:12px;color:#7c3aed;margin-bottom:12px;">按本条目规则解析：' + escHtml(rule.text) + '</div>' : '<div style="height:8px;"></div>') +
             '<div style="text-align:left;font-size:14px;">' +
             '<div style="margin-bottom:12px;"><label style="display:block;color:#475569;margin-bottom:4px;font-size:13px;">期数</label>' +
             '<input id="zdr-he-new-qishu" type="text" inputmode="numeric" placeholder="例如 96" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;outline:none;"></div>' +
-            '<div><label style="display:block;color:#475569;margin-bottom:4px;font-size:13px;">子条目内容（例如 选肖:羊 猪 猴）</label>' +
-            '<textarea id="zdr-he-new-pt" rows="2" placeholder="选肖:羊 猪 猴" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;outline:none;resize:vertical;"></textarea></div>' +
+            '<div><label style="display:block;color:#475569;margin-bottom:4px;font-size:13px;">子条目内容（' + escHtml(rule.placeholder) + '）</label>' +
+            '<textarea id="zdr-he-new-pt" rows="2" placeholder="' + escAttr(rule.placeholder) + '" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;outline:none;resize:vertical;"></textarea></div>' +
             '<div id="zdr-he-new-err" style="color:#dc2626;font-size:12px;margin-top:8px;display:none;">请填写有效期数（大于 0 的整数）</div>' +
             '</div>' +
             '<div style="display:flex;gap:10px;margin-top:18px;">' +
@@ -7842,16 +8083,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         overlay.querySelector('#zdr-he-new-cancel').onclick = close;
         setTimeout(function() { try { qEl.focus(); } catch (e) { /* ignore */ } }, 30);
     }
-    window.__histEditorAddPeriod = function(e) {
+    window.__histEditorAddPeriod = function(e, btn) {
         const key = __histEditKeys[e];
         const entry = key != null && __histEditMap ? __histEditMap[key] : null;
         if (!entry) return;
-        openHistAddForm(function(qishu, pt) {
+        heCloseConfirmPop();
+        openHistAddForm(entry, key, function(qishu, pt) {
             const newPeriod = { qishu: String(qishu), hit: null, partsText: pt, tm: '', sx: '', wx: '', color: '', pendingDate: importTodayStr() };
-            try {
-                const parsed = processImportedItem(pt, entry.title || key);
-                if (Array.isArray(parsed.parts) && parsed.parts.length) newPeriod.parts = parsed.parts;
-            } catch (err) { /* 解析失败仅保留文本 */ }
+            // v1.147：按「该条目的规则」解析本期的子条目内容，与这条历史的历史口径一致
+            const parsed = heParseByEntryRule(pt, entry, key);
+            if (Array.isArray(parsed.parts) && parsed.parts.length) newPeriod.parts = parsed.parts;
             if (!Array.isArray(entry.periods)) entry.periods = [];
             // 同键同期数覆盖，其余保留并按时序重排、限制期数
             entry.periods = entry.periods.filter(p => parseInt(p.qishu, 10) !== qishu);
@@ -7861,13 +8102,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             saveImportHistories(__histEditMap);
             if (typeof renderImportList === 'function') renderImportList();
             __histEditorExpanded[key] = true; // 新增后自动展开该条目，便于看到结果
-            histEditRender(); // 重新渲染编辑器（滚动位置由 histEditRender 内恢复）
+            heRefreshList();  // 就地刷新（滚动位置保持，不再回到最上方）
+            heEnsureEntryVisible(e); // 新增的期数若在可视区外，滚到该条目
         });
     };
     // 打开编辑器入口（按钮 onclick 调用）
     window.editImportHistories = function(btn) {
         __histEditMap = loadImportHistories();
-        histEditRender();
+        histEditRender(true);
     };
 
     // 粘贴导入（原逻辑）：读剪贴板 / 弹窗粘贴 JSON 后合并（按策略键合并、按期数去重、最多保留 10 期）
@@ -8747,10 +8989,141 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 解析单条 latest_data：返回 {parts, hits}，不直接修改页面状态
     // parts：可单独点击启用的子选项（按单个生肖/号码/数字/元素/颜色/天气拆分）
+    // v1.148：铁算盘三条固定条目的号码映射（作者提供，与站点自己的 准/错 逐行核对一致）
+    // 快杀一段「N段」→ 该段 7 个号码；少买一合「N合」→ 该合数对应的号码（各位数字相加，如 13合＝49）
+    const TSP_SEGMENT_NUMS = {
+        '1': ['01', '02', '03', '04', '05', '06', '07'],
+        '2': ['08', '09', '10', '11', '12', '13', '14'],
+        '3': ['15', '16', '17', '18', '19', '20', '21'],
+        '4': ['22', '23', '24', '25', '26', '27', '28'],
+        '5': ['29', '30', '31', '32', '33', '34', '35'],
+        '6': ['36', '37', '38', '39', '40', '41', '42'],
+        '7': ['43', '44', '45', '46', '47', '48', '49']
+    };
+    const TSP_HE_NUMS = {
+        '1': ['01', '10'],
+        '2': ['02', '11', '20'],
+        '3': ['03', '12', '21', '30'],
+        '4': ['04', '13', '22', '31', '40'],
+        '5': ['05', '14', '23', '32', '41'],
+        '6': ['06', '15', '24', '33', '42'],
+        '7': ['07', '16', '25', '34', '43'],
+        '8': ['08', '17', '26', '35', '44'],
+        '9': ['09', '18', '27', '36', '45'],
+        '10': ['19', '28', '37', '46'],
+        '11': ['29', '38', '47'],
+        '12': ['39', '48'],
+        '13': ['49']
+    };
+    // 中文数字 → 阿拉伯（站点「不买二尾〖一尾七尾〗」用中文数字写尾数）
+    function cnDigitsToArabic(s) {
+        return String(s == null ? '' : s)
+            .replace(/[零〇]/g, '0').replace(/一/g, '1').replace(/二/g, '2').replace(/三/g, '3')
+            .replace(/四/g, '4').replace(/五/g, '5').replace(/六/g, '6').replace(/七/g, '7')
+            .replace(/八/g, '8').replace(/九/g, '9');
+    }
+    // v1.148：铁算盘三条固定条目——整条按「冻结（杀）」解析并直接返回，
+    // 避免「不买二尾〖二尾三尾〗」被通用尾数规则当成选入、「少买一合【07合】」的 07 被当成特码。
+    function parseTspFixedKill(str, title) {
+        const src = String(str == null ? '' : str);
+        const t = String(title == null ? '' : title);
+        const body = cnDigitsToArabic(src);
+        const inTitle = cnDigitsToArabic(t);
+        const mark = (label, value, display, kind) => ({ cat: 'frozen', label: label, value: value, display: display, kind: kind, checked: true });
+
+        // ① 不买二尾〖一尾七尾〗 → 杀尾（取括号里的尾数；无括号时取条目名之后的部分，避免把「不买二尾」的 2 当尾数）
+        if (/不买\d*尾/.test(body) || /不买\d*尾/.test(inTitle)) {
+            const bracket = body.match(/[〖【]([^〗】]*)[〗】]/);
+            let seg = bracket ? bracket[1] : '';
+            if (!bracket) {
+                const prefix = body.match(/不买\s*\d*\s*尾/);
+                seg = prefix ? body.slice(prefix.index + prefix[0].length) : body;
+            }
+            const tails = Array.from(new Set(seg.match(/\d/g) || []));
+            if (tails.length) {
+                return {
+                    parts: tails.map(x => mark('杀尾', x, x + '尾', 'digit')),
+                    hits: ["<span style='color:#ef4444;'>杀尾:</span> " + tails.join(',')]
+                };
+            }
+        }
+
+        // ② 快杀一段〖6段〗 → 杀该段 7 个号码（优先取括号里的段号，避免撞上条目名「快杀一段」里的一段）
+        if (/快杀\d*段/.test(body) || /快杀\d*段/.test(inTitle)) {
+            const bracket = body.match(/[〖【]\s*(\d{1,2})\s*段\s*[〗】]/);
+            let segNo = bracket ? bracket[1] : '';
+            if (!segNo) {
+                const re = /(\d{1,2})\s*段/g;
+                let m;
+                while ((m = re.exec(body)) !== null) segNo = m[1];
+            }
+            const nums = TSP_SEGMENT_NUMS[String(parseInt(segNo, 10))];
+            if (nums) {
+                return {
+                    parts: nums.map(n => mark('杀码', n, n, 'num')),
+                    hits: ["<span style='color:#ef4444;'>杀码(快杀" + parseInt(segNo, 10) + "段):</span> " + nums.join(',')]
+                };
+            }
+        }
+
+        // ③ 少买一合【07合】 → 杀该合数对应的号码（13 合表）
+        if (/少买\d*合/.test(body) || /少买\d*合/.test(inTitle)) {
+            const bracket = body.match(/[〖【]\s*(\d{1,2})\s*合\s*[〗】]/);
+            let heNo = bracket ? bracket[1] : '';
+            if (!heNo) {
+                const re = /(\d{1,2})\s*合/g;
+                let m;
+                while ((m = re.exec(body)) !== null) heNo = m[1];
+            }
+            const nums = TSP_HE_NUMS[String(parseInt(heNo, 10))];
+            if (nums) {
+                return {
+                    parts: nums.map(n => mark('杀码', n, n, 'num')),
+                    hits: ["<span style='color:#ef4444;'>杀码(少买" + parseInt(heNo, 10) + "合):</span> " + nums.join(',')]
+                };
+            }
+        }
+        return null;
+    }
+    // v1.149：铁算盘【家野四肖】——正文形如「家野四肖 家禽〖牛狗猪鸡〗野兽〖龙鼠猴虎〗」，
+    // 两栏生肖都按「选入」解析（与作者原有历史记录口径一致：特开生肖 ∈ 家禽∪野兽 记「中」）。
+    // 旧版只取第一个〖〗 → 正文只剩 4 个生肖字，通用规则认不出（标题里的「四肖」不在兜底范围）→ 整条被丢弃。
+    function parseJiaYeSiXiao(str, title) {
+        const src = String(str == null ? '' : str);
+        const t = String(title == null ? '' : title);
+        if (!/家野四肖/.test(src) && !/家野四肖/.test(t)) return null;
+        const pickZods = (label) => {
+            const m = src.match(new RegExp(label + '\\s*[:：]?\\s*[〖【]([^〗】]*)[〗】]'));
+            if (!m) return [];
+            const seen = new Set();
+            const out = [];
+            Array.from(m[1]).forEach(ch => {
+                if (zodiacMap[ch] && !seen.has(ch)) { seen.add(ch); out.push(ch); }
+            });
+            return out;
+        };
+        const poultry = pickZods('家禽');
+        const beast = pickZods('野兽');
+        if (!poultry.length && !beast.length) return null;
+        const parts = [];
+        poultry.forEach(z => parts.push({ cat: 'numbers', label: '家禽', value: z, display: z, kind: 'zodiac', checked: true }));
+        beast.forEach(z => parts.push({ cat: 'numbers', label: '野兽', value: z, display: z, kind: 'zodiac', checked: true }));
+        const summary = [];
+        if (poultry.length) summary.push('家禽:' + poultry.join(''));
+        if (beast.length) summary.push('野兽:' + beast.join(''));
+        return { parts: parts, hits: ["<span style='color:#0d9488;'>家野四肖(选入):</span> " + summary.join(' ')] };
+    }
     function processImportedItem(str, title) {
         const parts = [];
         const hits = [];
         const seenEffectKeys = new Set(); // 类别效果去重：同一类别同一值只入一次
+
+        // v1.148：铁算盘三条固定条目（不买二尾 / 快杀一段 / 少买一合）先整条按冻结解析并直接返回
+        const tspFixedKill = parseTspFixedKill(str, title);
+        if (tspFixedKill) return tspFixedKill;
+        // v1.149：铁算盘【家野四肖】——正文两栏都按「选入生肖」解析
+        const jiaYe = parseJiaYeSiXiao(str, title);
+        if (jiaYe) return jiaYe;
 
         // 预扫描：含加号的合集括号区间（【A+B】）。合集内词条统一由“规则9.5 合集”展开为号码并集，
         // 避免被类别词条规则（9.6）或分组关键字规则（7）重复识别成类别效果（会导致交集冲突）
@@ -9957,6 +10330,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 渲染「新澳门条目/香港条目」筛选按钮（有香港条目时显示；点击后清单只显示该类别条目，可来回切换）
     // v1.141：同时同步抽屉拉手两侧的镜像按钮与抽屉上的可用性标记（镜像按钮的显示时机由抽屉脚本按滚动位置决定）
     function renderCategoryButtons() {
+        renderImportSourceSummary(); // v1.147：清单/类别变化时同步刷新「来源提取情况」
         const bar = document.getElementById('ext-strategy-cat-bar');
         if (!bar) return;
         const items = window.__importedStrategies || [];
@@ -9981,6 +10355,85 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 类别互斥：保证同一时刻只有一种类别有勾选条目（两类不能有交集）
     // preferred 指定保留的类别；未指定时保留当前有勾选条目的类别（都没有则保留第一条目的类别）
     window.__importCatSnap = window.__importCatSnap || {}; // 各类别被取消前的选择状态快照
+
+    // v1.147：一键解析后，在分类菜单栏下方列出各来源「提取到的数量 / 应提取总数」，并点名没提取到的条目。
+    // 期望清单由主脚本 v4.72 在自动获取前写入 window.__importSourceExpect（内置项按启用状态过滤 + 该来源的自定义模板抬头）。
+    // 分子＝当前清单里命中该条目的条数（**含置顶条目**），分母＝该来源本轮应提取的条数。
+    function importSourceDigest() {
+        const exp = window.__importSourceExpect;
+        const groups = (exp && Array.isArray(exp.groups)) ? exp.groups : [];
+        if (!groups.length) return null;
+        const items = (window.__importedStrategies || []).filter(Boolean);
+        if (!items.length) return null; // 清单已被清空：不显示 0/N，避免误读成“一条都没提取到”
+        const used = new Array(items.length).fill(false);
+        const norm = function(s) {
+            return String(s == null ? '' : s)
+                .replace(/铁算盘→|澳门九龙网|澳門九龙网|群英会|奥霸网|澳霸网|九龙网|新澳门|香港/g, '')
+                .replace(/[\s·・,，、.。:：;；|｜/\\()（）【】〖〗《》「」『』\[\]{}<>+＋\-—_★☆]/g, '');
+        };
+        const labelHit = function(it, lbl) {
+            if (!lbl) return false;
+            const raw = String(it.title || '') + '\u0001' + String(it.latest_data || '');
+            return raw.indexOf(lbl) > -1 || norm(raw).indexOf(norm(lbl)) > -1;
+        };
+        // v1.149：区分「完全没提取到」与「提取到了但正文认不出来」——后者在 __importUnparsed 里点名
+        const unparsedTitles = (window.__importUnparsed || []).map(function(x) { return String(x == null ? '' : x); });
+        const unparsedHit = function(lbl) {
+            if (!lbl || !unparsedTitles.length) return false;
+            return unparsedTitles.some(function(ttl) {
+                return ttl.indexOf(lbl) > -1 || norm(ttl).indexOf(norm(lbl)) > -1;
+            });
+        };
+        const out = [];
+        groups.forEach(function(g) {
+            const labels = Array.isArray(g.labels) ? g.labels : [];
+            const siteTag = String(g.site || '');
+            let found = 0;
+            const missing = [];
+            const unparsed = [];
+            labels.forEach(function(lbl) {
+                // 先优先本站条目（如「奥霸网【绝杀三肖】」），再退回任意未占用条目——两条同名的（群英会 / 奥霸网）不会互相顶替
+                let idx = siteTag ? items.findIndex(function(it, i) { return !used[i] && labelHit(it, lbl) && String(it.title || '').indexOf(siteTag) > -1; }) : -1;
+                if (idx < 0) idx = items.findIndex(function(it, i) { return !used[i] && labelHit(it, lbl); });
+                if (idx >= 0) { used[idx] = true; found++; return; }
+                if (unparsedHit(lbl)) unparsed.push(lbl); else missing.push(lbl);
+            });
+            out.push({ name: g.name, total: labels.length, found: found, missing: missing, unparsed: unparsed });
+        });
+        return { groups: out, skipped: Array.isArray(exp.skipped) ? exp.skipped : [] };
+    }
+    function renderImportSourceSummary() {
+        const box = document.getElementById('ext-strategy-source-summary');
+        if (!box) return;
+        const digest = importSourceDigest();
+        if (!digest || !digest.groups.length) {
+            if (box.innerHTML) box.innerHTML = '';
+            box.style.display = 'none';
+            return;
+        }
+        const chips = digest.groups.map(function(g) {
+            const unparsed = g.unparsed || [];
+            const cls = g.found >= g.total ? 'zdr-src-ok'
+                : (g.missing.length === 0 && unparsed.length ? 'zdr-src-unparsed'
+                    : (g.found === 0 ? 'zdr-src-bad' : 'zdr-src-warn'));
+            const missText = g.missing.length ? ('缺 ' + g.missing.join('、')) : '';
+            const tip = g.name + '：提取到 ' + g.found + ' / 应提取 ' + g.total +
+                (g.missing.length ? '；未提取到：' + g.missing.join('、') : '') +
+                (unparsed.length ? '；提取到了但内容认不出：' + unparsed.join('、') + '（多为站点还没发布当期数据，或正文格式变了）' : '') +
+                (!g.missing.length && !unparsed.length ? '；全部提取到' : '') + '（提取到的数量含置顶条目）';
+            return '<span class="zdr-src-chip ' + cls + '" title="' + escAttr(tip) + '">' +
+                escHtml(g.name) + '<span class="zdr-src-count">' + g.found + '/' + g.total + '</span>' +
+                (missText ? '<span class="zdr-src-miss">' + escHtml(missText) + '</span>' : '') +
+                (unparsed.length ? '<span class="zdr-src-miss">未识别 ' + escHtml(unparsed.join('、')) + '</span>' : '') +
+                '</span>';
+        });
+        digest.skipped.forEach(function(name) {
+            const tip = String(name) + '：非香港开奖日已跳过（本轮不提取）';
+            chips.push('<span class="zdr-src-chip zdr-src-skip" title="' + escAttr(tip) + '">' + escHtml(String(name)) + ' 非开奖日跳过</span>');
+        });
+        box.innerHTML = chips.join('');
+        box.style.display = 'flex';
+    }
 
     // 保存某类别的当前勾选状态（按 标题+内容 键，供切回时恢复）
     function snapshotImportCategory(cat) {
@@ -10340,6 +10793,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             let updatedPinnedCount = 0;
             let staleCount = 0;
             let titleGuessedCount = 0; // v1.140：数据没带彩种、按标题兜底归类的条数（用于反馈提示）
+            const unparsedItems = []; // v1.149：正文解析不出子选项的条目（旧版静默丢弃，现在点名提示）
             window.__importedStrategies = window.__importedStrategies || [];
 
             data.forEach(item => {
@@ -10347,6 +10801,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const { parts, hits } = processImportedItem(str, item.title);
                 if (!hits.length) {
                     console.warn('[导入] 未识别条目:', (item.title || '').slice(0, 30), '=>', (str || '').slice(0, 150));
+                    unparsedItems.push({ title: String(item.title || '未命名策略'), text: String(str || '') });
                     return;
                 }
                 const title = item.title || '未命名策略';
@@ -10405,6 +10860,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             renderImportList();
             saveImportedStrategies();
 
+            // v1.149：把「提取到了但正文认不出来」的条目点名（旧版只写 console，界面上完全看不出来）
+            window.__importUnparsed = unparsedItems.map(x => x.title);
+            const unparsedNames = unparsedItems.slice(0, 3)
+                .map(x => x.title.replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '').slice(0, 24));
+            const unparsedHtml = unparsedItems.length
+                ? ('<br><span style="color:#b45309;">⚠️ ' + unparsedItems.length + ' 条内容未能识别（站点可能尚未发布当期数据，或正文格式变了）：'
+                    + escHtml(unparsedNames.join('、')) + (unparsedItems.length > unparsedNames.length ? ' 等' : '') + '</span>')
+                : '';
+
             if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0) {
                 const catName = lottery === 'hk' ? '香港' : '新澳门';
                 feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`
@@ -10412,15 +10876,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     + (staleCount > 0 ? `<span style="color:#b45309;">（已过滤旧期条目 ${staleCount} 条）</span>` : '')
                     + (mergedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已合并置顶重复条目 ${mergedPinnedCount} 条）</span>` : '')
                     + (titleGuessedCount > 0 ? `<span style="color:#b45309;">（其中 ${titleGuessedCount} 条按标题判定为香港条目）</span>` : '')
-                    + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '');
+                    + (prunedCount > 0 ? `<span style="color:#b45309;">（自动清理超 10 期历史条目 ${prunedCount} 条）</span>` : '')
+                    + unparsedHtml;
                 inputEl.value = ""; // 解析成功后清空文本框方便下次操作
                 updateParseButtonsVisibility();
                 scheduleImportHistoryRefresh(); // 导入后自动补记近期 10 期战绩（数据晚到也能补上）
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } else {
-                feedbackEl.innerHTML = staleCount > 0
+                feedbackEl.innerHTML = (staleCount > 0
                     ? '<span style="color:#b45309;">⏭️ 已过滤旧期条目 ' + staleCount + ' 条，未导入。</span>'
-                    : '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>';
+                    : '<span style="color:#f59e0b;">⚠️ 解析完成，但未识别到新的系统规则标签。</span>') + unparsedHtml;
                 inputEl.value = ""; // 无论是否识别都清空输入框，避免残留整段 JSON 显示为“乱码”
                 updateParseButtonsVisibility();
             }
