@@ -74,7 +74,8 @@
             word-wrap: break-word;
         }
         #display-container-predict {
-            display: none; /* 默认不显示，有内容时由JS控制显示 */
+            /* v1.156：预测页（新澳门/香港特码）结果框改为常驻显示——没有号码时也保留这个框，吸顶逻辑不动 */
+            display: block;
             min-height: auto; /* 无需强制最小高度 */
             margin: 0 0 16px 0; /* 调整在预测页面的边距 */
         }
@@ -137,12 +138,14 @@
         .input-action-btn.undo { background-color: #007bff; }
         .input-action-btn.combine { background-color: #0f766e; }
         .input-action-btn.combine.intersection { background-color: #7c3aed; }
+        .input-action-btn.combine.difference { background-color: #e11d48; }
         .input-action-btn.combine.active {
             outline: 2px solid rgba(15, 118, 110, 0.3);
             outline-offset: 1px;
             box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 5px rgba(0,0,0,0.25);
         }
         .input-action-btn.combine.intersection.active { outline-color: rgba(124, 58, 237, 0.3); }
+        .input-action-btn.combine.difference.active { outline-color: rgba(225, 29, 72, 0.3); }
         .input-action-btn:hover { filter: brightness(0.92); }
         .input-action-btn:active { transform: scale(0.92); }
         .input-action-btn.disabled { opacity: 0.45; pointer-events: none; }
@@ -158,7 +161,8 @@
         }
         /* 手机端进一步压缩按钮，避免与数字标签挤压 */
         @media (max-width: 600px) {
-            .input-action-btn { font-size: 11px; padding: 0 7px; }
+            .input-action-btn { font-size: 11px; padding: 0 6px; }
+            .input-actions { gap: 3px; }
         }
 
         /* 导出/导入历史条目按钮的成功/失败动画反馈 */
@@ -659,14 +663,17 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.153 · 2026-09-18 20:58</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.157 · 2026-09-18 23:53</div>
 
         </div>
     
     </div> <div id="predictView" style="display:none;" class="app">
 	
 	
-          <div id="display-container-predict"></div>
+          <!-- v1.156：预测页结果框常驻，不再整块隐藏；v1.157：没有号码时与特码筛选器显示一致
+               （右上角粘贴按钮 + 左下角 清集-并集-交集-差集-撤回），首屏由页尾脚本立即渲染，
+               这里的灰字只作脚本未跑起来时的兜底 -->
+          <div id="display-container-predict"><div style="color:#999;">暂无号码</div></div>
           
           <div class="header">
             <div class="logo">六合彩特码预测</div>
@@ -795,8 +802,12 @@
         // 快照范围：全部手动维度选择、冻结项、黑名单、导入策略聚合、导入条目勾选/子选项、类别、数据来源
         window.__zdrHistory = window.__zdrHistory || [];   // 最多保留 5 个快照
         window.__zdrHistoryPaused = false;                 // 批量操作（如整组导入）期间暂停逐条压栈
-        window.__zdrPendingCombineMode = null;             // 下一次号码操作的一次性并集/交集模式
-        window.__zdrRestoringSnapshot = false;             // 撤回恢复期间不消费待执行的并集/交集模式
+        window.__zdrPendingCombineMode = null;             // 下一次号码操作的一次性并集/交集/差集模式
+        window.__zdrRestoringSnapshot = false;             // 撤回恢复期间不消费待执行的并集/交集/差集模式
+        // v1.155：选入式操作（暂存整组导入 / 单点选入 / 合并预测）本次带来的号码。
+        // 这类操作是「往输入框里加号」，本次结果集 = 旧号码 ∪ 本次号码，若直接拿结果集做差集
+        // 会把旧号码也当成本次输入减掉；故由操作方显式登记「本次输入的号码」，只服务紧接着的一次 updateDisplay。
+        window.__zdrCombineOpNumbers = null;
 
         function snapshotZdrState() {
             const so = {};
@@ -892,9 +903,9 @@
             });
         }
 
-        // 选择一次性并集/交集模式；再次点击同一按钮可取消待执行模式
+        // 选择一次性并集/交集/差集模式；再次点击同一按钮可取消待执行模式
         window.setZdrCombineMode = function(mode) {
-            if (mode !== 'union' && mode !== 'intersection') return;
+            if (mode !== 'union' && mode !== 'intersection' && mode !== 'difference') return;
             pushZdrHistory();
             window.__zdrPendingCombineMode = window.__zdrPendingCombineMode === mode ? null : mode;
             refreshZdrCombineButtons();
@@ -907,6 +918,7 @@
                 '<div class="input-action-btn clear-cluster" onclick="window.clearClusterState(this)" title="清空集群状态">清集</div>' +
                 '<div class="input-action-btn combine union' + (window.__zdrPendingCombineMode === 'union' ? ' active' : '') + '" data-combine="union" aria-pressed="' + (window.__zdrPendingCombineMode === 'union' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'union\')" title="下一次操作与当前输入框号码取并集">并集</div>' +
                 '<div class="input-action-btn combine intersection' + (window.__zdrPendingCombineMode === 'intersection' ? ' active' : '') + '" data-combine="intersection" aria-pressed="' + (window.__zdrPendingCombineMode === 'intersection' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'intersection\')" title="下一次操作与当前输入框号码取交集">交集</div>' +
+                '<div class="input-action-btn combine difference' + (window.__zdrPendingCombineMode === 'difference' ? ' active' : '') + '" data-combine="difference" aria-pressed="' + (window.__zdrPendingCombineMode === 'difference' ? 'true' : 'false') + '" onclick="window.setZdrCombineMode(\'difference\')" title="下一次操作用输入框里已有的号码减去本次输入的号码">差集</div>' +
                 '<div class="input-action-btn undo' + (canUndo ? '' : ' disabled') + '" onclick="window.zdrUndo()" title="返回上一步">撤回</div>' +
                 '</div>';
         }
@@ -1596,12 +1608,18 @@
 
         function updateDisplay() {
             const pendingCombineMode = window.__zdrPendingCombineMode || null;
+            // v1.155：本次操作「输入的号码」覆盖值——只在有待执行模式且不是撤回恢复时采纳，
+            // 用完（或压根没有待执行模式）立即清掉，避免残留影响之后的操作。
+            const pendingCombineOp = (pendingCombineMode && !window.__zdrRestoringSnapshot) ?
+                (window.__zdrCombineOpNumbers || null) : null;
+            window.__zdrCombineOpNumbers = null;
             const pendingCombineBase = pendingCombineMode ? getDisplayedNumbers() : [];
             displayContainer.innerHTML = '';
             const displayContainerPredict = document.getElementById('display-container-predict');
             if (displayContainerPredict) {
                 displayContainerPredict.innerHTML = '';
-                displayContainerPredict.style.display = 'none'; // 默认隐藏
+                // v1.156：预测页结果框常驻显示（原「默认隐藏」会把这个框整块藏掉），吸顶逻辑不动
+                displayContainerPredict.style.display = 'block';
             }
             
             // [修改] 判断是否有选中的条件时，必须排除 excludedNumbers（黑名单）
@@ -1617,8 +1635,12 @@
                 }
                 
                 // 为空状态时，在右上角显示粘贴按钮（传入 this 实现反馈动画）
-                displayContainer.innerHTML = '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="粘贴">' + SVG_PASTE + '</div>' +
+                // v1.157：预测页（新澳门/香港特码）结果框没有号码时与特码筛选器显示完全一致——
+                // 右上角粘贴按钮 + 左下角「清集-并集-交集-差集-撤回」五个按钮
+                const emptyStateHtml = '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="粘贴">' + SVG_PASTE + '</div>' +
                                              getZdrActionButtonsHtml();
+                displayContainer.innerHTML = emptyStateHtml;
+                if (displayContainerPredict) displayContainerPredict.innerHTML = emptyStateHtml;
                 return;
             }
 
@@ -1697,11 +1719,16 @@
             });
 
             if (pendingCombineMode && !window.__zdrRestoringSnapshot) {
-                const operationNumbers = new Set(result);
+                // 选入式操作以「本次输入的号码」为准（差集 = 底 − 本次输入；交集 = 底 ∩ 本次输入；
+                // 并集与结果集等价）；滤式操作（维度勾选 / 粘贴 / 导入策略）没有登记，仍按本次结果集算
+                const operationNumbers = new Set((pendingCombineOp && pendingCombineOp.length) ? pendingCombineOp : result);
                 const baseNumbers = new Set(pendingCombineBase);
                 const combined = pendingCombineMode === 'union'
                     ? [...new Set([...baseNumbers, ...operationNumbers])]
-                    : [...operationNumbers].filter(num => baseNumbers.has(num));
+                    : (pendingCombineMode === 'difference'
+                        // 差集：以点击按钮时输入框里已有的号码为底，减掉本次操作输入/带入的号码
+                        ? [...baseNumbers].filter(num => !operationNumbers.has(num))
+                        : [...operationNumbers].filter(num => baseNumbers.has(num)));
                 window.__zdrPendingCombineMode = null;
                 materializeCombinedNumbers(combined);
                 result = combined;
@@ -1710,16 +1737,19 @@
 			
 
             if (result.length === 0) {
-                displayContainer.innerHTML = '<div style="color:#999;">暂无符合条件的数字</div>' + 
+                // v1.157：结果为空时预测页结果框也跟特码筛选器一样显示
+                //（灰字提示 + 右上角粘贴 + 右下角 ✕ + 左下角「清集-并集-交集-差集-撤回」）
+                const noResultHtml = '<div style="color:#999;">暂无符合条件的数字</div>' + 
                                              '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="一键粘贴">' + SVG_PASTE + '</div>' + 
                                              '<div class="clear-icon" onclick="window.clearAllSelections()" title="一键清空">✕</div>' +
                                              getZdrActionButtonsHtml();
-                if (displayContainerPredict) displayContainerPredict.style.display = 'none';
+                displayContainer.innerHTML = noResultHtml;
+                if (displayContainerPredict) displayContainerPredict.innerHTML = noResultHtml;
                 return;
             }
 
             if (displayContainerPredict) {
-                displayContainerPredict.style.display = 'block'; // 有结果时显示
+                displayContainerPredict.style.display = 'block'; // v1.156：常驻显示，有结果时填入号码
             }
 
 
@@ -2943,6 +2973,9 @@ window.applyMergedToZdr = function(btn, numsStr) {
             }
         }
 
+        // v1.155：单点选入属于「选入式」操作，登记本次输入的号码，
+        // 供一次性并集/交集/差集按「本次输入」而不是「本次结果集」计算
+        window.__zdrCombineOpNumbers = [num];
         // 触发更新视图（将号码渲染进吸顶的预测展示框中）
         if (typeof syncUI === 'function') syncUI();
         if (typeof updateDisplay === 'function') updateDisplay();
@@ -8797,10 +8830,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!st || !(st.nums || []).length) return;
         pushZdrHistory(); // 整组导入整体算一步，内部逐号导入不再单独压栈
         window.__zdrHistoryPaused = true;
-        (st.nums || []).forEach(n => {
-            if (typeof window.addSingleNumberToZdr === 'function') window.addSingleNumberToZdr(n);
+        // v1.155：整组导入必须是**一次**操作——先把整组号码写进输入框，再只调一次 updateDisplay。
+        // 旧写法逐个号码走 addSingleNumberToZdr，每个号码都重算一次结果，既白做很多次渲染，又会让
+        // 一次性组合模式在第一个号码上就被消费掉（差集会被后续号码重新并回来、交集只剩第一个号码）。
+        const lotteryType = (document.getElementById('btnHk') && document.getElementById('btnHk').classList.contains('active')) ? 'hk' : 'macau';
+        window.currentSelectionSource = lotteryType;
+        const groupNums = (st.nums || []).map(n => String(n));
+        groupNums.forEach(n => {
+            if (!selectedOptions.numbers.has(n)) {
+                selectedOptions.numbers.add(n);
+                // 与单点选入一致：选入的号码一定展示，洗掉它上面的黑名单状态
+                if (selectedOptions.excludedNumbers) selectedOptions.excludedNumbers.delete(n);
+            }
         });
+        // 登记「本次输入的号码」= 整组暂存号码
+        window.__zdrCombineOpNumbers = groupNums;
         window.__zdrHistoryPaused = false;
+        if (typeof syncUI === 'function') syncUI();
+        if (typeof updateDisplay === 'function') updateDisplay();
         if (btn && typeof window.showBtnFeedback === 'function') window.showBtnFeedback(btn, true, '导入');
     };
 
@@ -11868,6 +11915,17 @@ window.saveSuppData = function() {
     syncDrawerTop();
     updateStuck();
     setTimeout(function () { syncDrawerTop(); updateStuck(); }, 300); // 首屏数据/布局稳定后再判定一次
+})();
+
+// v1.157：预测页（新澳门/香港特码）结果框首屏就按「没有号码」的状态渲染，
+// 与特码筛选器空状态完全一致（右上角粘贴按钮 + 左下角 清集-并集-交集-差集-撤回）；
+// 之后每一次号码变化仍由 updateDisplay 接管刷新，吸顶逻辑一律不动。
+(function () {
+    var box = document.getElementById('display-container-predict');
+    if (!box || box.querySelector('.input-actions') || box.querySelector('.num-tag')) return;
+    if (typeof SVG_PASTE === 'undefined' || typeof getZdrActionButtonsHtml !== 'function') return;
+    box.innerHTML = '<div class="copy-icon" style="background-color: #28a745;" onclick="window.pasteSelections(this)" title="粘贴">' + SVG_PASTE + '</div>' +
+        getZdrActionButtonsHtml();
 })();
 </script>
 
