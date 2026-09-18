@@ -659,7 +659,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.152 · 2026-09-17 21:45</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.153 · 2026-09-18 20:58</div>
 
         </div>
     
@@ -6679,13 +6679,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
     const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
     // v1.137：置顶拆成「自动置顶 + 手动置顶」两条线（作者 2026-09-14 要求）——
-    // 自动置顶 = 清单内新澳门条目、历史期数 ≥15、按胜率取前十（**默认就是 10 条**，不因手动置顶数压缩）；
+    // 自动置顶 = 清单内新澳门条目、历史期数超过 20 期、胜率 ≥83%、按胜率取前十（**默认就是 10 条**，不因手动置顶数压缩）；
     // 手动置顶 = 长按手动加置顶的条目（上限 5 条）；正常状态下置顶总数 = 10 自动 + 5 手动 = 15 条。
     // 香港条目完全不参与置顶（自动不挑、手动也禁止）。
+    // v1.153：自动置顶门槛从「期数 ≥15」改成「期数超过 20 期 且 胜率 ≥83%」两条同时满足（作者 2026-09-18 要求）。
     const IMPORT_PIN_LIMIT = 15;                 // 置顶总数上限（v1.64 起 10 → v1.137 起 15；= 10 自动 + 5 手动）
     const IMPORT_AUTO_PIN_LIMIT = 10;            // 自动置顶上限（胜率前十）
     const IMPORT_MANUAL_PIN_LIMIT = 5;           // 手动置顶上限
-    const IMPORT_AUTO_PIN_MIN_PERIODS = 15;      // 自动置顶门槛：历史期数不足 15 期不参与（手动置顶不受此限）
+    const IMPORT_AUTO_PIN_MIN_PERIODS = 20;      // v1.153：自动置顶门槛之①——历史期数须「超过」该值（≤20 期不参与；手动置顶不受此限）
+    const IMPORT_AUTO_PIN_MIN_RATE = 0.83;       // v1.153：自动置顶门槛之②——胜率（中次数 ÷ 已判定期数）须 ≥83%
     const IMPORT_AUTO_PIN_STATE_KEY = 'zdr_import_autopin_v1'; // 自动置顶状态：当天是否已重算 + 当日手动取消抑制表
     const IMPORT_CLEAR_HOUR = 5;                 // v1.137：清单 / 置顶子选项自动清空时刻（23:59 → 次日 05:00）
 
@@ -7591,7 +7593,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // ========== v1.137：自动置顶（按历史胜率前十） ==========
     // 作者 2026-09-14 确认的规则：
-    //  · 开奖后的次日，自动把清单内「新澳门、历史期数 ≥15 期」的条目按胜率（中次数 ÷ 已判定期数）取前十置顶；
+    //  · 开奖后的次日，自动把清单内「新澳门、历史期数超过 20 期、胜率 ≥83%」的条目按胜率（中次数 ÷ 已判定期数）取前十置顶（期数 / 胜率门槛为 v1.153 口径）；
     //  · 香港条目完全不参与置顶（自动不挑、手动也禁止）；
     //  · 自动置顶上限 10 条、手动置顶上限 5 条、置顶总数上限 15 条（自动名额 = min(10, 15 − 手动置顶数)）；
     //  · 置顶组内一律按胜率由高到低排序（同胜率按期数多者优先，无战绩沉底）；
@@ -7657,7 +7659,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (it.pinAuto) { it.pinned = false; it.pinAuto = false; }
             if (it.lottery === 'hk' && it.pinned) { it.pinned = false; it.pinAuto = false; }
         });
-        // ② 候选：新澳门 + 历史期数 ≥15 + 胜率可算 + 当日未被手动取消；手动置顶的条目从自动候选里排除
+        // ② 候选：新澳门 + 历史期数超过 20 期 + 胜率 ≥83% + 当日未被手动取消；手动置顶的条目从自动候选里排除
         const cands = [];
         items.forEach(function(it, idx) {
             if (!it || it.lottery === 'hk') return;
@@ -7666,7 +7668,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (key && suppressed.indexOf(key) >= 0) return; // 当日被手动取消的自动置顶不再补回
             const stat = importHistoryStats(it, map);
             if (!stat || stat.rate == null) return;
-            if (stat.total < IMPORT_AUTO_PIN_MIN_PERIODS) return; // 历史期数不足 15 期不参与自动置顶
+            if (stat.total <= IMPORT_AUTO_PIN_MIN_PERIODS) return; // v1.153：历史期数不超过 20 期不参与自动置顶
+            if (!(stat.rate >= IMPORT_AUTO_PIN_MIN_RATE)) return;  // v1.153：胜率低于 83% 不参与自动置顶
             cands.push({ it: it, rate: stat.rate, det: stat.det, idx: idx });
         });
         // ③ 胜率降序 → 已判定期数多者优先 → 清单原有顺序（稳定）
@@ -10333,7 +10336,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             '</div>';
         if (pinned.length) {
             // v1.137：表头显示「总数 / 总上限 · 自动 / 手动」，与「自动 ≤10 + 手动 ≤5」两条线对应
-            listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head" title="自动置顶：新澳门条目、历史期数≥15、按胜率取前十（开奖后的次日自动重排）；手动置顶最多 5 条；香港条目不能置顶">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT +
+            listHtml += '<div class="zdr-import-pinned-group"><div class="zdr-import-pinned-head" title="自动置顶：新澳门条目、历史期数超过 20 期、胜率 ≥83%、按胜率取前十（开奖后的次日自动重排）；手动置顶最多 5 条；香港条目不能置顶">📌 置顶（' + totalPinned + '/' + IMPORT_PIN_LIMIT +
                 ' · 自动 ' + autoPinnedCount + '/' + IMPORT_AUTO_PIN_LIMIT + ' · 手动 ' + manualPinnedCount + '/' + IMPORT_MANUAL_PIN_LIMIT + '）</div>' +
                 pinned.map(renderItem).join('') + '</div>';
         }
