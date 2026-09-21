@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.159 · 2026-09-20 19:52</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.163 · 2026-09-21 20:58</div>
 
         </div>
     
@@ -2439,6 +2439,17 @@ function scrollToBottom(containerId) {
 }
 .zdr-import-head-btn:hover { background: #fef3c7; }
 .zdr-import-head-btn:active { transform: scale(0.97); }
+/* v1.163：「多条目筛选」1~4 档滑杆——不放任何文字标签：1 2 3 4 直接画成滑杆上的四个圆圈，
+   当前档位圆圈填充深蓝（数字反白）；原生 input 透明覆盖整条，负责点按 / 拖动（点圆圈即跳到该档）；
+   口径说明收进滑杆的 title 悬浮提示。 */
+.zdr-import-filter-row { display: flex; align-items: center; margin: 2px 0 6px; }
+.zdr-import-filter-slider-wrap { position: relative; flex: 1 1 auto; min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 999px; }
+.zdr-import-filter-slider-wrap:focus-within { outline: 2px solid #0369a1; outline-offset: 2px; }
+.zdr-import-filter-track { position: absolute; left: 11px; right: 11px; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; background: #cbd5e1; }
+.zdr-import-filter-scale { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; pointer-events: none; }
+.zdr-import-filter-scale span { box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid #cbd5e1; color: #64748b; font-size: 0.7rem; font-weight: 600; line-height: 18px; text-align: center; }
+.zdr-import-filter-scale span.on { background: #0369a1; border-color: #0369a1; color: #fff; }
+.zdr-import-filter-range { position: absolute; left: 0; right: 0; top: 0; bottom: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .zdr-import-title { font-size: 0.9rem; }
 .zdr-import-badge { font-size: 0.68rem; line-height: 1.5; padding: 0 5px; }
 .zdr-import-site-head { font-size: 0.78rem; }
@@ -2512,6 +2523,9 @@ function scrollToBottom(containerId) {
 @media (max-width: 600px) {
     .zdr-import-head { font-size: 1rem; }
     .zdr-import-head-btn { font-size: 0.8rem; padding: 5px 11px; }
+    .zdr-import-filter-slider-wrap { height: 40px; }
+    .zdr-import-filter-track { left: 14px; right: 14px; height: 8px; margin-top: -4px; border-radius: 4px; }
+    .zdr-import-filter-scale span { width: 28px; height: 28px; font-size: 0.85rem; line-height: 24px; }
     .zdr-import-title { font-size: 0.95rem; }
     .zdr-import-badge { font-size: 0.78rem; padding: 0 6px; }
     .zdr-import-site-head { font-size: 0.85rem; }
@@ -6726,6 +6740,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     window.__importedStrategies = window.__importedStrategies || []; // [{title, latest_data, checked, parts, effects}]
     window.__importedAgg = null; // 当前已应用的所有导入贡献汇总
     window.__importActiveCat = null; // 当前生效的导入类别：'macau' | 'hk' | null（null = 全部类别共同参与）
+    // v1.161：多条目筛选档位（滑杆 1~4）——1（默认）＝交集（原口径）；2/3/4＝被 2/3/4 条及以上
+    // 勾选条目排除的号码才剔除。只作用于选入类聚合，冻结/杀肖类仍取并集；
+    // 仅本次会话内存生效、不写入存储，刷新或重开页面回到 1 档。
+    window.__importExcludeVotes = 1;
     const IMPORT_STORAGE_KEY = 'zdr_imported_strategies_v1';
     // v1.137：置顶拆成「自动置顶 + 手动置顶」两条线（作者 2026-09-14 要求）——
     // 自动置顶 = 清单内新澳门条目、历史期数超过 20 期、胜率 ≥80%、按胜率取前十（**默认就是 10 条**，不因手动置顶数压缩）；
@@ -9998,25 +10016,50 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 根据勾选状态重算导入贡献，并同步到页面状态（保留手动选择）
     // 聚合规则：选入类规则在勾选策略间取交集，并与手动选择取交集（由 updateDisplay 应用）；冻结/杀肖类规则取并集
+    // v1.161：选入类新增「排除票数」口径（清单标题行下方的「多条目筛选」1~4 档滑杆）——
+    //   1 档（默认，原口径）= 交集：投票条目都选中该值才保留；
+    //   2/3/4 档 = 被 2/3/4 条及以上投票条目排除的值才剔除，其余保留；
+    //   投票条目 = 确实写了该维度规则（集合非空）的已勾选条目，未写该维度的条目照旧不投票、不约束；
+    //   票数阈值按 min(滑杆档位, 投票条目数) 生效（只勾 1 条时退化为该条自身的交集口径）；
+    //   某维度全部值都被剔除时，该维度按「无贡献」处理（与原有交集为空时的既有口径一致，不额外改变行为）。
     function syncImportState() {
         const newAgg = emptyImportAgg();
         const activeCat = window.__importActiveCat;
+        const excludeVotes = window.__importExcludeVotes || 1;
         // 类别过滤：选择了「新澳门条目/香港条目」时，仅该类别的勾选条目参与聚合
         const checkedItems = (window.__importedStrategies || []).filter(it => it.checked && (!activeCat || it.lottery === activeCat));
-        // 选入类规则 = 交集，冻结/杀肖类规则 = 并集
+        // 选入类规则 = 交集 或 排除票数口径，冻结/杀肖类规则 = 并集
         IMPORT_CATS.forEach(cat => {
             if (cat === 'frozen') {
                 // 并集：任何一条勾选策略冻结/杀肖的都生效
                 checkedItems.forEach(it => it.effects[cat].forEach(v => newAgg[cat].add(v)));
             } else {
-                // 交集：仅在提供了该类别规则（集合非空）的勾选策略间取交集；未写该规则的策略视为无约束
+                // 仅在提供了该类别规则（集合非空）的勾选策略间聚合；未写该规则的策略视为无约束
                 const providers = checkedItems.filter(it => it.effects[cat].size > 0);
                 if (!providers.length) return;
-                providers[0].effects[cat].forEach(v => newAgg[cat].add(v));
-                for (let i = 1; i < providers.length; i++) {
-                    const keep = newAgg[cat];
-                    newAgg[cat] = new Set();
-                    providers[i].effects[cat].forEach(v => { if (keep.has(v)) newAgg[cat].add(v); });
+                const excludeLimit = Math.min(excludeVotes, providers.length);
+                if (excludeLimit <= 1) {
+                    // 1 档＝交集：所有投票条目都写了该值才保留（原口径，逻辑未动）
+                    providers[0].effects[cat].forEach(v => newAgg[cat].add(v));
+                    for (let i = 1; i < providers.length; i++) {
+                        const keep = newAgg[cat];
+                        newAgg[cat] = new Set();
+                        providers[i].effects[cat].forEach(v => { if (keep.has(v)) newAgg[cat].add(v); });
+                    }
+                } else {
+                    // v1.161 排除票数：先并集去重找出候选值，再统计每个值被多少条投票条目排除；达到票数阈值即剔除
+                    const union = new Set();
+                    providers.forEach(it => it.effects[cat].forEach(v => union.add(v)));
+                    union.forEach(v => {
+                        let excluded = 0;
+                        for (let i = 0; i < providers.length; i++) {
+                            if (!providers[i].effects[cat].has(v)) {
+                                excluded++;
+                                if (excluded >= excludeLimit) return; // 达到票数阈值，该值不保留
+                            }
+                        }
+                        newAgg[cat].add(v);
+                    });
                 }
             }
         });
@@ -10032,6 +10075,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof syncUI === 'function') syncUI();
         if (typeof updateDisplay === 'function') updateDisplay();
     }
+
+    // v1.162：切换「多条目筛选」档位（滑杆 1~4）。只改聚合口径并重算，不动条目勾选、子选项与冻结项；
+    // 不写存储，刷新后回到 1 档。拖动过程中只就地更新刻度高亮（1 2 3 4）、不整段重绘清单，避免滑杆被重绘打断。
+    window.setImportFilterVotes = function(raw) {
+        const votes = Math.max(1, Math.min(4, parseInt(raw, 10) || 1));
+        if (window.__importExcludeVotes === votes) return;
+        window.__importExcludeVotes = votes;
+        const scaleEl = document.querySelector('#ext-strategy-list .zdr-import-filter-scale');
+        if (scaleEl) {
+            Array.prototype.forEach.call(scaleEl.children, (el, i) => {
+                if (i + 1 === votes) el.classList.add('on'); else el.classList.remove('on');
+            });
+        }
+        syncImportState();
+    };
 
     // v1.90：当期开奖命中判断——子选项的值（生肖/号码/头数/尾数/波色/五行/类别组合…）落在开奖特码对应集合即命中；
     // 尾数/头数/波色特判，其余复用 expandComboToken 的「类别/词条 → 号码集合」映射（与期数弹窗 tipValueMatched 同一套规则）。
@@ -10396,6 +10454,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             '<span class="zdr-import-head-text">' + headText + '</span>' +
             '<button id="ext-strategy-toggle-all" class="zdr-import-head-btn" style="display:none;" onclick="window.toggleAllImportItems()">取消全选</button>' +
             '<button id="ext-strategy-copy-btn" class="zdr-import-head-btn" style="display:none;" onclick="window.copyImportStrategies()">复制全部</button>' +
+            '</div>';
+        // v1.162：「多条目筛选」1~4 档滑杆——只影响选入类聚合口径，冻结/杀肖类仍取并集，
+        // 条目勾选与子选项不受影响；1 档＝交集（默认、原行为），2/3/4 档＝被 ≥N 条排除才剔除。
+        // 界面只放「多条目筛选」+ 滑杆 + 刻度 1 2 3 4（当前档位加粗高亮），口径说明放在滑杆的 title 悬浮提示里。
+        const excludeVotes = window.__importExcludeVotes || 1;
+        const filterTip = '多条目筛选：只统计确实写了该维度规则的已勾选条目（未写该维度的条目视为无约束，跟原来一样）。1＝交集：所有勾选条目都选中该号码才保留（原口径）；2/3/4＝被 2/3/4 条及以上勾选条目排除的号码才剔除；只勾 1 条时按该条自身规则筛选；冻结/杀肖类不受影响，仍是并集。';
+        const filterTick = (n) => '<span' + (n === excludeVotes ? ' class="on"' : '') + '>' + n + '</span>';
+        listHtml += '<div class="zdr-import-filter-row">' +
+            '<span class="zdr-import-filter-slider-wrap">' +
+                '<span class="zdr-import-filter-track" aria-hidden="true"></span>' +
+                '<span class="zdr-import-filter-scale" aria-hidden="true">' + filterTick(1) + filterTick(2) + filterTick(3) + filterTick(4) + '</span>' +
+                '<input id="zdr-import-filter-range" class="zdr-import-filter-range" type="range" min="1" max="4" step="1" value="' + excludeVotes + '" aria-label="多条目筛选档位" title="' + filterTip + '" oninput="window.setImportFilterVotes(this.value)">' +
+            '</span>' +
             '</div>';
         if (pinned.length) {
             // v1.137：表头显示「总数 / 总上限 · 自动 / 手动」，与「自动 ≤10 + 手动 ≤5」两条线对应
