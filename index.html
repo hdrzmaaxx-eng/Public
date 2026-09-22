@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.165 · 2026-09-21 23:07</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.167 · 2026-09-22 20:24</div>
 
         </div>
     
@@ -1899,6 +1899,8 @@
             window.__importedAgg = null;
             window.__importActiveCat = null; // 一键清空：解除“新澳门条目/香港条目”互斥选择
             window.__importCatSnap = {}; // 一键清空：清除各类别选择状态快照
+            // v1.167：结果框右下角 ✕ 同时把「胜率滑杆」关掉、回到未启用初始态（作者确认的关闭入口）
+            if (typeof window.__importRateFilterReset === 'function') window.__importRateFilterReset();
             if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
             if (typeof window.renderImportList === 'function') window.renderImportList();
             if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
@@ -2446,7 +2448,7 @@ function scrollToBottom(containerId) {
    吸顶位置由 JS 按抽屉实测下沿写进 --zdr-filter-top（清单重绘不会丢）；未吸顶时它就是清单里的普通一行，
    同一套磨砂底，滚动进出看不出跳变 */
 .zdr-import-filter-row {
-    display: flex; align-items: center; margin: 2px 0 6px;
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 2px 0 6px;
     position: sticky; top: var(--zdr-filter-top, 220px); z-index: 998;
     padding: 3px 8px; border-radius: 10px;
     background: rgba(255, 255, 255, 0.92);
@@ -2456,13 +2458,32 @@ function scrollToBottom(containerId) {
                 inset 0 -1px 0 rgba(15, 23, 42, 0.06),
                 0 10px 18px -14px rgba(15, 23, 42, 0.50);
 }
-.zdr-import-filter-slider-wrap { position: relative; flex: 1 1 auto; min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 999px; }
+.zdr-import-filter-slider-wrap { position: relative; flex: 0 0 auto; width: 100%; min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 999px; }
 .zdr-import-filter-slider-wrap:focus-within { outline: 2px solid #0369a1; outline-offset: 2px; }
 .zdr-import-filter-track { position: absolute; left: 11px; right: 11px; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; background: #cbd5e1; }
 .zdr-import-filter-scale { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; pointer-events: none; }
 .zdr-import-filter-scale span { box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid #cbd5e1; color: #64748b; font-size: 0.7rem; font-weight: 600; line-height: 18px; text-align: center; }
 .zdr-import-filter-scale span.on { background: #0369a1; border-color: #0369a1; color: #fff; }
 .zdr-import-filter-range { position: absolute; left: 0; right: 0; top: 0; bottom: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+/* v1.167：第二条滑杆——「胜率滑杆」（50~100%）。默认不启用（圆圈灰白、圈内写「关」）；
+   一拖动即启用：圆圈变深蓝、圈内显示当前百分比，只有「已判定期数 ≥10 期」的当前类别条目参与
+   （判定期数不足 10 期的条目一律不动）；关闭走结果框右下角 ✕（clearAllSelections）。
+   圆圈位置由 JS 写 CSS 变量 --p（0~1），几何尺寸交给 CSS（电脑 / 手机各自覆盖），逻辑里不写死像素。 */
+.zdr-import-rate-slider-wrap { position: relative; flex: 0 0 auto; width: 100%; min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 999px; }
+.zdr-import-rate-slider-wrap:focus-within { outline: 2px solid #0369a1; outline-offset: 2px; }
+.zdr-import-rate-track { position: absolute; left: 15px; right: 15px; top: 50%; height: 6px; margin-top: -3px; border-radius: 3px; background: #e2e8f0; }
+.zdr-import-rate-thumb {
+    --p: 0; --zdr-rate-inset: 15px;
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    left: calc(var(--zdr-rate-inset) + (100% - 2 * var(--zdr-rate-inset)) * var(--p));
+    box-sizing: border-box; width: 30px; height: 30px; border-radius: 50%;
+    background: #fff; border: 2px solid #cbd5e1; color: #94a3b8;
+    font-size: 0.6rem; font-weight: 700; line-height: 26px; text-align: center;
+    pointer-events: none; -webkit-user-select: none; user-select: none;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.zdr-import-rate-thumb.on { background: #0369a1; border-color: #0369a1; color: #fff; }
+.zdr-import-rate-range { position: absolute; left: 0; right: 0; top: 0; bottom: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .zdr-import-title { font-size: 0.9rem; }
 .zdr-import-badge { font-size: 0.68rem; line-height: 1.5; padding: 0 5px; }
 .zdr-import-site-head { font-size: 0.78rem; }
@@ -2476,8 +2497,11 @@ function scrollToBottom(containerId) {
 .zdr-import-history-row.zdr-expanded { flex-wrap: wrap; overflow: visible; }
 /* v1.90：桌面端收起状态——单行显示、超出部分裁剪（配合「查看全部 N 期」展开恢复换行） */
 .zdr-import-history-row.zdr-collapsed { flex-wrap: nowrap; overflow: hidden; }
-.zdr-import-history-toggle { margin: 3px 0 0 auto; font-size: 0.72rem; color: #1d4ed8; cursor: pointer; display: block; width: fit-content; text-align: right; -webkit-user-select: none; user-select: none; }
+.zdr-import-history-foot { margin: 3px 0 0 auto; display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; width: fit-content; max-width: 100%; }
+.zdr-import-history-toggle { font-size: 0.72rem; color: #1d4ed8; cursor: pointer; -webkit-user-select: none; user-select: none; }
 .zdr-import-history-toggle:active { opacity: .7; }
+/* v1.166：历史胜率（口径同 importHistoryStats：中次数 ÷ 已判定期数；≥80% 绿、70~79% 橙、<70% 灰） */
+.zdr-import-history-rate { font-size: 0.72rem; font-weight: 600; -webkit-user-select: none; user-select: none; }
 .zdr-import-hint { font-size: 0.72rem; }
 /* v1.62：按网站分组的低饱和底色容器 + 置顶条目 + 条目行间距（桌面基准，移动端在下方再放宽） */
 .zdr-import-site-group { border-radius: 10px; padding: 8px 8px 10px; margin: 8px 0 10px; }
@@ -2539,6 +2563,10 @@ function scrollToBottom(containerId) {
     .zdr-import-filter-slider-wrap { height: 40px; }
     .zdr-import-filter-track { left: 14px; right: 14px; height: 8px; margin-top: -4px; border-radius: 4px; }
     .zdr-import-filter-scale span { width: 28px; height: 28px; font-size: 0.85rem; line-height: 24px; }
+    /* v1.167：移动端胜率滑杆——轨道与圆圈同步放大，半径与 inset 配套，位置仍由 --p 计算 */
+    .zdr-import-rate-slider-wrap { height: 40px; }
+    .zdr-import-rate-track { left: 20px; right: 20px; height: 8px; margin-top: -4px; border-radius: 4px; }
+    .zdr-import-rate-thumb { --zdr-rate-inset: 20px; width: 40px; height: 40px; line-height: 36px; font-size: 0.7rem; }
     .zdr-import-title { font-size: 0.95rem; }
     .zdr-import-badge { font-size: 0.78rem; padding: 0 6px; }
     .zdr-import-site-head { font-size: 0.85rem; }
@@ -2557,7 +2585,8 @@ function scrollToBottom(containerId) {
     /* 移动端历史期数：10 期一行等宽铺满、禁止横向滑动（字号已加大） */
     .zdr-import-history-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; overflow: hidden; margin-left: 6px; }
     .zdr-import-period { font-size: 0.8rem; padding: 2px 0; min-width: 0; }
-    .zdr-import-history-toggle { margin-left: auto; margin-right: 0; font-size: 0.82rem; display: block; width: fit-content; text-align: right; }
+    .zdr-import-history-foot { margin-left: auto; margin-right: 0; }
+    .zdr-import-history-toggle, .zdr-import-history-rate { font-size: 0.82rem; }
     .zdr-import-hint { font-size: 0.82rem; }
     #ext-strategy-list input[type="checkbox"] { width: 17px; height: 17px; }
     /* v1.121：历史条目底部 4 按钮移动端两行排列，避免「编辑历史条目」等长文案被挤/裁切 */
@@ -10126,6 +10155,90 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         syncImportState();
     };
 
+    // v1.167：胜率滑杆——默认不启用；一拖动即启用：按「已判定期数 ≥10 期」的胜率，把**当前类别**的条目
+    // 批量设为「胜率 ≥ 滑杆值」（达标勾上、未达标取消；不足 10 期的条目一律不动，保持原样）。
+    // 拖动过程只就地更新圆圈与勾选框，不整段重绘清单（避免打断拖动）；松手（change）才落盘 + 整段重绘。
+    // 未选类别（"全部"视图）时不生效，改为提示先选新澳门 / 香港，避免误清另一类别的勾选。
+    // 关闭：点结果框右下角的 ✕（clearAllSelections → window.__importRateFilterReset）。
+    window.__importRateFilterOn = false;
+    window.__importRateFilterValue = 50;
+    const IMPORT_RATE_MIN_DET = 10; // 作者确认：历史条目不足 10 期的一律不参与胜率筛选
+    function importRatePctOf(it, histMap) {
+        const st = importHistoryStats(it, histMap);
+        if (!st || st.rate == null || st.det == null || st.det < IMPORT_RATE_MIN_DET) return null;
+        return Math.round(st.rate * 100);
+    }
+    function syncImportRateDom() {
+        const wrap = document.querySelector('#ext-strategy-list .zdr-import-rate-slider-wrap');
+        if (!wrap) return;
+        const on = window.__importRateFilterOn === true;
+        const val = (window.__importRateFilterValue == null) ? 50 : window.__importRateFilterValue;
+        const eff = on ? val : 50;
+        const thumb = wrap.querySelector('.zdr-import-rate-thumb');
+        if (thumb) {
+            thumb.style.setProperty('--p', ((eff - 50) / 50).toFixed(3));
+            thumb.textContent = on ? val + '%' : '关';
+            if (on) thumb.classList.add('on'); else thumb.classList.remove('on');
+        }
+        const input = wrap.querySelector('.zdr-import-rate-range');
+        if (input && String(input.value) !== String(eff)) input.value = String(eff);
+        // 条目勾选框就地同步（拖动中不重绘清单）
+        const items = window.__importedStrategies || [];
+        Array.prototype.forEach.call(document.querySelectorAll('#ext-strategy-list .zdr-import-item'), row => {
+            const idx = parseInt(row.getAttribute('data-pin-index'), 10);
+            const it = items[idx];
+            if (!it) return;
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (cb) cb.checked = !!it.checked;
+            const titleEl = row.querySelector('.zdr-import-title');
+            if (titleEl) titleEl.style.color = it.checked ? '' : '#94a3b8';
+        });
+        if (typeof updateToggleAllButton === 'function') updateToggleAllButton();
+    }
+    window.setImportRateFilter = function(raw) {
+        const v = Math.max(50, Math.min(100, Math.round((parseInt(raw, 10) || 50) / 5) * 5));
+        const activeCat = window.__importActiveCat;
+        if (activeCat !== 'macau' && activeCat !== 'hk') {
+            // 未选类别：不生效（避免误清另一类别的勾选），滑杆退回未启用并提示
+            window.__importRateFilterOn = false;
+            window.__importRateFilterValue = 50;
+            syncImportRateDom();
+            showPinToast('请先选「新澳门条目」或「香港条目」，胜率筛选才生效');
+            return;
+        }
+        if (window.__importRateFilterOn !== true) {
+            pushZdrHistory(); // 第一次拖动才压栈：整段拖动算一步、可撤回
+            window.__importRateFilterOn = true;
+        }
+        window.__importRateFilterValue = v;
+        const histMap = ensureImportHistories();
+        const items = window.__importedStrategies || [];
+        items.forEach(it => {
+            if (!it || it.lottery !== activeCat) return; // 只作用当前类别
+            const pct = importRatePctOf(it, histMap);
+            if (pct == null) return;                     // 不足 10 期：保持原样不动
+            const want = pct >= v;
+            if (!!it.checked === want) return;
+            it.checked = want;
+            if (want && it.parts && it.parts.length && it.parts.every(p => !p.checked)) {
+                it.parts.forEach(p => { p.checked = true; }); // 勾上一条已被停用子选项的条目：默认全部启用
+            }
+            it.effects = buildItemEffects(it.parts || []);
+        });
+        syncImportState();
+        syncImportRateDom();
+    };
+    window.commitImportRateFilter = function() {
+        if (window.__importRateFilterOn !== true) return;
+        if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
+        if (typeof renderImportList === 'function') renderImportList();
+    };
+    // 供结果框右下角 ✕（clearAllSelections）调用：胜率滑杆回到「未启用」初始态
+    window.__importRateFilterReset = function() {
+        window.__importRateFilterOn = false;
+        window.__importRateFilterValue = 50;
+    };
+
     // v1.90：当期开奖命中判断——子选项的值（生肖/号码/头数/尾数/波色/五行/类别组合…）落在开奖特码对应集合即命中；
     // 尾数/头数/波色特判，其余复用 expandComboToken 的「类别/词条 → 号码集合」映射（与期数弹窗 tipValueMatched 同一套规则）。
     function partHitDraw(p, tm, color) {
@@ -10200,6 +10313,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 只有一排放不下才自动折行；一旦发生换行就显示「▴ 收起」折叠提示（收起后单行显示并变为
     // 「▾ 查看全部 N 期」，再点恢复），一排放得下时不显示提示；移动端沿用 10 列网格，
     // 超过 10 期时显示「查看全部 N 期」展开按钮。中=浅红底白字、不中=浅灰底白字。
+    // v1.166：这一行右侧常驻该条目自身的历史胜率（≥80% 绿 / 70~79% 橙 / <70% 灰），
+    // 与「查看全部/收起」同一行、位于其右侧；两个提示显隐互不影响。
     const __expandedHistoryKeys = new Set();
     const __desktopCollapsedKeys = new Set(); // 桌面端「收起」状态（仅当换行时可用）
     window.toggleImportHistoryExpanded = function(itemIndex) {
@@ -10292,12 +10407,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const shown = isMobile ? (mobileAll ? ordered : ordered.slice(0, 10)) : (desktopCollapsed ? ordered.slice(0, 10) : ordered);
         // 移动端：10 列网格 + 超过 10 期显示「查看全部/收起」；桌面端：收起后按 data-more 显示「查看全部」，
         // 展开态由 syncDesktopHistoryHint 按是否换行决定是否显示「▴ 收起」
-        let toggle = '';
-        if (isMobile && displayPeriods.length > 10) {
-            toggle = '<div class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (mobileAll ? '▴ 收起' : '▾ 查看全部 ' + displayPeriods.length + ' 期') + '</div>';
-        } else if (!isMobile) {
-            toggle = '<div class="zdr-import-history-toggle" data-desktop="1"' + (displayPeriods.length > 10 ? ' data-more="1"' : '') + ' onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + displayPeriods.length + ' 期' : '▴ 收起') + '</div>';
+        // v1.166：第三排右侧常驻显示该条目自身的历史胜率——口径与自动置顶/组内排序一致（中次数 ÷ 已判定期数），
+        // 与「当期是否已开奖」无关（新导入的条目只要它自己有历史战绩就显示）；
+        // 颜色：≥80% 绿、70~79% 橙、<70% 灰；完全没有已判定期数时不显示。
+        // 「查看全部 N 期 / 收起」仍是原来的显隐规则，但它现在只是这一行里的一个 span，
+        // 隐藏它不会再连带隐藏胜率（桌面端一排放得下时胜率照样看得见）。
+        const st = importHistoryStats(it, histMap);
+        const ratePct = (st && st.rate != null) ? Math.round(st.rate * 100) : null;
+        const rateHtml = ratePct == null ? '' :
+            '<span class="zdr-import-history-rate" style="color:' + (ratePct >= 80 ? '#16a34a' : (ratePct >= 70 ? '#ea580c' : '#94a3b8')) + ';">胜率 ' + ratePct + '%</span>';
+        let footInner = '';
+        if (isMobile) {
+            if (displayPeriods.length > 10) {
+                footInner += '<span class="zdr-import-history-toggle" onclick="window.toggleImportHistoryExpanded(' + itemIndex + ')">' + (mobileAll ? '▴ 收起' : '▾ 查看全部 ' + displayPeriods.length + ' 期') + '</span>';
+            }
+        } else {
+            footInner += '<span class="zdr-import-history-toggle" data-desktop="1"' + (displayPeriods.length > 10 ? ' data-more="1"' : '') + ' onclick="window.toggleDesktopHistoryCollapse(' + itemIndex + ')">' + (desktopCollapsed ? '▾ 查看全部 ' + displayPeriods.length + ' 期' : '▴ 收起') + '</span>';
         }
+        const foot = (footInner || rateHtml) ? '<div class="zdr-import-history-foot">' + footInner + rateHtml + '</div>' : '';
         // v1.90：期数改为浅红底白字（中）/ 浅灰底白字（不中），去掉边框
         // v1.98/v1.99：开奖数据未到的「待补」期数（次日才显示）用白底虚线边框灰字，悬停/点击显示「暂无开奖数据」
         return '<div class="zdr-import-history-row' + (expanded ? ' zdr-expanded' : '') + (desktopCollapsed ? ' zdr-collapsed' : '') + '">' +
@@ -10308,7 +10435,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     : 'background:' + (p.hit ? '#f87171' : '#9ca3af') + ';color:#fff;border-radius:6px;cursor:default;';
                 return '<span class="zdr-import-period" style="' + chipStyle + '" data-qishu="' + escAttr(String(p.qishu)) + '" data-hit="' + (pending ? '' : (p.hit ? '1' : '0')) + '" data-pending="' + (pending ? '1' : '0') + '" data-tip="' + escAttr(p.partsText || '') + '" data-tm="' + escAttr(p.tm || '') + '" data-sx="' + escAttr(p.sx || '') + '" data-wx="' + escAttr(p.wx || '') + '" data-color="' + escAttr(p.color || '') + '"' + hoverAttrs + ' onclick="window.togglePeriodTooltip(event, this)">' + escHtml(String(p.qishu)) + '</span>';
             }).join('') +
-            '</div>' + toggle;
+            '</div>' + foot;
     }
 
     // v1.90：桌面端折叠提示——展开状态下发生换行（排不下）才显示「▴ 收起」；
@@ -10318,8 +10445,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const rows = document.querySelectorAll('.zdr-import-history-row');
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            const toggle = row.nextElementSibling;
-            if (!toggle || !toggle.classList || !toggle.classList.contains('zdr-import-history-toggle') || toggle.getAttribute('data-desktop') !== '1') continue;
+            // v1.166：这一行（期数行）下面现在是 .zdr-import-history-foot，里面左侧是「查看全部/收起」span、
+            // 右侧是常驻的胜率 span —— 只隐藏 toggle，胜率保持可见。
+            const foot = row.nextElementSibling;
+            if (!foot || !foot.classList || !foot.classList.contains('zdr-import-history-foot')) continue;
+            const toggle = foot.querySelector ? foot.querySelector('.zdr-import-history-toggle') : null;
+            if (!toggle || toggle.getAttribute('data-desktop') !== '1') continue;
             const collapsed = row.classList.contains('zdr-collapsed');
             let show = false;
             if (collapsed) {
@@ -10497,12 +10628,25 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const excludeVotes = window.__importExcludeVotes || 1;
         const filterTip = '多条目筛选：只统计确实写了该维度规则的已勾选条目（未写该维度的条目视为无约束，跟原来一样）。1＝原口径：选入类取交集（所有勾选条目都选中该号码才保留）、冻结/杀肖类取并集（任何一条写了的杀项都生效）；2/3/4＝被 2/3/4 条及以上条目排除的才剔除——选入类「排除」＝该条目没选它，冻结/杀肖类「排除」＝该条目把它写进杀死集合（即要 2/3/4 条同时杀才生效）；只勾 1 条时按该条自身规则筛选。';
         const filterTick = (n) => '<span' + (n === excludeVotes ? ' class="on"' : '') + '>' + n + '</span>';
+        // v1.167：第二条滑杆「胜率滑杆」——默认不启用（圈内写「关」），拖动即启用：把当前类别的条目
+        // 按「已判定期数 ≥10 期」的胜率批量勾选/取消（胜率 ≥ 该值才勾）；不足 10 期的条目一律不动。
+        // 位置由 --p（0~1）驱动，电脑 / 手机的圆圈尺寸与 inset 全部交给 CSS。
+        const rateOn = window.__importRateFilterOn === true;
+        const rateVal = (window.__importRateFilterValue == null) ? 50 : window.__importRateFilterValue;
+        const rateP = ((rateOn ? rateVal : 50) - 50) / 50;
+        const rateTip = '胜率滑杆：默认不启用；拖动后按胜率批量勾选——只有「已判定期数 ≥10 期」的条目参与（判定期数不足 10 期的条目保持原样，不动），当前类别里的条目胜率 ≥ 滑杆值才勾上，低于滑杆值的取消勾选。胜率＝中次数 ÷ 已判定期数（与条目第三排胜率同一口径）。要关闭：点结果框右下角的 ✕。';
+        const rateRow = '<span class="zdr-import-rate-slider-wrap">' +
+                '<span class="zdr-import-rate-track" aria-hidden="true"></span>' +
+                '<span class="zdr-import-rate-thumb' + (rateOn ? ' on' : '') + '" aria-hidden="true" style="--p:' + rateP.toFixed(3) + ';">' + (rateOn ? rateVal + '%' : '关') + '</span>' +
+                '<input id="zdr-import-rate-range" class="zdr-import-rate-range" type="range" min="50" max="100" step="5" value="' + rateVal + '" aria-label="按胜率筛选条目" title="' + rateTip + '" oninput="window.setImportRateFilter(this.value)" onchange="window.commitImportRateFilter()">' +
+            '</span>';
         listHtml += '<div class="zdr-import-filter-row">' +
             '<span class="zdr-import-filter-slider-wrap">' +
                 '<span class="zdr-import-filter-track" aria-hidden="true"></span>' +
                 '<span class="zdr-import-filter-scale" aria-hidden="true">' + filterTick(1) + filterTick(2) + filterTick(3) + filterTick(4) + '</span>' +
                 '<input id="zdr-import-filter-range" class="zdr-import-filter-range" type="range" min="1" max="4" step="1" value="' + excludeVotes + '" aria-label="多条目筛选档位" title="' + filterTip + '" oninput="window.setImportFilterVotes(this.value)">' +
             '</span>' +
+            rateRow +
             '</div>';
         if (pinned.length) {
             // v1.137：表头显示「总数 / 总上限 · 自动 / 手动」，与「自动 ≤10 + 手动 ≤5」两条线对应
