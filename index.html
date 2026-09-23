@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.167 · 2026-09-22 20:24</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.168 · 2026-09-23 19:19</div>
 
         </div>
     
@@ -10159,6 +10159,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 批量设为「胜率 ≥ 滑杆值」（达标勾上、未达标取消；不足 10 期的条目一律不动，保持原样）。
     // 拖动过程只就地更新圆圈与勾选框，不整段重绘清单（避免打断拖动）；松手（change）才落盘 + 整段重绘。
     // 未选类别（"全部"视图）时不生效，改为提示先选新澳门 / 香港，避免误清另一类别的勾选。
+    // v1.168 起：清单里**只有一类条目**时（另一类当天没条目 → 类别按钮整条不显示、根本选不了类别），
+    //   未选类别也直接按这一类生效——没有另一类可误清，等于零副作用；提示文案也按实际存在的类别生成。
     // 关闭：点结果框右下角的 ✕（clearAllSelections → window.__importRateFilterReset）。
     window.__importRateFilterOn = false;
     window.__importRateFilterValue = 50;
@@ -10195,15 +10197,40 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         });
         if (typeof updateToggleAllButton === 'function') updateToggleAllButton();
     }
+    // v1.168：清单里实际存在的类别集合（只认 macau / hk）
+    function importCategorySet() {
+        const set = new Set();
+        (window.__importedStrategies || []).forEach(it => {
+            if (it && (it.lottery === 'macau' || it.lottery === 'hk')) set.add(it.lottery);
+        });
+        return set;
+    }
+    // v1.168：清单里只有一类条目时返回该类（'macau' / 'hk'），两类都有（或无条目）时返回 null。
+    // 香港不开奖 / 澳门不开奖时清单里只剩一类，类别按钮整条不显示、作者点不到 —— 此时不必先选类别。
+    function soleImportCategory() {
+        const set = importCategorySet();
+        return set.size === 1 ? set.values().next().value : null;
+    }
+    // v1.168：提示文案按清单里实际存在的类别生成，不再点名当天没有条目的那一类
+    function importRateCatPrompt() {
+        const set = importCategorySet();
+        const names = [];
+        if (set.has('macau')) names.push('「新澳门条目」');
+        if (set.has('hk')) names.push('「香港条目」');
+        if (!names.length) return '清单里还没有条目，胜率筛选暂不可用';
+        return '请先选' + names.join('或') + '，胜率筛选才生效';
+    }
     window.setImportRateFilter = function(raw) {
         const v = Math.max(50, Math.min(100, Math.round((parseInt(raw, 10) || 50) / 5) * 5));
-        const activeCat = window.__importActiveCat;
+        let activeCat = window.__importActiveCat;
+        // v1.168：未选类别时，清单里只有一类条目就直接按该类生效（不用先点类别按钮）
+        if (activeCat !== 'macau' && activeCat !== 'hk') activeCat = soleImportCategory();
         if (activeCat !== 'macau' && activeCat !== 'hk') {
-            // 未选类别：不生效（避免误清另一类别的勾选），滑杆退回未启用并提示
+            // 未选类别（清单里两类条目都有）：不生效（避免误清另一类别的勾选），滑杆退回未启用并提示
             window.__importRateFilterOn = false;
             window.__importRateFilterValue = 50;
             syncImportRateDom();
-            showPinToast('请先选「新澳门条目」或「香港条目」，胜率筛选才生效');
+            showPinToast(importRateCatPrompt());
             return;
         }
         if (window.__importRateFilterOn !== true) {
@@ -10634,7 +10661,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const rateOn = window.__importRateFilterOn === true;
         const rateVal = (window.__importRateFilterValue == null) ? 50 : window.__importRateFilterValue;
         const rateP = ((rateOn ? rateVal : 50) - 50) / 50;
-        const rateTip = '胜率滑杆：默认不启用；拖动后按胜率批量勾选——只有「已判定期数 ≥10 期」的条目参与（判定期数不足 10 期的条目保持原样，不动），当前类别里的条目胜率 ≥ 滑杆值才勾上，低于滑杆值的取消勾选。胜率＝中次数 ÷ 已判定期数（与条目第三排胜率同一口径）。要关闭：点结果框右下角的 ✕。';
+        const rateTip = '胜率滑杆：默认不启用；拖动后按胜率批量勾选——只有「已判定期数 ≥10 期」的条目参与（判定期数不足 10 期的条目保持原样，不动），当前类别里的条目胜率 ≥ 滑杆值才勾上，低于滑杆值的取消勾选。胜率＝中次数 ÷ 已判定期数（与条目第三排胜率同一口径）。清单里只有一类条目时（另一类当天没条目）不用先点类别按钮，直接按这一类生效。要关闭：点结果框右下角的 ✕。';
         const rateRow = '<span class="zdr-import-rate-slider-wrap">' +
                 '<span class="zdr-import-rate-track" aria-hidden="true"></span>' +
                 '<span class="zdr-import-rate-thumb' + (rateOn ? ' on' : '') + '" aria-hidden="true" style="--p:' + rateP.toFixed(3) + ';">' + (rateOn ? rateVal + '%' : '关') + '</span>' +
