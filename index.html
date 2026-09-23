@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.168 · 2026-09-23 19:19</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.169 · 2026-09-23 20:15</div>
 
         </div>
     
@@ -952,6 +952,9 @@
             window.__importedAgg = null;
             window.__importActiveCat = null;
             window.__importCatSnap = {};
+            // v1.169：清集与结果框右下角 ✕ 都是「一键清空」，滑杆一并回到未启用初始态
+            // （否则会出现「滑杆还亮着写 78%、清单里一条都没勾」的自相矛盾状态）
+            if (typeof window.__importRateFilterReset === 'function') window.__importRateFilterReset();
             // 重置预测页“选入/已合并”按钮（跳过 AI 预测 与 保存策略）
             document.querySelectorAll('.btn-import').forEach(b => {
                 if (b.id === 'btn-ai-predict' || b.id === 'btn-save-strategy') return;
@@ -2467,7 +2470,7 @@ function scrollToBottom(containerId) {
 .zdr-import-filter-range { position: absolute; left: 0; right: 0; top: 0; bottom: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 /* v1.167：第二条滑杆——「胜率滑杆」（50~100%）。默认不启用（圆圈灰白、圈内写「关」）；
    一拖动即启用：圆圈变深蓝、圈内显示当前百分比，只有「已判定期数 ≥10 期」的当前类别条目参与
-   （判定期数不足 10 期的条目一律不动）；关闭走结果框右下角 ✕（clearAllSelections）。
+   （判定期数不足 10 期的条目一律不动）；关闭走结果框右下角 ✕（clearAllSelections）或左下角「清集」（clearClusterState）——v1.169 起两者都回到未启用。
    圆圈位置由 JS 写 CSS 变量 --p（0~1），几何尺寸交给 CSS（电脑 / 手机各自覆盖），逻辑里不写死像素。 */
 .zdr-import-rate-slider-wrap { position: relative; flex: 0 0 auto; width: 100%; min-width: 0; height: 32px; display: flex; align-items: center; border-radius: 999px; }
 .zdr-import-rate-slider-wrap:focus-within { outline: 2px solid #0369a1; outline-offset: 2px; }
@@ -10161,7 +10164,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 未选类别（"全部"视图）时不生效，改为提示先选新澳门 / 香港，避免误清另一类别的勾选。
     // v1.168 起：清单里**只有一类条目**时（另一类当天没条目 → 类别按钮整条不显示、根本选不了类别），
     //   未选类别也直接按这一类生效——没有另一类可误清，等于零副作用；提示文案也按实际存在的类别生成。
-    // 关闭：点结果框右下角的 ✕（clearAllSelections → window.__importRateFilterReset）。
+    // 关闭：点结果框右下角的 ✕（clearAllSelections）或左下角的「清集」（clearClusterState）——
+    //   两者都是一键清空，v1.169 起都调 window.__importRateFilterReset。
     window.__importRateFilterOn = false;
     window.__importRateFilterValue = 50;
     const IMPORT_RATE_MIN_DET = 10; // 作者确认：历史条目不足 10 期的一律不参与胜率筛选
@@ -10260,7 +10264,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
         if (typeof renderImportList === 'function') renderImportList();
     };
-    // 供结果框右下角 ✕（clearAllSelections）调用：胜率滑杆回到「未启用」初始态
+    // 供结果框右下角 ✕（clearAllSelections）与左下角「清集」（clearClusterState）调用：胜率滑杆回到「未启用」初始态
     window.__importRateFilterReset = function() {
         window.__importRateFilterOn = false;
         window.__importRateFilterValue = 50;
@@ -10661,7 +10665,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const rateOn = window.__importRateFilterOn === true;
         const rateVal = (window.__importRateFilterValue == null) ? 50 : window.__importRateFilterValue;
         const rateP = ((rateOn ? rateVal : 50) - 50) / 50;
-        const rateTip = '胜率滑杆：默认不启用；拖动后按胜率批量勾选——只有「已判定期数 ≥10 期」的条目参与（判定期数不足 10 期的条目保持原样，不动），当前类别里的条目胜率 ≥ 滑杆值才勾上，低于滑杆值的取消勾选。胜率＝中次数 ÷ 已判定期数（与条目第三排胜率同一口径）。清单里只有一类条目时（另一类当天没条目）不用先点类别按钮，直接按这一类生效。要关闭：点结果框右下角的 ✕。';
+        const rateTip = '胜率滑杆：默认不启用；拖动后按胜率批量勾选——只有「已判定期数 ≥10 期」的条目参与（判定期数不足 10 期的条目保持原样，不动），当前类别里的条目胜率 ≥ 滑杆值才勾上，低于滑杆值的取消勾选。胜率＝中次数 ÷ 已判定期数（与条目第三排胜率同一口径）。清单里只有一类条目时（另一类当天没条目）不用先点类别按钮，直接按这一类生效。要关闭：点结果框右下角的 ✕，或左下角的「清集」（两者都是一键清空）。';
         const rateRow = '<span class="zdr-import-rate-slider-wrap">' +
                 '<span class="zdr-import-rate-track" aria-hidden="true"></span>' +
                 '<span class="zdr-import-rate-thumb' + (rateOn ? ' on' : '') + '" aria-hidden="true" style="--p:' + rateP.toFixed(3) + ';">' + (rateOn ? rateVal + '%' : '关') + '</span>' +
