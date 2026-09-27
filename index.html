@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.169 · 2026-09-23 20:15</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.170 · 2026-09-27 21:53</div>
 
         </div>
     
@@ -4269,29 +4269,13 @@ function purgeHistoryPeriods(lottery, periods) {
 
 // ============================================================
 // 平码三中三（PingMa SanZhongSan）预测与回测
+//   - 号码来源：特码推荐号码池——默认模式取「八码推荐」（8 码）；
+//     AI 模式取「AI 12 码 + 八码」去重后按推荐底分排序（13~16 码）
 //   - 平码 = 每期开奖 num 的前 6 个号码（第 7 个为特码）
 //   - 中奖判定：一组 3 个号不分顺序，只要全部出现在该期 6 个平码里即算中
-//   - 按位数 digitCount 取前 N 码生成全部组合（三中三 C(N,3)、二中二 C(N,2)）；历史回测对过去每一期“仅用其之前的数据”预测再与真实 6 平码比对
+//   - 从池里取前「位数」个号码生成全部组合（三中三 C(N,3)、二中二 C(N,2)）；
+//     历史回测对过去每一期「仅用其之前的数据」算出那一期的特码推荐池，再与真实 6 平码比对
 // ============================================================
-
-// 种子伪随机（采样用，固定 seed 可复现，用于当期按期号播种；回测不采样保持确定性）
-function pm33Mulberry32(a) {
-  return function() {
-    a |= 0; a = a + 0x6D2B79F5 | 0;
-    var t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-// 期号 → 稳定 uint32 种子（同一期号得到同一组，不同期号不同组）
-function pm33SeedFromQishu(q) {
-  var s = String(q == null ? '' : q), h = 2166136261 >>> 0;
-  for (var i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
-  }
-  return h >>> 0;
-}
 
 // 补零为两位字符串（'01'..'49'）
 function pm33Pad(x) {
@@ -4300,9 +4284,7 @@ function pm33Pad(x) {
   return (x < 10 ? '0' : '') + x;
 }
 
-// 从平码记录（newest-first 的 {qishu, flats}）生成当期组（每组 size 个号码，size=3 为三中三、size=2 为二中二）
-// 位数 digitCount = 当期从 top(2×位数) 热池按综合分排名加权随机抽「位数」个（作频率=避免每期不变），
-//   再生成全部 C(digitCount, size) 组合作为组；useSample=false 时退回确定性 top-位数（历史回测用，保持命中率稳定）。
+// 从有序推荐池里取前 k 个号码生成全部组合（k=3 → 三中三每组 3 码、k=2 → 二中二每组 2 码）
 function pm33Combine(arr, k) {
   var res = [], n = (arr || []).length;
   if (k <= 0 || k > n) return res;
@@ -4320,136 +4302,44 @@ function pm33Combine(arr, k) {
   }
   return res;
 }
-function generatePm33Groups(records, size, digitCount, strategy, seed, useSample) {
-  size = size || 3;
-  digitCount = (typeof digitCount === 'number' && digitCount >= 3) ? Math.min(10, Math.round(digitCount)) : 4;
-  strategy = (typeof strategy === 'number') ? strategy : 0;
-  if (!records || records.length < 3) return [];
-  var N = 49, adj = strategy / 100; // adj：-1..1（负=抓冷，正=追热，0=平衡）
-  var win = Math.min(records.length, 60); // 近期加权窗口，越近权重越高
-  var freq = {}, zodC = {}, colorC = {}, eleC = {}, tailC = {}, headC = {}, sizeC = {}, parityC = {};
-  for (var i = 0; i < win; i++) {
-    var rec = records[i];
-    var w = win - i;
-    (rec.flats || []).forEach(function(n) {
-      n = pm33Pad(n);
-      if (!n) return;
-      freq[n] = (freq[n] || 0) + w;
-      // 统计各维度（生肖/波色/五行/尾数/头数/大小/单双）在近期平码里的热度
-      var z = (typeof nz === 'function') ? nz(n) : '';
-      var c = (typeof nc === 'function') ? nc(n) : '';
-      var e = (typeof ne === 'function') ? ne(n) : '';
-      var tl = n.slice(-1), hd = n.slice(0, 1);
-      var sz = (parseInt(n, 10) >= 25) ? '大' : '小';
-      var py = (parseInt(n, 10) % 2 === 1) ? '单' : '双';
-      if (z) zodC[z] = (zodC[z] || 0) + w;
-      if (c) colorC[c] = (colorC[c] || 0) + w;
-      if (e) eleC[e] = (eleC[e] || 0) + w;
-      tailC[tl] = (tailC[tl] || 0) + w;
-      headC[hd] = (headC[hd] || 0) + w;
-      sizeC[sz] = (sizeC[sz] || 0) + w;
-      parityC[py] = (parityC[py] || 0) + w;
-    });
-  }
-
-  // 各维度取热度 Top-K 作为“当期的策略取向”
-  function topKeys(cnt, n) {
-    var arr = Object.keys(cnt).map(function(k) { return { k: k, v: cnt[k] || 0 }; });
-    arr.sort(function(a, b) { return b.v - a.v || (a.k < b.k ? -1 : 1); });
-    return arr.slice(0, n).map(function(o) { return o.k; });
-  }
-  var hotZods = topKeys(zodC, 3);
-  var hotColors = topKeys(colorC, 1);
-  var hotEles = topKeys(eleC, 2);
-  var hotTails = topKeys(tailC, 3);
-  var hotHeads = topKeys(headC, 2);
-  var hotSize = topKeys(sizeC, 1)[0];
-  var hotParity = topKeys(parityC, 1)[0];
-
-  // 号码频次归一
-  var maxFreq = 0;
-  for (var a = 1; a <= N; a++) { var s = pm33Pad(a); if ((freq[s] || 0) > maxFreq) maxFreq = freq[s] || 0; }
-  if (!maxFreq) maxFreq = 1;
-
-  // 综合打分：频次项随策略（追热放大/抓冷压缩）、冷号偏置、维度热度加成随追热放大/抓冷压缩
-  var freqW = 6 + 6 * adj;
-  var hotW = Math.max(0, 1 + adj);
-  var coldW = Math.max(0, -adj) * 8;
-  var nums = [];
-  for (var a = 1; a <= N; a++) {
-    var n2 = pm33Pad(a);
-    var z = (typeof nz === 'function') ? nz(n2) : '';
-    var c = (typeof nc === 'function') ? nc(n2) : '';
-    var e = (typeof ne === 'function') ? ne(n2) : '';
-    var tl = n2.slice(-1), hd = n2.slice(0, 1);
-    var sz = (parseInt(n2, 10) >= 25) ? '大' : '小';
-    var py = (parseInt(n2, 10) % 2 === 1) ? '单' : '双';
-    var freqNorm = (freq[n2] || 0) / maxFreq;
-    var score = freqNorm * freqW
-              + (hotZods.indexOf(z) >= 0 ? 4 : 0) * hotW
-              + (hotColors.indexOf(c) >= 0 ? 5 : 0) * hotW
-              + (hotEles.indexOf(e) >= 0 ? 3 : 0) * hotW
-              + (hotTails.indexOf(tl) >= 0 ? 3 : 0) * hotW
-              + (hotHeads.indexOf(hd) >= 0 ? 2 : 0) * hotW
-              + (sz === hotSize ? 2 : 0) * hotW
-              + (py === hotParity ? 2 : 0) * hotW
-              + (1 - freqNorm) * coldW;
-    nums.push({ n: n2, score: score });
-  }
-  nums.sort(function(x, y) {
-    return y.score - x.score || (parseInt(x.n, 10) - parseInt(y.n, 10));
-  });
-  // v1.119：历史回测保持确定性（取前 digitCount 码），当期改用 top(2×位数) 热池加权随机抽 digitCount 个，
-  //   让每期组合有变化、又不丢热号底线（实测二中二胜率不降略升）。
-  if (!useSample) {
-    var topN = nums.slice(0, digitCount).map(function(o) { return o.n; });
-    return pm33Combine(topN, size);
-  }
-  var K = Math.min(nums.length, Math.max(3, digitCount) * 2);
-  var pool = nums.slice(0, K);
-  for (var k = 0; k < pool.length; k++) pool[k].w = pool.length - k; // 排名越靠前权重越高
-  if (typeof seed === 'number' && !isNaN(seed)) { seed = seed >>> 0; } else { seed = (Math.random() * 0xFFFFFFFF) >>> 0; }
-  var rng = pm33Mulberry32(seed);
-  var picked = [];
-  var remain = pool.slice();
-  while (picked.length < digitCount && remain.length > 0) {
-    var sum = 0, i;
-    for (i = 0; i < remain.length; i++) sum += remain[i].w;
-    var r = rng() * sum, idx = 0;
-    for (i = 0; i < remain.length; i++) { r -= remain[i].w; if (r <= 0) { idx = i; break; } }
-    picked.push(remain[idx].n);
-    remain.splice(idx, 1);
-  }
-  return pm33Combine(picked, size);
+// 池子能支持的位数上限：池子多大就顶到多大（上限 10 位）；池子不足 3 码时按池子大小取
+function pm33MaxDigits(poolLen) {
+  poolLen = poolLen || 0;
+  return poolLen < 3 ? poolLen : Math.min(10, poolLen);
+}
+// 依据池子大小夹取「位数」（默认模式池 = 8 码 → 最多 8 位；AI 模式池 → 最多 10 位）
+function pm33DigitsFor(poolLen, digitCount) {
+  var maxN = pm33MaxDigits(poolLen);
+  var dc = (typeof digitCount === 'number') ? Math.round(digitCount) : 4;
+  if (maxN < 3) return maxN;
+  return Math.max(3, Math.min(maxN, dc));
 }
 
-// 平码三中三总入口
+// 平码三中三 / 平码二中二总入口
+// 号码池参数：
+//   pool     ：当期推荐池（默认模式 = 特码推荐八码；AI 模式 = AI 12 码 + 八码去重后按底分排序）
+//   histPools：历史回测池数组（newest-first），每项 {qishu, pool, flats}——每期池只由严格早于该期的数据算出
+// 从池里取前「位数」码生成全部 C(N,3)/C(N,2) 组合。
 // 返回 { groups, history, rate, avg, note }
-//   groups  ：当期 8 组（每组 3 码）
+//   groups  ：当期全部组合
 //   history ：历史回测数组（newest-first），每项 {qishu, groups, actual, matches, hitCount, maxMatch}
-//   rate    ：严格命中率（size 码全中的组 / 总组数）
-//   avg     ：组均命中码数（每组的 3 码里中了几个，稳定非零，更能反映预测贴近程度）
+//   rate    ：期数命中率（至少一组全中的期数 / 总期数）
+//   avg     ：组均命中码数
 //   note    ：数据不足等提示
-function computePm33(flatHist, size, digitCount, strategy) {
+function computePm33(pool, histPools, size, digitCount) {
   size = size || 3;
-  digitCount = (typeof digitCount === 'number' && digitCount >= 3) ? Math.min(10, Math.round(digitCount)) : 4;
-  strategy = (typeof strategy === 'number') ? strategy : 0;
-  if (!flatHist || flatHist.length === 0) {
-    return { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '暂无开奖数据' };
+  pool = Array.isArray(pool) ? pool : [];
+  if (!pool.length) {
+    return { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '暂无特码推荐号码' };
   }
-  var groups = generatePm33Groups(flatHist, size, digitCount, strategy, pm33SeedFromQishu((parseInt(flatHist[0].qishu, 10) || 0) + 1), true);
+  var groups = pm33Combine(pool.slice(0, pm33DigitsFor(pool.length, digitCount)), size);
 
   var history = [];
-  var MIN_INPUT = 6; // 至少要有 6 期历史才生成完整组数
-  var maxBack = Math.min(60, flatHist.length - 1);
-  // j 从 0 开始：回测包含“最新已开期”（flatHist[0]），用严格早于该期的数据预测再与真实开奖比对；
-  // 否则最新一期要被排除、直到开下一期后才会被回测到（如已开 244 期、回测却只到 243 期）。
-  for (var j = 0; j <= maxBack; j++) {
-    var input = flatHist.slice(j + 1); // 严格早于第 j 期的记录
-    if (input.length < MIN_INPUT) break;
-    var g = generatePm33Groups(input, size, digitCount, strategy, 0, false);
-    if (!g || !g.length) continue;
-    var actual = flatHist[j].flats;
+  (histPools || []).forEach(function(hp) {
+    if (!hp || !hp.pool || !hp.pool.length) return;
+    var g = pm33Combine(hp.pool.slice(0, pm33DigitsFor(hp.pool.length, digitCount)), size);
+    if (!g || !g.length) return;
+    var actual = hp.flats;
     var set = {};
     (actual || []).forEach(function(n) { set[pm33Pad(n)] = true; });
     // matches[i] = 第 i 组命中的号码数（0~size），size 即全中
@@ -4460,8 +4350,8 @@ function computePm33(flatHist, size, digitCount, strategy) {
     });
     var hitCount = matches.filter(function(m) { return m === size; }).length;
     var maxMatch = Math.max.apply(null, matches);
-    history.push({ qishu: flatHist[j].qishu, groups: g, actual: actual, matches: matches, hitCount: hitCount, maxMatch: maxMatch });
-  }
+    history.push({ qishu: hp.qishu, groups: g, actual: actual, matches: matches, hitCount: hitCount, maxMatch: maxMatch });
+  });
 
   // 期数命中 = 至少有一组全中的历史期数 / 历史总期数（用户要求按“期数命中”而非“组数命中率”呈现）
   var periodHits = 0, totalGroups = 0, totalMatches = 0;
@@ -5069,19 +4959,65 @@ function predict(raw) {
 
 
 
-  // ===== 平码三中三 / 平码二中二：基于平码历史按位数 digitCount 生成全部组合（每组 3 码或 2 码，位数/冷热策略可调）+ 回测历史 =====
-  var flatHist = dataArr.map(function(rec) {
+  // ===== 平码三中三 / 平码二中二：号码池取自「特码推荐」（默认八码 8 码 / AI 模式 12+8 合并池），按位数取前 N 码生成全部组合 + 回测 =====
+  // 每期池子都由「严格早于该期的数据」算出：当期用 currentResult（预测下一期），
+  // 历史第 j 期用 historyPreds[j]（= getPred(j+1)，预测的正是 hist[j]/dataArr[j] 这一期）。
+  var pm33FlatHist = dataArr.map(function(rec) {
     var nums = String(rec.num || '').split(',');
     // 特码为最后一个号，平码为其前 6 个
     var flats = nums.slice(0, Math.max(0, nums.length - 1)).slice(0, 6);
     return { qishu: rec.qishu, flats: flats };
   });
-  var pm33Digits = (typeof window.__pm33Digits === 'number') ? Math.min(10, Math.max(3, Math.round(window.__pm33Digits))) : 4;
-  var pm33Strategy = (typeof window.__pm33Strategy === 'number') ? window.__pm33Strategy : 0;
-  var pm33 = {
-    size3: computePm33(flatHist, 3, pm33Digits, pm33Strategy),
-    size2: computePm33(flatHist, 2, pm33Digits, pm33Strategy)
+  // 按模式把一个预测结果对象转成有序推荐池（池内按推荐底分从高到低）
+  function pm33PoolFrom(p, mode) {
+    if (!p) return [];
+    var seen = {}, out = [];
+    var src = (mode === 'ai') ? (p.aiTop12 || []).concat(p.top8 || []) : (p.top8 || []);
+    src.forEach(function(x) {
+      var v = Array.isArray(x) ? x[0] : x;
+      if (v == null || v === '') return;
+      if (!seen[v]) { seen[v] = true; out.push(v); }
+    });
+    var sc = p.baseScores || {};
+    out.sort(function(a, b) { return (sc[b] || 0) - (sc[a] || 0); });
+    return out;
+  }
+  // 当期与历史回测的推荐池（两种模式都建好，渲染 / 拖滑杆时按当前 AI 开关取用）
+  function pm33PoolSet(mode) {
+    var curPool = pm33PoolFrom(currentResult, mode);
+    var hist = [];
+    var backMax = Math.min(61, pm33FlatHist.length, historyPreds.length);
+    for (var pj = 0; pj < backMax; pj++) {
+      var hp = historyPreds[pj];
+      if (!hp) break;
+      // 对齐校验：historyPreds[k] 预测的正是第 k 期；期号对不上（数据过短时 getPred 返回 null 造成错位）就跳过
+      var q = parseInt(pm33FlatHist[pj].qishu, 10) || 0;
+      var t = parseInt(hp.targetQishu, 10) || 0;
+      if (t !== q && (t - q) < 300) continue; // 跨年回绕（如 365 → 001）时容差放行
+      var pool = pm33PoolFrom(hp, mode);
+      if (!pool.length) continue;
+      hist.push({ qishu: pm33FlatHist[pj].qishu, pool: pool, flats: pm33FlatHist[pj].flats });
+    }
+    return { current: curPool, history: hist };
+  }
+  window.__pm33PoolCache = { 'default': pm33PoolSet('default'), 'ai': pm33PoolSet('ai') };
+  // 按当前特码推荐模式（默认八码 / AI 合并池）与位数生成三中三 + 二中二数据；拖滑杆时复用它，不重跑 AI 打分
+  window.__pm33Build = function(digitCount) {
+    var cache = window.__pm33PoolCache;
+    if (!cache) return null;
+    var mode = (window._isAiMode === true) ? 'ai' : 'default';
+    var set = cache[mode];
+    if (!set) return null;
+    var dc = (typeof digitCount === 'number') ? digitCount : window.__pm33Digits;
+    return {
+      mode: mode,
+      poolSize: set.current.length,
+      maxDigits: pm33MaxDigits(set.current.length),
+      size3: computePm33(set.current, set.history, 3, dc),
+      size2: computePm33(set.current, set.history, 2, dc)
+    };
   };
+  var pm33 = window.__pm33Build(window.__pm33Digits);
   // =================================================================================
 
 
@@ -5701,9 +5637,15 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
   // 新增：平码三中三 / 平码二中二（PingMa）预测模块（可切换每组 3 码或 2 码）
   // 放在「动态预测号码」模块上方，复用 info-card / info-chip / btn-import 样式
   // ==========================================
-  var pm33Data = r.pm33 || {};
+  // v1.170：号码池取自特码推荐，渲染时按当前 AI 开关重取一次池（AI 寻优是先 predict、后置 _isAiMode，
+  //   所以不能直接用 r.pm33，必须在这里按最新模式重建，避免「卡片显示 AI 码、平码区还用默认 8 码」）
+  var pm33Data = (typeof window.__pm33Build === 'function' ? window.__pm33Build(window.__pm33Digits) : null) || r.pm33 || {};
   var pm33Size3 = pm33Data.size3 || { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '' };
   var pm33Size2 = pm33Data.size2 || { groups: [], history: [], rate: '0% (0/0)', avg: '0.00', note: '' };
+  var pm33IsAi = pm33Data.mode === 'ai';
+  var pm33PoolSize = pm33Data.poolSize || 0;
+  var pm33DigitMax = pm33Data.maxDigits || pm33MaxDigits(pm33PoolSize);
+  var pm33EffDigits = pm33DigitsFor(pm33PoolSize, window.__pm33Digits);
   window.__pm33Data = { '3': pm33Size3, '2': pm33Size2 };
   window.__pm33N = n;
   if (!window.__pm33Mode) window.__pm33Mode = '3';
@@ -5795,7 +5737,7 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     var body = document.getElementById('pm33-body');
     if (body && data) body.innerHTML = buildPm33Body(data, window.__pm33N);
   };
-  // v1.128 起：折叠/展开平码三中三 / 二中二 卡片主体（策略与位数滑块 + 全部组合 + 历史回测）
+  // v1.128 起：折叠/展开平码三中三 / 二中二 卡片主体（位数滑块 + 全部组合 + 历史回测；v1.170 起策略滑杆已移除）
   // v1.129：点击标题栏整行即可折叠展开（v1.128 只有右侧小按钮可点）；v1.130 去掉右侧状态提示
   window.togglePm33Collapse = function(force) {
     var wrap = document.getElementById('pm33-collapse-wrap');
@@ -5804,47 +5746,34 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
     if (wrap) wrap.style.display = next ? 'none' : 'block';
   };
 
-  // 滑块：平码策略（抓冷/追热）与位数（3-10，手动调节；默认 4 位）
-  if (typeof window.__pm33Strategy !== 'number') window.__pm33Strategy = 0;
+  // v1.170：滑块只剩「位数」——号码池来自特码推荐，池子多大决定位数上限
+  // （默认八码池 = 最多 8 位；AI 合并池 = 最多 10 位）。抓冷/追热滑杆已随旧算法一并移除。
   if (typeof window.__pm33Digits !== 'number') window.__pm33Digits = 4;
-  var stv = window.__pm33Strategy, dcv = window.__pm33Digits;
-  var stLabel = stv === 0 ? '平衡' : (stv > 0 ? '追热 +' + stv : '抓冷 ' + stv);
-  var stColor = stv === 0 ? '#64748b' : (stv > 0 ? '#ea580c' : '#3b82f6');
+  var dcv = pm33EffDigits;
+  var pm33PoolLabel = pm33IsAi ? ('AI 合并池 · ' + pm33PoolSize + ' 码') : ('特码推荐八码 · ' + pm33PoolSize + ' 码');
   var pm33Controls = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:8px; margin:4px 0 10px;">' +
     '<div style="padding:8px 12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; display:flex; flex-direction:column; gap:6px;">' +
-      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600;"><span style="color:#475569;">平码策略调整</span><span id="pm33-strategy-label" style="color:' + stColor + ';">' + stLabel + '</span></div>' +
-      '<input type="range" min="-100" max="100" step="10" value="' + stv + '" oninput="window.updatePm33Strategy(this.value)" style="width:100%; height:6px; accent-color:' + stColor + '; cursor:pointer; background:#cbd5e1; border-radius:3px; outline:none; -webkit-appearance:none;">' +
-    '</div>' +
-    '<div style="padding:8px 12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; display:flex; flex-direction:column; gap:6px;">' +
-      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600;"><span style="color:#475569;">位数</span><span id="pm33-digit-label" style="color:#334155;">' + dcv + ' 位</span></div>' +
-      '<input type="range" min="3" max="10" step="1" value="' + dcv + '" oninput="window.updatePm33Digits(this.value)" style="width:100%; height:6px; accent-color:#7c3aed; cursor:pointer; background:#cbd5e1; border-radius:3px; outline:none; -webkit-appearance:none;">' +
+      '<div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:600; gap:8px; flex-wrap:wrap;"><span style="color:#475569;">位数（号码池：' + pm33PoolLabel + '）</span><span id="pm33-digit-label" style="color:#334155; white-space:nowrap;">' + dcv + ' / ' + pm33DigitMax + ' 位</span></div>' +
+      '<input id="pm33-digit-range" type="range" min="3" max="' + pm33DigitMax + '" step="1" value="' + dcv + '" oninput="window.updatePm33Digits(this.value)" style="width:100%; height:6px; accent-color:#7c3aed; cursor:pointer; background:#cbd5e1; border-radius:3px; outline:none; -webkit-appearance:none;">' +
     '</div>' +
     '</div>';
-  window.updatePm33Strategy = function(v) {
-    window.__pm33Strategy = Math.max(-100, Math.min(100, parseInt(v, 10) || 0));
-    var lbl = document.getElementById('pm33-strategy-label');
-    if (lbl) { var s = window.__pm33Strategy; lbl.textContent = s === 0 ? '平衡' : (s > 0 ? '追热 +' + s : '抓冷 ' + s); lbl.style.color = s === 0 ? '#64748b' : (s > 0 ? '#ea580c' : '#3b82f6'); }
-    if (typeof window.recomputePm33 === 'function') window.recomputePm33();
-  };
+  // 位数滑杆的上下限跟随号码池（换模式 / 重绘后同步，避免 max 还是上一档的旧值）
+  function syncPm33DigitUI(maxDigits, value) {
+    var range = document.getElementById('pm33-digit-range');
+    var lbl = document.getElementById('pm33-digit-label');
+    if (range) { range.min = '3'; range.max = String(maxDigits); range.value = String(value); }
+    if (lbl) lbl.textContent = value + ' / ' + maxDigits + ' 位';
+  }
   window.updatePm33Digits = function(v) {
     window.__pm33Digits = Math.min(10, Math.max(3, parseInt(v, 10) || 4));
-    var lbl = document.getElementById('pm33-digit-label');
-    if (lbl) lbl.textContent = window.__pm33Digits + ' 位';
     if (typeof window.recomputePm33 === 'function') window.recomputePm33();
   };
   window.recomputePm33 = function() {
-    var raw = window._rawKjData;
-    if (!Array.isArray(raw) || !raw.length) return;
-    var flatHist = raw.map(function(rec) {
-      var nn = String(rec.num || '').split(',');
-      return { qishu: rec.qishu, flats: nn.slice(0, Math.max(0, nn.length - 1)).slice(0, 6) };
-    });
-    var dc = (typeof window.__pm33Digits === 'number') ? Math.min(10, Math.max(3, Math.round(window.__pm33Digits))) : 4;
-    var st = (typeof window.__pm33Strategy === 'number') ? window.__pm33Strategy : 0;
-    window.__pm33Data = {
-      '3': computePm33(flatHist, 3, dc, st),
-      '2': computePm33(flatHist, 2, dc, st)
-    };
+    // 池子由 predict() 缓存（不重跑 AI 打分），这里只按新位数重新组合
+    var built = (typeof window.__pm33Build === 'function') ? window.__pm33Build(window.__pm33Digits) : null;
+    if (!built) return;
+    window.__pm33Data = { '3': built.size3, '2': built.size2 };
+    syncPm33DigitUI(built.maxDigits, pm33DigitsFor(built.poolSize, window.__pm33Digits));
     if (typeof window._renderPm33Body === 'function') window._renderPm33Body();
   };
 
