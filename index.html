@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.174 · 2026-10-01 22:37</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.175 · 2026-10-07 21:50</div>
 
         </div>
     
@@ -7905,20 +7905,23 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
     window._historyPickerCancel = hideHistoryActionPicker;
 
-    // 导出历史条目：点击弹小窗选择方式（复制导出 / 导出JSON文件）
+    // 导出历史条目：点击弹小窗选择方式（复制导出 / 导出JSON文件 / 同步云端 / 同步设置）
+    // v1.175：新增「同步云端（合并）」——本机没有历史条目时也能用（从云端拉回来），
+    // 所以空表提示下移到两个导出动作内部，不再在入口处直接 return。
     window.exportImportHistories = function(btn) {
         const map = loadImportHistories();
         const keys = Object.keys(map);
         const feedbackEl = document.getElementById('ext-strategy-feedback');
-        if (!keys.length) {
+        const totalPeriods = keys.reduce((s, k) => s + ((map[k] && map[k].periods) ? map[k].periods.length : 0), 0);
+        const warnEmpty = function() {
             flashHistoryAction(btn, false, '复制成功', '复制失败');
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#f59e0b;">⚠️ 当前没有可导出的历史战绩（需先加载开奖数据并导入条目）。</span>';
-            return;
-        }
-        const totalPeriods = keys.reduce((s, k) => s + ((map[k] && map[k].periods) ? map[k].periods.length : 0), 0);
+        };
         showHistoryActionPicker(btn, [
-            { text: '复制导出', color: '#1d4ed8', action: function() { copyImportHistories(btn, map, keys, totalPeriods, feedbackEl); } },
-            { text: '导出JSON文件', color: '#059669', action: function() { downloadImportHistories(btn, map, keys, totalPeriods, feedbackEl); } }
+            { text: '复制导出', color: '#1d4ed8', action: function() { if (!keys.length) { warnEmpty(); return; } copyImportHistories(btn, map, keys, totalPeriods, feedbackEl); } },
+            { text: '导出JSON文件', color: '#059669', action: function() { if (!keys.length) { warnEmpty(); return; } downloadImportHistories(btn, map, keys, totalPeriods, feedbackEl); } },
+            { text: '同步云端（合并）', color: '#7c3aed', action: function() { window.syncImportHistories(btn); } },
+            { text: '同步设置', color: '#64748b', action: function() { openHistSyncSettings().then(function(ok) { if (ok && feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 已保存同步参数（Gist ID / Token 只存本机）。</span>'; }); } }
         ]);
     };
 
@@ -7974,6 +7977,364 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 文件导出失败，请改用「复制导出」。</span>';
         }
     }
+
+    // ========== v1.175：历史条目云端同步（GitHub Gist 的 history.json） ==========
+    // 口径（作者 2026-10-07 确认）：
+    //   ① 点一次「同步云端（合并）」= 拉云端 → 与本地按期数去重合并 → 合并结果写回云端 + 本机并刷新清单；
+    //   ② 云端每条保留 HIST_SYNC_CLOUD_LIMIT=200 期作长期记录（本机仍按 IMPORT_HISTORY_LIMIT=30 期使用）——
+    //      本机以后要加长，直接再点一次同步即可把云端旧期拉回来；
+    //   ③ 同期数冲突：已判定（hit 非 null）优先于「待补」；判定状态相同 → 取记录 updatedAt 较新的；
+    //      再相同 → 取信息更全的（partsText / parts / tm / sx / wx / color / pendingDate）；
+    //   ④ 跨年 / 生肖轮换：同步只搬运记录，不重算 hit、不重推生肖，历史里原有的 tm / sx / wx / color /
+    //      partsText 原样保留，所以往年记录不会被今年的生肖表改写；
+    //   ⑤ 安全：Token 只存本机 localStorage，只出现在 api.github.com 的请求头里，
+    //      绝不写进上传内容、不打印、不提交（红线同主脚本 0.7 多端同步模块）。
+    const HIST_SYNC_CFG_KEY = 'zdr_hist_sync_cfg_v1';
+    const HIST_SYNC_DEFAULT_GIST = '2f6550f70b4302aebce771a630cb2eb2'; // 与「开奖数据跨域提取助手」多端同步同一个 Gist
+    const HIST_SYNC_FILE = 'history.json';
+    const HIST_SYNC_CLOUD_LIMIT = 200;
+
+    function loadHistSyncCfg() {
+        try {
+            const raw = localStorage.getItem(HIST_SYNC_CFG_KEY);
+            const cfg = raw ? JSON.parse(raw) : null;
+            return {
+                gistId: String((cfg && cfg.gistId) || HIST_SYNC_DEFAULT_GIST).trim(),
+                token: String((cfg && cfg.token) || '').trim()
+            };
+        } catch (e) {
+            return { gistId: HIST_SYNC_DEFAULT_GIST, token: '' };
+        }
+    }
+
+    function saveHistSyncCfg(gistId, token) {
+        try {
+            localStorage.setItem(HIST_SYNC_CFG_KEY, JSON.stringify({
+                gistId: String(gistId || '').trim(),
+                token: String(token || '').trim()
+            }));
+            return true;
+        } catch (e) { return false; }
+    }
+
+    // 通用请求（带超时；错误信息里只带 HTTP 状态与 GitHub 返回片段，绝不带 Token）
+    function histSyncRequest(method, url, token, body, timeout) {
+        return new Promise(function(resolve, reject) {
+            let settled = false;
+            const timer = setTimeout(function() {
+                if (!settled) { settled = true; reject(new Error('请求超时')); }
+            }, timeout || 25000);
+            const opts = { method: method, cache: 'no-store', headers: { 'Accept': 'application/vnd.github+json' } };
+            if (token) opts.headers.Authorization = 'Bearer ' + token;
+            if (body !== undefined) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            }
+            fetch(url, opts).then(function(resp) {
+                return resp.text().then(function(text) {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    if (resp.status >= 200 && resp.status < 300) { resolve({ status: resp.status, text: text }); return; }
+                    const err = new Error('HTTP ' + resp.status + (text ? '：' + String(text).slice(0, 160) : ''));
+                    err.status = resp.status;
+                    reject(err);
+                });
+            }).catch(function() {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                reject(new Error('网络请求失败（可能是断网或浏览器拦截跨域请求）'));
+            });
+        });
+    }
+
+    function histSyncGistApiUrl() {
+        return 'https://api.github.com/gists/' + encodeURIComponent(loadHistSyncCfg().gistId);
+    }
+
+    // 拉云端：GET Gist（带 Token）→ history.json 原文；过大被 API 截断时改走 raw_url（修订固定，不吃 CDN 旧缓存）
+    async function histSyncPullCloud() {
+        const cfg = loadHistSyncCfg();
+        if (!cfg.gistId) throw new Error('未配置 Gist ID');
+        if (!cfg.token) throw new Error('未配置 GitHub Token');
+        let text = '';
+        try {
+            const r = await histSyncRequest('GET', histSyncGistApiUrl() + '?t=' + Date.now(), cfg.token);
+            text = r.text;
+        } catch (e) {
+            if (e && e.status === 404) return { map: {}, empty: true }; // Gist 不存在或 Token 无权限：按「云端为空」处理，上传时会被 GitHub 拒绝
+            throw e;
+        }
+        let gist = null;
+        try { gist = JSON.parse(text); } catch (e) { throw new Error('云端返回内容不是合法 JSON'); }
+        const file = (gist && gist.files) ? gist.files[HIST_SYNC_FILE] : null;
+        if (!file) return { map: {}, empty: true }; // 首次同步：云端还没有 history.json
+        let content = file.content;
+        if (file.truncated || !content) {
+            if (!file.raw_url) throw new Error('云端 ' + HIST_SYNC_FILE + ' 过大且缺少 raw 地址');
+            const resp = await fetch(file.raw_url + (file.raw_url.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now(), { cache: 'no-store' });
+            if (!resp.ok) throw new Error('读取云端 ' + HIST_SYNC_FILE + ' 原文失败：HTTP ' + resp.status);
+            content = await resp.text();
+        }
+        let map = null;
+        try { map = JSON.parse(content); } catch (e) { throw new Error('云端 ' + HIST_SYNC_FILE + ' 不是合法 JSON'); }
+        if (map && map.version === 2 && map.data && typeof map.data === 'object') map = map.data;
+        if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('云端 ' + HIST_SYNC_FILE + ' 结构不正确（应为历史战绩对象）');
+        return { map: map, empty: false };
+    }
+
+    // 写云端：PATCH Gist 的同名文件（不影响同 Gist 的 script.user.js / config.json）
+    async function histSyncPushCloud(map) {
+        const cfg = loadHistSyncCfg();
+        if (!cfg.gistId) throw new Error('未配置 Gist ID');
+        if (!cfg.token) throw new Error('未配置 GitHub Token');
+        const content = JSON.stringify(map, null, 2);
+        await histSyncRequest('PATCH', histSyncGistApiUrl(), cfg.token, { files: { [HIST_SYNC_FILE]: { content: content } } }, 30000);
+        return content;
+    }
+
+    // 记录完整度（同判定状态下比信息量：partsText / parts 快照 / 开奖信息字段）
+    function histPeriodScore(p) {
+        let s = 0;
+        ['partsText', 'tm', 'sx', 'wx', 'color', 'pendingDate'].forEach(function(f) {
+            if (String((p && p[f]) || '').trim()) s++;
+        });
+        if (p && Array.isArray(p.parts) && p.parts.length) s += 2;
+        return s;
+    }
+
+    // 同期数冲突取哪条：已判定 > 待补；判定相同 → 记录 updatedAt 新的；再相同 → 信息更全的；最后保留本机
+    function pickHistSyncPeriod(pLocal, pCloud, localUpdatedAt, cloudUpdatedAt) {
+        const lJudged = pLocal.hit != null, cJudged = pCloud.hit != null;
+        if (lJudged !== cJudged) return lJudged ? pLocal : pCloud;
+        const lu = String(localUpdatedAt || ''), cu = String(cloudUpdatedAt || '');
+        if (lu !== cu) return lu > cu ? pLocal : pCloud;
+        const ls = histPeriodScore(pLocal), cs = histPeriodScore(pCloud);
+        if (ls !== cs) return ls > cs ? pLocal : pCloud;
+        return pLocal;
+    }
+
+    // 合并一条策略的本机 / 云端记录：按期数数值去重，冲突走 pickHistSyncPeriod，最后按 limit 截取最近若干期
+    function mergeHistSyncEntry(localEntry, cloudEntry, limit) {
+        const localUpdatedAt = (localEntry && localEntry.updatedAt) || '';
+        const cloudUpdatedAt = (cloudEntry && cloudEntry.updatedAt) || '';
+        const slots = {};
+        const add = function(raw, isLocal) {
+            const p = normalizeImportedHistoryPeriod(raw);
+            if (!p) return;
+            const q = parseInt(p.qishu, 10);
+            if (!q) return;
+            const slot = slots[q] || (slots[q] = {});
+            slot[isLocal ? 'local' : 'cloud'] = p;
+        };
+        ((localEntry && localEntry.periods) || []).forEach(function(p) { add(p, true); });
+        ((cloudEntry && cloudEntry.periods) || []).forEach(function(p) { add(p, false); });
+        let periods = Object.keys(slots).map(function(q) {
+            const slot = slots[q];
+            if (slot.local && slot.cloud) return pickHistSyncPeriod(slot.local, slot.cloud, localUpdatedAt, cloudUpdatedAt);
+            return slot.local || slot.cloud;
+        }).sort(function(a, b) { return parseInt(a.qishu, 10) - parseInt(b.qishu, 10); });
+        if (limit && periods.length > limit) periods = periods.slice(-limit);
+        return periods;
+    }
+
+    // 云端键 → 本机键：先精确命中；再按当前清单条目模糊匹配；最后按「同彩种 + 归一化标题」在已合并表里找
+    function histSyncKeyForCloud(k, h, outMap, items) {
+        if (outMap[k]) return k;
+        const keyLottery = resolveImportedHistoryLottery(k, h) || (h && h.lottery === 'hk' ? 'hk' : 'macau');
+        const keyTitle = String((h && h.title) || historyTitleFromKey(k) || '');
+        const periods = (h && h.periods) || [];
+        const partsText = String(((periods[periods.length - 1] || {}).partsText) || '');
+        const target = items.some(function(it) { return importHistoryKey(it) === k; }) ? null : findHistoryTarget(keyTitle, keyLottery, partsText, items);
+        if (target) return importHistoryKey(target);
+        const nKeyTitle = normalizeHistoryTitle(keyTitle);
+        if (!nKeyTitle) return k;
+        const keys = Object.keys(outMap);
+        for (let i = 0; i < keys.length; i++) {
+            const exist = outMap[keys[i]];
+            if (!exist) continue;
+            if ((exist.lottery === 'hk' ? 'hk' : 'macau') !== keyLottery) continue;
+            if (normalizeHistoryTitle(exist.title || historyTitleFromKey(keys[i]) || '') === nKeyTitle) return keys[i];
+        }
+        return k;
+    }
+
+    // 本机表 + 云端表 → 合并表（每条上限 limit 期），并统计新增 / 覆盖 / 待补补全的期数
+    function mergeImportHistoriesWithCloud(localMap, cloudMap, limit) {
+        const out = {};
+        const items = Array.isArray(window.__importedStrategies) ? window.__importedStrategies : [];
+        const stats = { addedKeys: 0, addedPeriods: 0, updatedPeriods: 0, filledPending: 0, cloudKeys: 0, localKeys: 0 };
+        Object.keys(localMap || {}).forEach(function(k) {
+            const h = localMap[k];
+            if (!h || !Array.isArray(h.periods)) return;
+            out[k] = {
+                lottery: h.lottery === 'hk' ? 'hk' : 'macau',
+                title: h.title || historyTitleFromKey(k) || k,
+                periods: h.periods.slice(),
+                updatedAt: h.updatedAt || ''
+            };
+        });
+        stats.localKeys = Object.keys(out).length;
+        Object.keys(cloudMap || {}).forEach(function(k) {
+            const h = cloudMap[k];
+            if (!h || typeof h !== 'object' || !Array.isArray(h.periods) || !h.periods.length) return;
+            stats.cloudKeys++;
+            const k2 = histSyncKeyForCloud(k, h, out, items);
+            const cloudEntry = {
+                lottery: h.lottery === 'hk' ? 'hk' : (resolveImportedHistoryLottery(k, h) || 'macau'),
+                title: String(h.title || historyTitleFromKey(k2) || k2),
+                periods: h.periods,
+                updatedAt: h.updatedAt || ''
+            };
+            const prev = out[k2];
+            if (!prev) {
+                const periods = mergeHistSyncEntry(null, cloudEntry, limit);
+                if (!periods.length) return;
+                out[k2] = { lottery: cloudEntry.lottery, title: cloudEntry.title, periods: periods, updatedAt: cloudEntry.updatedAt };
+                stats.addedKeys++;
+                stats.addedPeriods += periods.length;
+                return;
+            }
+            // 先记下合并前的状态，用于统计「新增期数 / 覆盖期数 / 待补补全」
+            const prevByQ = {};
+            prev.periods.forEach(function(p) {
+                const q = parseInt(p && p.qishu, 10);
+                if (q) prevByQ[q] = p;
+            });
+            const mergedPeriods = mergeHistSyncEntry(prev, cloudEntry, limit);
+            mergedPeriods.forEach(function(p) {
+                const q = parseInt(p.qishu, 10);
+                const old = prevByQ[q];
+                if (!old) { stats.addedPeriods++; return; }
+                if (JSON.stringify(old) !== JSON.stringify(p)) {
+                    stats.updatedPeriods++;
+                    if (old.hit == null && p.hit != null) stats.filledPending++;
+                }
+            });
+            const lu = String(prev.updatedAt || ''), cu = String(cloudEntry.updatedAt || '');
+            out[k2] = {
+                lottery: prev.lottery || cloudEntry.lottery,
+                title: prev.title || cloudEntry.title,
+                periods: mergedPeriods,
+                updatedAt: cu > lu ? cu : lu
+            };
+        });
+        return { map: out, stats: stats };
+    }
+
+    // 同步设置弹窗（Gist ID + Token，自带遮罩）：返回 Promise<boolean>（保存=true）
+    function openHistSyncSettings() {
+        return new Promise(function(resolve) {
+            const cfg = loadHistSyncCfg();
+            const ov = document.createElement('div');
+            ov.id = 'zdr-hist-sync-overlay';
+            ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+            const box = document.createElement('div');
+            box.style.cssText = 'width:100%;max-width:360px;background:#fff;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);';
+            box.innerHTML =
+                '<div style="font-size:0.95rem;font-weight:700;color:#1e293b;text-align:center;">历史条目同步设置</div>' +
+                '<div style="margin-top:8px;font-size:0.75rem;color:#475569;line-height:1.6;">云端＝ GitHub Gist 里的 <b>' + HIST_SYNC_FILE + '</b>（与主脚本多端同步用同一个 Gist）。Token 只存本机，仅在请求 GitHub 时放在请求头，不会写进云端文件。</div>' +
+                '<div style="margin-top:10px;font-size:0.78rem;color:#334155;">Gist ID</div>' +
+                '<input id="zdr-hist-sync-gist" type="text" autocomplete="off" style="width:100%;box-sizing:border-box;height:32px;border:1px solid #cbd5e1;border-radius:6px;padding:0 8px;font-size:0.8rem;">' +
+                '<div style="margin-top:8px;font-size:0.78rem;color:#334155;">GitHub Token（需 gist 读写权限）</div>' +
+                '<input id="zdr-hist-sync-token" type="password" autocomplete="off" style="width:100%;box-sizing:border-box;height:32px;border:1px solid #cbd5e1;border-radius:6px;padding:0 8px;font-size:0.8rem;">' +
+                '<div id="zdr-hist-sync-err" style="margin-top:8px;font-size:0.75rem;color:#dc2626;min-height:1.1em;"></div>' +
+                '<div style="margin-top:10px;display:flex;gap:8px;">' +
+                    '<button id="zdr-hist-sync-cancel" style="flex:1;height:34px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;border-radius:8px;font-size:0.8rem;cursor:pointer;">取消</button>' +
+                    '<button id="zdr-hist-sync-save" style="flex:1;height:34px;border:none;background:#1d4ed8;color:#fff;border-radius:8px;font-size:0.8rem;font-weight:700;cursor:pointer;">保存并同步</button>' +
+                '</div>';
+            ov.appendChild(box);
+            document.body.appendChild(ov);
+            const gistInput = box.querySelector('#zdr-hist-sync-gist');
+            const tokenInput = box.querySelector('#zdr-hist-sync-token');
+            const errEl = box.querySelector('#zdr-hist-sync-err');
+            gistInput.value = cfg.gistId || HIST_SYNC_DEFAULT_GIST;
+            tokenInput.value = cfg.token || '';
+            let done = false;
+            const finish = function(ok) {
+                if (done) return;
+                done = true;
+                document.removeEventListener('keydown', onKey);
+                if (ov.parentNode) ov.parentNode.removeChild(ov);
+                resolve(ok);
+            };
+            function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); finish(false); } }
+            ov.addEventListener('click', function(e) { if (e.target === ov) finish(false); });
+            box.querySelector('#zdr-hist-sync-cancel').onclick = function() { finish(false); };
+            box.querySelector('#zdr-hist-sync-save').onclick = function() {
+                const g = String(gistInput.value || '').trim();
+                const t = String(tokenInput.value || '').trim();
+                if (!g) { errEl.textContent = '请填写 Gist ID'; return; }
+                if (!t) { errEl.textContent = '请填写 GitHub Token（需 gist 读写权限）'; return; }
+                if (!saveHistSyncCfg(g, t)) { errEl.textContent = '保存失败：浏览器存储不可用（隐私模式？）'; return; }
+                finish(true);
+            };
+            document.addEventListener('keydown', onKey);
+            setTimeout(function() { try { (cfg.token ? tokenInput : gistInput).focus(); } catch (e) { /* ignore */ } }, 30);
+        });
+    }
+
+    // 一次点击的同步主体：拉云端 → 合并 → 写本机并刷新 → 写回云端
+    async function runHistSync(btn, feedbackEl) {
+        if (window.__histSyncing) {
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#b45309;">⚠️ 正在同步中，请稍候…</span>';
+            return;
+        }
+        window.__histSyncing = true;
+        try {
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 正在读取云端 ' + HIST_SYNC_FILE + ' …</span>';
+            const cloud = await histSyncPullCloud();
+            const mergedRes = mergeImportHistoriesWithCloud(loadImportHistories(), cloud.map, HIST_SYNC_CLOUD_LIMIT);
+            const merged = mergedRes.map;
+            // 本机：仍按 IMPORT_HISTORY_LIMIT=30 期使用（saveImportHistories 会自行裁剪，用的是副本，不影响待上传的云端表）
+            const localOut = {};
+            Object.keys(merged).forEach(function(k) {
+                const h = merged[k];
+                if (!h || !Array.isArray(h.periods)) return;
+                localOut[k] = { lottery: h.lottery, title: h.title, periods: h.periods.slice(), updatedAt: h.updatedAt || '' };
+            });
+            if (!saveImportHistories(localOut)) throw new Error('本机历史条目写入失败（浏览器存储可能已满或被禁用）');
+            if (typeof renderImportList === 'function') renderImportList();
+            if (typeof window.__refreshComboHistory === 'function') window.__refreshComboHistory();
+            if (typeof scheduleImportHistoryRefresh === 'function') scheduleImportHistoryRefresh();
+            let pushErr = null;
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 正在写回云端…</span>';
+            try { await histSyncPushCloud(merged); } catch (e) { pushErr = e; }
+            const s = mergedRes.stats || {};
+            const mergedKeys = Object.keys(merged).length;
+            let mergedPeriods = 0;
+            Object.keys(merged).forEach(function(k) { mergedPeriods += ((merged[k] && merged[k].periods) || []).length; });
+            const cloudState = cloud.empty ? '云端首次建立 ' + HIST_SYNC_FILE + '，' : '云端原有 ' + (s.cloudKeys || 0) + ' 条，';
+            const detail = cloudState + '本机原有 ' + (s.localKeys || 0) + ' 条 → 合并后 ' + mergedKeys + ' 条 / ' + mergedPeriods + ' 期（本机新增 ' + (s.addedPeriods || 0) + ' 期 · 覆盖 ' + (s.updatedPeriods || 0) + ' 期 · 待补补全 ' + (s.filledPending || 0) + ' 期）';
+            if (pushErr) {
+                flashHistoryAction(btn, false, '同步成功', '同步失败');
+                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#b45309;">⚠️ 云端写入失败：' + escHtml(String((pushErr && pushErr.message) || pushErr)) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机已合并完成（' + escHtml(detail) + '），云端未更新，请检查 Token 的 gist 权限后重试。</span>';
+                return;
+            }
+            flashHistoryAction(btn, true, '同步成功', '同步失败');
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期；本机以后要加长，直接再点一次同步即可从云端取回旧期。</span>';
+        } catch (e) {
+            const msg = String((e && e.message) || e);
+            flashHistoryAction(btn, false, '同步成功', '同步失败');
+            if (feedbackEl) {
+                feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 同步失败：' + escHtml(msg) + '</span>'
+                    + (/HTTP 401|HTTP 403/.test(msg) ? '<br><span style="color:#b45309;font-size:0.75rem;">Token 无效 / 权限不足（需 gist 读写），请在「同步设置」里重新填写。</span>' : '');
+            }
+        } finally {
+            window.__histSyncing = false;
+        }
+    }
+
+    // 历史条目同步入口（导出小窗的「同步云端（合并）」调用）
+    window.syncImportHistories = async function(btn) {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        if (!loadHistSyncCfg().token) {
+            const saved = await openHistSyncSettings();
+            if (!saved) return;
+        }
+        await runHistSync(btn, feedbackEl);
+    };
 
     // 导入历史条目：点击弹小窗选择方式（粘贴导入 / 导入JSON文件）
     window.importImportHistories = function(btn) {
