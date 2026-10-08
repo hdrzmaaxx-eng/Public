@@ -663,7 +663,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.175 · 2026-10-07 21:50</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.178 · 2026-10-08 20:22</div>
 
         </div>
     
@@ -675,6 +675,74 @@
                这里的灰字只作脚本未跑起来时的兜底 -->
           <div id="display-container-predict"><div style="color:#999;">暂无号码</div></div>
           
+          <!-- v1.178：预测页（新澳门特码 / 香港特码）结果框下方也加一条同款「下滑抽屉」快捷筛选面板——
+               与特码筛选器页 #zdr-drawer 同一套吸顶判定 / 手势逻辑、同一批 .btn[data-category] 按钮
+               （特码生肖 - 长按杀肖 / 波色 / 五行 / 尾数，共 33 个）；
+               两个标签页共用这一个 #predictView，所以只加一个抽屉、两页都生效；
+               这里**不放**拉手两侧的「新澳门条目 / 香港条目」镜像按钮——那是导入面板的分类切换，只属于特码筛选器页 -->
+          <div id="predict-drawer" class="zdr-drawer">
+              <div id="predict-drawer-panel" class="zdr-drawer-panel">
+                  <div class="zdr-drawer-group">
+                      <div class="zdr-drawer-title">特码生肖（长按杀肖）</div>
+                      <div class="zdr-drawer-row">
+                          <button class="btn" data-category="zodiac" data-value="鼠"><span class="count-badge">0</span>鼠</button>
+                          <button class="btn" data-category="zodiac" data-value="牛"><span class="count-badge">0</span>牛</button>
+                          <button class="btn" data-category="zodiac" data-value="虎"><span class="count-badge">0</span>虎</button>
+                          <button class="btn" data-category="zodiac" data-value="兔"><span class="count-badge">0</span>兔</button>
+                          <button class="btn" data-category="zodiac" data-value="龙"><span class="count-badge">0</span>龙</button>
+                          <button class="btn" data-category="zodiac" data-value="蛇"><span class="count-badge">0</span>蛇</button>
+                          <button class="btn" data-category="zodiac" data-value="马"><span class="count-badge">0</span>马</button>
+                          <button class="btn" data-category="zodiac" data-value="羊"><span class="count-badge">0</span>羊</button>
+                          <button class="btn" data-category="zodiac" data-value="猴"><span class="count-badge">0</span>猴</button>
+                          <button class="btn" data-category="zodiac" data-value="鸡"><span class="count-badge">0</span>鸡</button>
+                          <button class="btn" data-category="zodiac" data-value="狗"><span class="count-badge">0</span>狗</button>
+                          <button class="btn" data-category="zodiac" data-value="猪"><span class="count-badge">0</span>猪</button>
+                      </div>
+                  </div>
+                  <div class="zdr-drawer-group">
+                      <div class="zdr-drawer-title">特码波色</div>
+                      <div class="zdr-drawer-row col-3">
+                          <button class="btn" data-category="color" data-value="红波单">红波单</button>
+                          <button class="btn" data-category="color" data-value="红波双">红波双</button>
+                          <button class="btn" data-category="color" data-value="蓝波单">蓝波单</button>
+                          <button class="btn" data-category="color" data-value="蓝波双">蓝波双</button>
+                          <button class="btn" data-category="color" data-value="绿波单">绿波单</button>
+                          <button class="btn" data-category="color" data-value="绿波双">绿波双</button>
+                      </div>
+                  </div>
+                  <div class="zdr-drawer-group">
+                      <div class="zdr-drawer-title">特码五行</div>
+                      <div class="zdr-drawer-row col-5">
+                          <button class="btn" data-category="element" data-value="金">金</button>
+                          <button class="btn" data-category="element" data-value="木">木</button>
+                          <button class="btn" data-category="element" data-value="水">水</button>
+                          <button class="btn" data-category="element" data-value="火">火</button>
+                          <button class="btn" data-category="element" data-value="土">土</button>
+                      </div>
+                  </div>
+                  <div class="zdr-drawer-group">
+                      <div class="zdr-drawer-title">特码尾数</div>
+                      <div class="zdr-drawer-row col-10">
+                          <button class="btn" data-category="lastDigit" data-value="0">0尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="1">1尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="2">2尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="3">3尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="4">4尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="5">5尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="6">6尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="7">7尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="8">8尾</button>
+                          <button class="btn" data-category="lastDigit" data-value="9">9尾</button>
+                      </div>
+                  </div>
+              </div>
+              <!-- 拉手行：预测页只有中间一个拉手（不带两侧镜像按钮），居中由 CSS 的 grid-column:2 保证 -->
+              <div id="predict-drawer-handle-row" class="zdr-drawer-handle-row">
+                  <div id="predict-drawer-handle" class="zdr-drawer-handle" role="button" tabindex="0"
+                       aria-expanded="false" aria-controls="predict-drawer-panel" title="下滑展开 · 上滑收起"></div>
+              </div>
+          </div>
+
           <div class="header">
             <div class="logo">六合彩特码预测</div>
 			
@@ -2643,6 +2711,9 @@ function scrollToBottom(containerId) {
    - 短横线拉手**只在结果框真正吸顶时显示**（JS 给 #zdr-drawer 加 .zdr-drawer-stuck）
    - 拉手「下滑展开、上滑收起」（pointer capture 保证鼠标拖出拉手也能判定）；
      面板内按钮沿用 .btn 类，自动共享点击选择 / 长按冻结等既有逻辑
+   v1.178：同一套样式给预测页（新澳门特码 / 香港特码）结果框下方的 #predict-drawer 复用——
+      抽屉 / 面板 / 分组卡片 / 拉手行的类名完全一致，按钮尺寸这两条规则同时写两个 id；
+      只有拉手行的「两侧镜像按钮」与拉手占列规则是筛选器页专有，预测页多一条 #predict-drawer-handle 居中
    ============================================================ */
 .zdr-drawer { position: sticky; top: 220px; z-index: 999; }
 .zdr-drawer-handle {
@@ -2698,6 +2769,9 @@ function scrollToBottom(containerId) {
 .zdr-drawer-handle-row > #zdr-cat-mirror-macau { grid-column: 1; }
 .zdr-drawer-handle-row > #zdr-drawer-handle { grid-column: 2; }
 .zdr-drawer-handle-row > #zdr-cat-mirror-hk { grid-column: 3; }
+/* v1.178：预测页（新澳门特码 / 香港特码）的抽屉拉手行里只有中间一个拉手（没有两侧镜像按钮），
+   显式占第 2 列让它仍然居中、不与其它元素抢格子 */
+.zdr-drawer-handle-row > #predict-drawer-handle { justify-self: center; margin: 0; grid-column: 2; }
 
 .zdr-cat-btn {
     cursor: pointer; white-space: nowrap;
@@ -2789,8 +2863,11 @@ function scrollToBottom(containerId) {
 .zdr-drawer-row.col-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .zdr-drawer-row.col-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .zdr-drawer-row.col-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-#zdr-drawer .btn { height: 32px; min-height: 0; padding: 0 2px; font-size: 0.8rem; border-radius: 6px; min-width: 0; width: 100%; }
-#zdr-drawer .btn .count-badge { width: 12px; height: 12px; font-size: 9px; top: 1px; left: 1px; }
+/* v1.178：预测页抽屉 #predict-drawer 与特码筛选器页抽屉 #zdr-drawer 共用同一套按钮尺寸 / 角标尺寸 */
+#zdr-drawer .btn,
+#predict-drawer .btn { height: 32px; min-height: 0; padding: 0 2px; font-size: 0.8rem; border-radius: 6px; min-width: 0; width: 100%; }
+#zdr-drawer .btn .count-badge,
+#predict-drawer .btn .count-badge { width: 12px; height: 12px; font-size: 9px; top: 1px; left: 1px; }
 /* 移动端：面板改单列纵向排布；生肖/尾数两排、波色两排、五行一排，保证一排按钮都放得下不溢出 */
 @media (max-width: 600px) {
     .zdr-drawer-open .zdr-drawer-panel { grid-template-columns: 1fr; }
@@ -2798,7 +2875,8 @@ function scrollToBottom(containerId) {
     .zdr-drawer-row.col-10 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .zdr-drawer-row.col-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .zdr-drawer-panel { max-height: 42vh; padding: 8px 8px 10px; }
-    #zdr-drawer .btn { height: 34px; font-size: 0.82rem; }
+    #zdr-drawer .btn,
+    #predict-drawer .btn { height: 34px; font-size: 0.82rem; }
 }
 </style>
 
@@ -9252,15 +9330,98 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (btn && typeof window.showBtnFeedback === 'function') window.showBtnFeedback(btn, true, '导入');
     };
 
-    // 标记/取消标记整组暂存（标记代表重要，默认不标记）
-    window.toggleStashMark = function(stashId) {
+    // ===== v1.176：暂存分组「标记」改为三选一（杀死 / 预选 / 重点） =====
+    // 口径（作者 2026-10-08 确认）：未标记时点「☆ 标记」→ 按钮旁弹出三个选择（杀死 / 预选 / 重点）；
+    //   点小窗以外的空白处或按 Esc = 什么都不改（不点标记就保持原样）；已标记时再点一次 = 直接取消标记，
+    //   所以小窗里不放「取消标记」按钮。标记只影响这一组的卡片配色与按钮文案，不参与任何号码计算。
+    //   旧数据兼容：v1.175 及更早只有布尔 `marked`，一律按「重点」显示（配色与原来完全一致）。
+    const STASH_MARKS = {
+        kill: { label: '杀死', solid: '#dc2626', text: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+        pick: { label: '预选', solid: '#059669', text: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+        key:  { label: '重点', solid: '#f59e0b', text: '#b45309', bg: '#fffbeb', border: '#f59e0b' }
+    };
+    const STASH_MARK_ORDER = ['kill', 'pick', 'key'];
+
+    // 读一组的标记类型：新字段 `mark` 优先；旧数据的布尔 `marked: true` 按「重点」处理
+    function stashMarkType(st) {
+        if (!st) return '';
+        if (st.mark && STASH_MARKS[st.mark]) return st.mark;
+        return st.marked ? 'key' : '';
+    }
+
+    // 写一组的标记：type 传空 = 取消标记（布尔 `marked` 继续跟着写，旧结构读起来也一致）
+    function setStashMark(stashId, markType) {
         const data = loadSavedNumbers();
         const st = (data[currentLottery] || []).find(s => s.id === stashId);
         if (!st) return;
-        st.marked = !st.marked;
+        if (markType && STASH_MARKS[markType]) { st.mark = markType; st.marked = true; }
+        else { delete st.mark; st.marked = false; }
         saveSavedNumbers(data);
         refreshSavedNumbersPanel();
+    }
+
+    // 点「标记」：已标记 → 直接取消（作者口径：再次点击就是取消标记）；未标记 → 弹三选一小窗
+    window.toggleStashMark = function(stashId, btn) {
+        const data = loadSavedNumbers();
+        const st = (data[currentLottery] || []).find(s => s.id === stashId);
+        if (!st) return;
+        if (stashMarkType(st)) { hideStashMarkPicker(); setStashMark(stashId, ''); return; }
+        showStashMarkPicker(stashId, btn);
     };
+
+    // 标记三选一小窗：定位与「点空白关闭」跟暂存彩种选择小窗同一套写法（电脑 / 手机通用）
+    function showStashMarkPicker(stashId, btn) {
+        hideStashMarkPicker();
+        if (!btn || typeof btn.getBoundingClientRect !== 'function') return;
+        const pop = document.createElement('div');
+        pop.id = 'zdr-stash-mark-picker';
+        pop.style.cssText = 'position:fixed;z-index:99999;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.15);padding:8px;display:flex;gap:6px;';
+        pop.innerHTML = STASH_MARK_ORDER.map(k => {
+            const m = STASH_MARKS[k];
+            return '<button onclick="window._stashMarkPick(\'' + k + '\')" title="标记为「' + m.label + '」" style="padding:8px 14px;border:none;border-radius:8px;background:' + m.solid + ';color:#fff;font-weight:700;cursor:pointer;font-size:0.8rem;min-height:32px;touch-action:manipulation;">' + m.label + '</button>';
+        }).join('');
+        document.body.appendChild(pop);
+        // 定位在标记按钮附近（优先下方，放不下则上方；水平夹在视口内）
+        const r = btn.getBoundingClientRect();
+        const pw = pop.offsetWidth, ph = pop.offsetHeight;
+        let left = r.left + r.width / 2 - pw / 2;
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        let top = r.bottom + 6;
+        if (top + ph > window.innerHeight - 4) top = r.top - ph - 6;
+        pop.style.left = left + 'px';
+        pop.style.top = top + 'px';
+        window._stashMarkPickId = stashId;
+        // 点击小窗以外的空白处取消（延迟绑定，避免打开瞬间被同一事件关闭）
+        window._stashMarkOutsideHandler = function(e) {
+            const p = document.getElementById('zdr-stash-mark-picker');
+            if (p && !p.contains(e.target)) hideStashMarkPicker();
+        };
+        // Esc 关闭（弹层栈口径：只关最上层，事件不再往下传）
+        window._stashMarkEscHandler = function(e) {
+            if (e.key !== 'Escape' && e.key !== 'Esc') return;
+            if (!document.getElementById('zdr-stash-mark-picker')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            hideStashMarkPicker();
+        };
+        setTimeout(function() {
+            document.addEventListener('click', window._stashMarkOutsideHandler);
+            document.addEventListener('keydown', window._stashMarkEscHandler, true);
+        }, 0);
+    }
+    function hideStashMarkPicker() {
+        const p = document.getElementById('zdr-stash-mark-picker');
+        if (p) p.remove();
+        if (window._stashMarkOutsideHandler) { document.removeEventListener('click', window._stashMarkOutsideHandler); window._stashMarkOutsideHandler = null; }
+        if (window._stashMarkEscHandler) { document.removeEventListener('keydown', window._stashMarkEscHandler, true); window._stashMarkEscHandler = null; }
+        window._stashMarkPickId = null;
+    }
+    window._stashMarkPick = function(markType) {
+        const id = window._stashMarkPickId;
+        hideStashMarkPicker();
+        if (id != null) setStashMark(id, markType);
+    };
+    window._stashMarkCancel = hideStashMarkPicker;
 
     // v1.95：长按删除单个号码：按下启动定时器，期间位移(>10px)/松开/取消/页面滚动均取消；触发后抑制随后的单击导入
     // v1.128：① 定时器由 1000ms 改为 500ms（与手机系统长按震动同刻，震动即删除）；
@@ -9546,17 +9707,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             '<span style="font-size:0.75rem;color:#64748b;">' + (collapsed ? '▲' : '▼') + '</span></div>';
         if (collapsed) return html;
         list.forEach(s => {
-            const marked = !!s.marked;
+            // v1.176：标记改为三选一（杀死 / 预选 / 重点），老数据 marked:true 按「重点」显示
+            const markType = stashMarkType(s);
+            const mk = markType ? STASH_MARKS[markType] : null;
             html += '<div class="zdr-stash-group zdr-hold" data-stash-id="' + s.id + '" data-stash-lottery="' + lottery + '"' +
                 ' title="长按本组可上下拖动排序 · 长按号码删除该号码"' +
                 ' onpointerdown="window._stashGroupHold(this,event)" oncontextmenu="event.preventDefault(); return false;"' +
-                ' style="margin-bottom:8px;padding:8px;border:1px solid ' + (marked ? '#f59e0b' : '#e2e8f0') + ';border-radius:8px;background:' + (marked ? '#fffbeb' : '#f8fafc') + ';">' +
+                ' style="margin-bottom:8px;padding:8px;border:1px solid ' + (mk ? mk.border : '#e2e8f0') + ';border-radius:8px;background:' + (mk ? mk.bg : '#f8fafc') + ';">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 6px;margin-bottom:6px;">' +
-                '<span style="font-weight:700;color:' + (marked ? '#b45309' : color) + ';font-size:0.85rem;"><span style="color:#94a3b8;font-weight:400;margin-right:4px;" aria-hidden="true">⋮⋮</span>' + (marked ? '★ ' : '') + (s.period || '当期') + '期</span>' +
+                '<span style="font-weight:700;color:' + (mk ? mk.text : color) + ';font-size:0.85rem;"><span style="color:#94a3b8;font-weight:400;margin-right:4px;" aria-hidden="true">⋮⋮</span>' + (mk ? '★ ' : '') + (s.period || '当期') + '期</span>' +
                 '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">' +
-                '<button onclick="window.toggleStashMark(' + s.id + ')" title="' + (marked ? '取消标记' : '标记为重要') + '" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;' + (marked ? 'background:#f59e0b;color:#fff;border:1px solid #f59e0b;' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (marked ? '★ 已标' : '☆ 标记') + '</button>' +
-                '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;cursor:pointer;">导入</button>' +
-                '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:5px;cursor:pointer;">删除</button>' +
+                '<button onclick="window.toggleStashMark(' + s.id + ', this)" title="' + (mk ? '再次点击取消「' + mk.label + '」标记' : '标记本组：杀死 / 预选 / 重点') + '" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;' + (mk ? 'background:' + mk.solid + ';color:#fff;border:1px solid ' + mk.solid + ';' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (mk ? '★ ' + mk.label : '☆ 标记') + '</button>' +
+                // v1.177：导入 / 删除按钮去掉各自的彩色底（蓝 / 红），改成与「☆ 标记」同一套灰（文字 #64748b、边框 #cbd5e1）；
+                //        背景设 transparent = 真正无底色，放在已标记的彩色卡片上会露出卡片底色（作者 2026-10-08 选的口径 A）。
+                '<button onclick="window.importStashGroup(' + s.id + ', this)" title="一键导入本组全部号码到输入框（与已有号码取并集）" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;">导入</button>' +
+                '<button onclick="window.deleteSavedStash(' + s.id + ')" title="删除本组暂存" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;background:transparent;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;">删除</button>' +
                 '</div>' +
                 '</div>' +
                 '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
@@ -12712,12 +12877,20 @@ window.saveSuppData = function() {
 //       状态只存内存（未吸顶自动收起，刷新后默认收起）
 // 说明：面板内按钮都是 .btn + data-category/data-value，由页面既有脚本绑定点击筛选 /
 //       长按冻结逻辑（含冻结解冻防反选），这里只负责吸顶判定与抽屉手势，不复制任何筛选逻辑
+// v1.178：同一套逻辑抽成 initStickyDrawer(cfg)，一次写、实例化两份：
+//       ① 特码筛选器页 #zdr-drawer —— 带拉手两侧的「新澳门条目 / 香港条目」镜像按钮（cfg.mirrorApi）
+//          与档位滑杆吸顶位置（--zdr-filter-top）同步，行为与 v1.177 完全一致；
+//       ② 预测页（新澳门特码 / 香港特码，两个标签页共用 #predictView）结果框下方的 #predict-drawer
+//          —— 面板按钮与①完全相同，但预测页没有导入面板，所以不带镜像按钮、也不写 --zdr-filter-top。
+//       两个实例判定口径一致：结果框吸顶 → 拉手出现；未吸顶 → 拉手隐藏并把抽屉收起。
+// （函数体沿用改造前的缩进，未做整体缩进调整，方便与 v1.177 的代码逐行对照）
 // ============================================================
 (function () {
-    var drawer = document.getElementById('zdr-drawer');
-    var handle = document.getElementById('zdr-drawer-handle');
-    var box = document.getElementById('display-container');
-    if (!drawer || !handle || !box) return;
+    function initStickyDrawer(cfg) {
+    var drawer = document.getElementById(cfg.drawerId);
+    var handle = document.getElementById(cfg.handleId);
+    var box = document.getElementById(cfg.boxId);
+    if (!drawer || !handle || !box) return null;
 
     // v1.133：吸顶位置与「结果框下边距」都按结果框**实测**读取，不写死——
     // 桌面 CSS 是 top:66px / margin:20px 0，手机媒体查询里是 top:54.5px / margin:10px 0，
@@ -12731,9 +12904,10 @@ window.saveSuppData = function() {
     // 方案 A：导入面板里的原按钮保留不动；只有「同时存在香港与澳门条目」（drawer 上有 zdr-cat-available，
     // 由 renderCategoryButtons 写入）+ 抽屉已吸顶 + 原按钮已被滚过（滚到吸顶区之上）时，才在拉手两侧显示镜像按钮，
     // 这样滚动查看清单时随时能切换类别，滚回上面又只剩原位那一排按钮。
-    var mirrorM = document.getElementById('zdr-cat-mirror-macau');
-    var mirrorH = document.getElementById('zdr-cat-mirror-hk');
-    var catBarEl = document.getElementById('ext-strategy-cat-bar');
+    // v1.178：这三个只有特码筛选器页的抽屉会传（预测页没有导入面板，传空就是纯拉手）
+    var mirrorM = cfg.mirrorMacauId ? document.getElementById(cfg.mirrorMacauId) : null;
+    var mirrorH = cfg.mirrorHkId ? document.getElementById(cfg.mirrorHkId) : null;
+    var catBarEl = cfg.catBarId ? document.getElementById(cfg.catBarId) : null;
     var mirrorShown = false;
     function updateCatMirror() {
         if (!mirrorM || !mirrorH || !catBarEl) return;
@@ -12750,7 +12924,7 @@ window.saveSuppData = function() {
         mirrorM.style.display = show ? '' : 'none';
         mirrorH.style.display = show ? '' : 'none';
     }
-    window.__zdrUpdateCatMirror = updateCatMirror; // 供 renderCategoryButtons 在清单变化后即时复核
+    if (cfg.mirrorApi) window[cfg.mirrorApi] = updateCatMirror; // 供 renderCategoryButtons 在清单变化后即时复核
 
     function readBoxMetrics() {
         if (!window.getComputedStyle) return;
@@ -12765,13 +12939,16 @@ window.saveSuppData = function() {
     }
 
     function isOpen() { return drawer.classList.contains('zdr-drawer-open'); }
-    window.zdrDrawerIsOpen = isOpen;
+    window[cfg.isOpenApi] = isOpen;
 
     // v1.165：「多条目筛选」滑杆的吸顶位置——取抽屉（展开面板 + 磨砂拉手条）的**实测下沿**，
     // 写进根元素的 CSS 变量交给 .zdr-import-filter-row 的 sticky top 用；
     // 写变量而不是直接改元素，是因为条目清单会被 renderImportList 整段重绘，内联样式会丢。
+    // v1.178：只有特码筛选器页的抽屉要写这个变量（cfg.syncFilterTop）——预测页没有滑杆行，
+    // 预测页抽屉下沿写进去会把筛选器的滑杆行顶到错误位置。
     var FILTER_TOP_VAR = '--zdr-filter-top';
     function syncFilterRowTop() {
+        if (!cfg.syncFilterTop) return;
         try {
             var r = drawer.getBoundingClientRect();
             if (!r || !(r.bottom > 0)) return;
@@ -12779,14 +12956,17 @@ window.saveSuppData = function() {
         } catch (e) { /* ignore */ }
     }
 
-    window.setZdrDrawer = function (open) {
+    function setDrawer(open) {
         var next = !!open;
         drawer.classList.toggle('zdr-drawer-open', next);
         handle.setAttribute('aria-expanded', next ? 'true' : 'false');
         handle.title = next ? '上滑收起' : '下滑展开';
         syncFilterRowTop(); // 面板展开 / 收起会改变抽屉下沿，滑杆吸顶位置同步跟一下
-    };
-    window.toggleZdrDrawer = function () { window.setZdrDrawer(!isOpen()); };
+    }
+    function toggleDrawer() { setDrawer(!isOpen()); }
+    // 对外接口名由调用方给：筛选器页 setZdrDrawer / toggleZdrDrawer，预测页 setPredictDrawer / togglePredictDrawer
+    window[cfg.setApi] = setDrawer;
+    window[cfg.toggleApi] = toggleDrawer;
 
     // v1.131：抽屉自身吸顶，吸顶偏移 = 结果框吸顶位置 + 结果框实测高度，
     // 这样未吸顶时它在结果框下方正常排版，吸顶后紧贴结果框下沿（结果条数变化会即时同步）
@@ -12809,7 +12989,7 @@ window.saveSuppData = function() {
         if (next !== stuck) {
             stuck = next;
             drawer.classList.toggle('zdr-drawer-stuck', stuck);
-            if (!stuck) window.setZdrDrawer(false); // 未吸顶：拉手隐藏，抽屉同步收起
+            if (!stuck) setDrawer(false); // 未吸顶：拉手隐藏，抽屉同步收起
         }
         updateCatMirror(); // v1.141：每次滚动/尺寸变化都复核镜像按钮（原按钮被滚过才显示）
     }
@@ -12827,9 +13007,9 @@ window.saveSuppData = function() {
     // 结果框高度会随结果条数变化，用 ResizeObserver 实时把抽屉贴回它下沿
     if (window.ResizeObserver) {
         try {
-            var zdrRo = new ResizeObserver(function () { syncDrawerTop(); });
-            zdrRo.observe(box);
-            zdrRo.observe(drawer); // v1.165：抽屉自身高度变化（展开面板 / 收起）也同步滑杆吸顶位置
+            var ro = new ResizeObserver(function () { syncDrawerTop(); });
+            ro.observe(box);
+            ro.observe(drawer); // v1.165：抽屉自身高度变化（展开面板 / 收起）也同步滑杆吸顶位置
         } catch (err) { /* ignore */ }
     }
 
@@ -12846,11 +13026,11 @@ window.saveSuppData = function() {
         if (!tracking) return;
         var dy = e.clientY - startY;
         if (Math.abs(dy) > SLOP) dragged = true;
-        if (dy >= OPEN_THRESHOLD) { window.setZdrDrawer(true); tracking = false; releaseCapture(e); }
-        else if (dy <= -OPEN_THRESHOLD) { window.setZdrDrawer(false); tracking = false; releaseCapture(e); }
+        if (dy >= OPEN_THRESHOLD) { setDrawer(true); tracking = false; releaseCapture(e); }
+        else if (dy <= -OPEN_THRESHOLD) { setDrawer(false); tracking = false; releaseCapture(e); }
     }
     function onEnd(e) {
-        if (tracking && !dragged) window.toggleZdrDrawer(); // 轻点拉手：切换展开/收起
+        if (tracking && !dragged) toggleDrawer(); // 轻点拉手：切换展开/收起
         tracking = false;
         releaseCapture(e);
     }
@@ -12878,25 +13058,52 @@ window.saveSuppData = function() {
     handle.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
             if (e.cancelable) e.preventDefault();
-            window.toggleZdrDrawer();
+            toggleDrawer();
         }
     });
 
-    // 切回「特码筛选器」页签时重新判定（display 从 none 变回来不会触发 scroll）
+    setDrawer(false); // 默认收起
+    syncDrawerTop();
+    updateStuck();
+    setTimeout(function () { syncDrawerTop(); updateStuck(); }, 300); // 首屏数据/布局稳定后再判定一次
+
+    // 返回给调用方：切页签后复判用 schedule()，其余几个供调试 / 断言
+    return { schedule: scheduleStuckCheck, syncTop: syncDrawerTop, update: updateStuck, isOpen: isOpen, set: setDrawer, toggle: toggleDrawer, box: box, drawer: drawer };
+    }
+
+    // ① 特码筛选器页：#zdr-drawer
+    //    —— 带拉手两侧的「新澳门条目 / 香港条目」镜像按钮 + 档位滑杆吸顶位置（--zdr-filter-top）同步，
+    //       与 v1.177 的行为完全一致（对外接口名也照旧：setZdrDrawer / toggleZdrDrawer / zdrDrawerIsOpen）
+    var zdrDrawerApi = initStickyDrawer({
+        drawerId: 'zdr-drawer', handleId: 'zdr-drawer-handle', boxId: 'display-container',
+        mirrorMacauId: 'zdr-cat-mirror-macau', mirrorHkId: 'zdr-cat-mirror-hk', catBarId: 'ext-strategy-cat-bar',
+        mirrorApi: '__zdrUpdateCatMirror',
+        setApi: 'setZdrDrawer', toggleApi: 'toggleZdrDrawer', isOpenApi: 'zdrDrawerIsOpen',
+        syncFilterTop: true
+    });
+
+    // ② 预测页（新澳门特码 / 香港特码）：#predict-drawer
+    //    —— 面板内 33 个按钮与筛选器页完全一样（同一批 .btn[data-category]，共用同一套选择状态），
+    //       但预测页没有导入面板，所以不带镜像按钮、也不写 --zdr-filter-top
+    var predictDrawerApi = initStickyDrawer({
+        drawerId: 'predict-drawer', handleId: 'predict-drawer-handle', boxId: 'display-container-predict',
+        setApi: 'setPredictDrawer', toggleApi: 'togglePredictDrawer', isOpenApi: 'predictDrawerIsOpen',
+        syncFilterTop: false
+    });
+
+    // 切主标签页时两个抽屉都重新判定（display 从 none 变回来不会触发 scroll）
     var origSwitchMainTab = window.switchMainTab;
     if (typeof origSwitchMainTab === 'function') {
         window.switchMainTab = function () {
             var ret = origSwitchMainTab.apply(this, arguments);
-            scheduleStuckCheck();
-            setTimeout(scheduleStuckCheck, 60);
+            [zdrDrawerApi, predictDrawerApi].forEach(function (api) {
+                if (!api) return;
+                api.schedule();
+                setTimeout(api.schedule, 60);
+            });
             return ret;
         };
     }
-
-    window.setZdrDrawer(false); // 默认收起
-    syncDrawerTop();
-    updateStuck();
-    setTimeout(function () { syncDrawerTop(); updateStuck(); }, 300); // 首屏数据/布局稳定后再判定一次
 })();
 
 // v1.157：预测页（新澳门/香港特码）结果框首屏就按「没有号码」的状态渲染，
