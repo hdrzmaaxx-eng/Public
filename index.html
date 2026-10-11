@@ -173,6 +173,10 @@
             100% { transform: scale(1); }
         }
 
+        /* v1.179：「导出历史条目」按钮在「同步云端（合并）」期间转到转圈反馈（图标自己转，不缩放按钮） */
+        .hist-btn-spin { animation: histBtnSpin 0.9s linear infinite; transform-origin: 50% 50%; }
+        @keyframes histBtnSpin { to { transform: rotate(360deg); } }
+
         /* 输入框右上角的复制按钮 */
         .copy-icon {
             position: absolute;
@@ -663,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.178 · 2026-10-08 20:22</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.180 · 2026-10-11 20:30</div>
 
         </div>
     
@@ -1988,6 +1992,9 @@
             window.__importCatSnap = {}; // 一键清空：清除各类别选择状态快照
             // v1.167：结果框右下角 ✕ 同时把「胜率滑杆」关掉、回到未启用初始态（作者确认的关闭入口）
             if (typeof window.__importRateFilterReset === 'function') window.__importRateFilterReset();
+            // v1.180：✕「一键清空」（含内部复用的「一键粘贴」）顺带把「多条目筛选」档位退回 1 档；
+            // 左下角「清集」（clearClusterState）不调这里，档位保持不动（作者要求）
+            if (typeof window.__importFilterVotesReset === 'function') window.__importFilterVotesReset();
             if (typeof window.saveImportedStrategies === 'function') window.saveImportedStrategies();
             if (typeof window.renderImportList === 'function') window.renderImportList();
             if (typeof window.renderCategoryButtons === 'function') window.renderCategoryButtons();
@@ -7737,8 +7744,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 开奖数据刷新后登记历史并刷新清单；置顶条目期数只由午夜确认任务推进。
     function refreshImportHistories() {
         ensureImportHistories();
-        maybeAutoPinTopStrategies(); // v1.137：开奖数据到达、历史登记完成后按需补一次自动置顶
         if (typeof renderImportList === 'function') renderImportList();
+        // v1.179：拿到最新开奖数据并登记完历史后，立即自动同步一次云端（没配 Token / 同一份数据已同步过则静默跳过）
+        if (typeof window.autoSyncImportHistories === 'function') { try { window.autoSyncImportHistories('data'); } catch (e) { /* ignore */ } }
     }
     window.refreshImportHistories = refreshImportHistories;
 
@@ -7756,18 +7764,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (d && typeof d === 'object') {
                 return {
                     date: String(d.date || ''),
-                    suppressed: Array.isArray(d.suppressed) ? d.suppressed.slice(0, 200) : []
+                    suppressed: Array.isArray(d.suppressed) ? d.suppressed.slice(0, 200) : [],
+                    // v1.179：置顶组「显示顺序快照」——只在下一次凌晨重排 / 手动置顶时更新
+                    pinOrder: Array.isArray(d.pinOrder) ? d.pinOrder.slice(0, 200) : []
                 };
             }
         } catch (e) { /* ignore */ }
-        return { date: '', suppressed: [] };
+        return { date: '', suppressed: [], pinOrder: [] };
     }
 
     function saveAutoPinState(state) {
         try {
             localStorage.setItem(IMPORT_AUTO_PIN_STATE_KEY, JSON.stringify({
                 date: String((state && state.date) || ''),
-                suppressed: (((state && state.suppressed) || []).slice(0, 200))
+                suppressed: (((state && state.suppressed) || []).slice(0, 200)),
+                pinOrder: (((state && state.pinOrder) || []).filter(function(k) { return !!k; }).slice(0, 200))
             }));
         } catch (e) { /* ignore */ }
     }
@@ -7830,14 +7841,64 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const slots = Math.min(IMPORT_AUTO_PIN_LIMIT, cands.length);
         const picked = cands.slice(0, slots);
         picked.forEach(function(c) { c.it.pinned = true; c.it.pinAuto = true; });
+        // v1.179：重排这一刻把置顶组顺序定下来（写进顺序快照），此后一整天渲染都按它排
+        snapshotPinnedOrder(st, map);
         return picked.length;
     }
 
+    // ========== v1.179：置顶组「显示顺序快照」 ==========
+    // 作者 2026-10-11 要求：置顶条目的排序不要在「一有数据」时就立刻变，只在第二天凌晨（0:00 跨天推进
+    // 后的重排 / 05:00 兜底重排）才重排一次。实现分两层：
+    //   ① 成员（谁被自动置顶）：maybeAutoPinTopStrategies 只在「今天还没重排过」时才跑（见那里）；
+    //   ② 组内显示顺序：重排时把当时的顺序（胜率降序 → 已判定期数多者优先）存成 key 快照
+    //      （localStorage 的 zdr_import_autopin_v1 里 pinOrder），renderImportList 一律按快照排，
+    //      所以当晚新开奖数据到齐后，清单里的胜率数字会更新、顺序不会跳。
+    // 手动置顶 / 取消置顶是作者当场点的操作，不走「凌晨」这条线：那两处直接调用 snapshotPinnedOrder() 立即定序。
+    function pinnedOrderKey(it) {
+        return importStrategyIdentityKey(it) || importHistoryKey(it) || '';
+    }
+
+    // 记录当前置顶组的顺序（按胜率降序 → 已判定期数多者优先），只写快照、不改置顶标记
+    function snapshotPinnedOrder(state, histMap) {
+        const st = state || loadAutoPinState();
+        const map = histMap || ensureImportHistories();
+        const items = (window.__importedStrategies || []).filter(function(it) { return it && it.pinned && it.lottery !== 'hk'; });
+        items.sort(function(a, b) {
+            const sa = importHistoryStats(a, map), sb = importHistoryStats(b, map);
+            const ra = (sa && sa.rate != null) ? sa.rate : -1;
+            const rb = (sb && sb.rate != null) ? sb.rate : -1;
+            if (rb !== ra) return rb - ra;
+            return (sb ? sb.det : 0) - (sa ? sa.det : 0);
+        });
+        st.pinOrder = items.map(pinnedOrderKey).filter(function(k) { return !!k; });
+        saveAutoPinState(st);
+        return st.pinOrder;
+    }
+
+    // 渲染时的置顶组排序：快照里有的按快照位置；快照里没有的（新置顶 / 手动置顶）按胜率排到末尾
+    function pinnedOrderComparator(histMap, keys) {
+        const pos = {};
+        (keys || []).forEach(function(k, i) { if (k && pos[k] === undefined) pos[k] = i; });
+        return function(a, b) {
+            const ka = pinnedOrderKey(a), kb = pinnedOrderKey(b);
+            const pa = (ka && pos[ka] !== undefined) ? pos[ka] : Infinity;
+            const pb = (kb && pos[kb] !== undefined) ? pos[kb] : Infinity;
+            if (pa !== pb) return pa - pb;
+            const sa = importHistoryStats(a, histMap), sb = importHistoryStats(b, histMap);
+            const ra = (sa && sa.rate != null) ? sa.rate : -1;
+            const rb = (sb && sb.rate != null) ? sb.rate : -1;
+            if (rb !== ra) return rb - ra;
+            return (sb ? sb.det : 0) - (sa ? sa.det : 0);
+        };
+    }
+
     // v1.137 起：开奖后的次日按胜率前十自动置顶。
-    // v1.138：不再限制「每天只重算一次」——作者的实际节奏是次日 12:00 后才拿到当天数据、晚上 21:30 前会分几次导入，
-    // 若当天只算一次，后导入的高胜率条目要等到第二天才会自动置顶。现在「清单 / 历史每次发生变化」都会重排：
-    // 触发点 = 0:00 置顶期数推进后、页面加载（含跨天恢复）、开奖数据到达登记历史后、导入后补记轮询、当天 05:00 兜底。
-    // 幂等 + 结果相同就短路（不落盘、不重渲染），所以不会反复抖动；作者当天手动取消的条目由抑制表挡住，不会当天被补回。
+    // v1.179（作者 2026-10-11 要求）：重排不再「一有数据就立刻做」——每天只在第二天凌晨重排一次：
+    //   ① 「今天已经重排过」直接返回（st.date === today），所以当晚开奖数据到齐、导入新条目都不会再重排；
+    //   ② 重排时机 = 0:00 置顶期数推进后（此时清单还是完整的）或 05:00 兜底重排（force=true，数据晚到的兜底）；
+    //      页面加载 / 跨天恢复时若「今天还没重排过」也会补一次，等于把错过的凌晨重排补上；
+    //   ③ 组内显示顺序同刻定稿（snapshotPinnedOrder 写顺序快照），渲染一律按快照排 → 当晚胜率变了顺序也不跳。
+    // 幂等 + 结果相同就短路（不落盘、不重渲染）；作者当天手动取消的条目由抑制表挡住，不会当天被补回。
     // force=true：忽略「开奖数据是否到齐」的前置检查（当天 05:00 兜底用）。
     function maybeAutoPinTopStrategies(force) {
         try {
@@ -7845,10 +7906,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (!items.length) return false;
             const today = importTodayStr();
             const st = loadAutoPinState();
+            if (!force && st.date === today) return false; // v1.179：今天已重排过 —— 不再「有数据就重排」，等下一次凌晨
             if (!force && !hasDrawBeforeToday() && !isImportClearTimePassed()) return false; // 等开奖数据，最晚 05:00 兜底
             if (st.date !== today) st.suppressed = []; // 跨天：清掉「当日不再自动置顶」抑制表
-            // 置顶状态指纹（逐条比对 pinned / pinAuto 两个标记）：重算后完全一致就不落盘、不重绘
-            const flagSig = () => items.map(function(it) { return (it && it.pinned ? '1' : '0') + (it && it.pinAuto ? '1' : '0'); }).join('');
+            // 置顶状态指纹（逐条比对 pinned / pinAuto 两个标记 + 顺序快照）：重算后完全一致就不落盘、不重绘
+            const flagSig = () => items.map(function(it) { return (it && it.pinned ? '1' : '0') + (it && it.pinAuto ? '1' : '0'); }).join('') + '#' + (st.pinOrder || []).join(',');
             const before = flagSig();
             runAutoPinTopStrategies(st);
             st.date = today;
@@ -7901,8 +7963,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 try { window.runPredict(); } catch (e) { /* ignore */ }
             }
             ensureImportHistories();
-            maybeAutoPinTopStrategies(); // v1.137：开奖数据晚到时，补记完历史再按需重算自动置顶
             if (typeof renderImportList === 'function') renderImportList();
+            // v1.179：开奖数据晚到时也立即自动同步一次云端（数据指纹没变就不会重复同步）
+            if (typeof window.autoSyncImportHistories === 'function') { try { window.autoSyncImportHistories('data'); } catch (e) { /* ignore */ } }
             const items = window.__importedStrategies || [];
             const allRecorded = items.length > 0 && items.every(it => {
                 const period = extractItemPeriod(it);
@@ -7940,6 +8003,33 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             btn.style.borderColor = '';
             btn.classList.remove('hist-btn-flash');
         }, 1600);
+    }
+
+    // v1.179：同步云端期间「导出历史条目」按钮的转圈反馈（作者 2026-10-11 要求）。
+    // 口径：置灰 + 图标转圈 + 文案「同步中…」，期间不可重复点（按钮 disabled）；
+    //      结束前必须先 setHistBtnSpinning(false) 再 flashHistoryAction()，否则 flash 结束时
+    //      会把「转圈中」的 innerHTML 当成原始内容还原回去。
+    function setHistBtnSpinning(btn, on) {
+        if (!btn) return;
+        if (on) {
+            if (btn.__histSpinOrig === undefined) {
+                btn.__histSpinOrig = { html: btn.innerHTML, disabled: !!btn.disabled, title: btn.getAttribute('title') };
+            }
+            btn.innerHTML = '<svg class="hist-btn-spin" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" style="vertical-align:-2px;margin-right:4px;"><path d="M12 3a9 9 0 1 0 9 9" ></path></svg>同步中…';
+            btn.disabled = true;
+            btn.style.opacity = '0.75';
+            btn.style.cursor = 'default';
+            btn.setAttribute('title', '正在与云端合并历史条目，请稍候…');
+            return;
+        }
+        const orig = btn.__histSpinOrig;
+        if (orig === undefined) return;
+        btn.innerHTML = orig.html;
+        btn.disabled = orig.disabled;
+        if (orig.title === null) btn.removeAttribute('title'); else btn.setAttribute('title', orig.title);
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+        delete btn.__histSpinOrig;
     }
 
     // 历史导出/导入方式小弹窗：固定在按钮附近（优先下方，放不下则上方），
@@ -8360,6 +8450,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             return;
         }
         window.__histSyncing = true;
+        setHistBtnSpinning(btn, true); // v1.179：整段同步期间按钮转圈置灰
+        const stopSpin = function() { setHistBtnSpinning(btn, false); };
         try {
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 正在读取云端 ' + HIST_SYNC_FILE + ' …</span>';
             const cloud = await histSyncPullCloud();
@@ -8386,20 +8478,24 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const cloudState = cloud.empty ? '云端首次建立 ' + HIST_SYNC_FILE + '，' : '云端原有 ' + (s.cloudKeys || 0) + ' 条，';
             const detail = cloudState + '本机原有 ' + (s.localKeys || 0) + ' 条 → 合并后 ' + mergedKeys + ' 条 / ' + mergedPeriods + ' 期（本机新增 ' + (s.addedPeriods || 0) + ' 期 · 覆盖 ' + (s.updatedPeriods || 0) + ' 期 · 待补补全 ' + (s.filledPending || 0) + ' 期）';
             if (pushErr) {
+                stopSpin();
                 flashHistoryAction(btn, false, '同步成功', '同步失败');
                 if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#b45309;">⚠️ 云端写入失败：' + escHtml(String((pushErr && pushErr.message) || pushErr)) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机已合并完成（' + escHtml(detail) + '），云端未更新，请检查 Token 的 gist 权限后重试。</span>';
                 return;
             }
+            stopSpin();
             flashHistoryAction(btn, true, '同步成功', '同步失败');
             if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期；本机以后要加长，直接再点一次同步即可从云端取回旧期。</span>';
         } catch (e) {
             const msg = String((e && e.message) || e);
+            stopSpin();
             flashHistoryAction(btn, false, '同步成功', '同步失败');
             if (feedbackEl) {
                 feedbackEl.innerHTML = '<span style="color:#ef4444;">❌ 同步失败：' + escHtml(msg) + '</span>'
                     + (/HTTP 401|HTTP 403/.test(msg) ? '<br><span style="color:#b45309;font-size:0.75rem;">Token 无效 / 权限不足（需 gist 读写），请在「同步设置」里重新填写。</span>' : '');
             }
         } finally {
+            stopSpin(); // 兜底：任何提前 return / 异常路径都不会把按钮留在转圈状态
             window.__histSyncing = false;
         }
     }
@@ -8413,6 +8509,164 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         await runHistSync(btn, feedbackEl);
     };
+
+    // ========== v1.179：历史条目「自动同步云端」（作者 2026-10-11 要求） ==========
+    // 两处触发，走的都是上面同一条同步通道（不带按钮、不弹设置窗、不闪按钮，只写反馈文字）：
+    //   ① 「条目板块拿到最新开奖数据」→ refreshImportHistories / 补记轮询里调 autoSync('data')：
+    //      只要「最新开奖数据指纹」（当前彩种最新记录的 日期 + 期数）变了，就立即自动同步一次；
+    //   ② 打开 / 刷新页面后等 3~5 秒（默认 4 秒，等页面加载完）→ checkBox2AndAutoSyncHistories()：
+    //      读 box2 直连通道（window.__realtimeDraw，与页面上 box2 显示的同一份站点 WebSocket 数据）的当期期数，
+    //      与本机历史条目里的最新期数比对，不一致就自动同步一次（读不到 2 秒后重试，最多 2 次，仍读不到静默放过）。
+    // 安全 / 防抖口径：
+    //   · 没配 Gist ID 或 Token → 静默跳过，绝不弹「同步设置」窗（自动动作不打断作者）；
+    //   · 同一个指纹只自动同步一次（指纹记在该键里），两次自动同步之间至少隔 60 秒（时间戳在发起前就落盘，
+    //     失败也不会立刻重试打网络）；
+    //   · 正在同步（window.__histSyncing）或本函数已在跑 → 直接跳过，不排队。
+    // 红线不变：Token 只存本机 localStorage、只出现在 api.github.com 请求头，不写进云端文件、不打日志、不提交。
+    const HIST_SYNC_AUTO_KEY = 'zdr_hist_autosync_v1';
+    const HIST_SYNC_AUTO_GAP_MS = 60000;
+    const HIST_SYNC_BOX2_DELAY_MS = 4000; // 「等页面加载完」的等待时间（作者要 3~5 秒，取中间值）
+
+    function loadHistAutoSyncState() {
+        try {
+            const raw = localStorage.getItem(HIST_SYNC_AUTO_KEY);
+            const d = raw ? JSON.parse(raw) : null;
+            if (d && typeof d === 'object') {
+                const sigs = (d.sigs && typeof d.sigs === 'object') ? d.sigs : {};
+                return {
+                    sigs: { macau: String(sigs.macau || ''), hk: String(sigs.hk || '') },
+                    box2: String(d.box2 || ''),
+                    at: Number(d.at) || 0
+                };
+            }
+        } catch (e) { /* ignore */ }
+        return { sigs: { macau: '', hk: '' }, box2: '', at: 0 };
+    }
+
+    function saveHistAutoSyncState(st) {
+        try {
+            const sigs = (st && st.sigs) || {};
+            localStorage.setItem(HIST_SYNC_AUTO_KEY, JSON.stringify({
+                sigs: { macau: String(sigs.macau || ''), hk: String(sigs.hk || '') },
+                box2: String((st && st.box2) || ''),
+                at: Number((st && st.at) || 0)
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 最新开奖数据指纹：当前彩种最新记录的「日期 + 期数」（拿不到返回空串，空串一律不同步）
+    function histAutoSyncDrawSig() {
+        try {
+            const lottery = (currentLottery === 'hk') ? 'hk' : 'macau';
+            const recs = typeof getAllLotteryRecords === 'function' ? getAllLotteryRecords(lottery, true) : [];
+            if (!Array.isArray(recs) || !recs.length) return '';
+            let best = null;
+            recs.forEach(function(r) {
+                const d = String((r && r.date) || '').slice(0, 10);
+                const q = parseInt(r && r.qishu, 10);
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !isFinite(q)) return;
+                if (!best || d > best.date || (d === best.date && q > best.q)) best = { date: d, q: q };
+            });
+            return best ? (lottery + '|' + best.date + '|' + best.q) : '';
+        } catch (e) { return ''; }
+    }
+
+    // 本机历史条目里某彩种的最新期数（一条期数都没有返回 null）
+    function latestLocalHistoryPeriod(lottery) {
+        try {
+            const map = loadImportHistories();
+            let max = null;
+            Object.keys(map || {}).forEach(function(k) {
+                const h = map[k];
+                if (!h || !Array.isArray(h.periods)) return;
+                if (((h.lottery === 'hk') ? 'hk' : 'macau') !== lottery) return;
+                h.periods.forEach(function(p) {
+                    const q = parseInt(p && p.qishu, 10);
+                    if (!isFinite(q)) return;
+                    if (max == null || q > max) max = q;
+                });
+            });
+            return max;
+        } catch (e) { return null; }
+    }
+
+    // box2 直连数据的当期期数（新澳门；读不到返回 null）
+    function box2CurrentPeriod() {
+        try {
+            const rd = window.__realtimeDraw && window.__realtimeDraw.macau;
+            const cur = rd ? parseInt(rd.curPeriod, 10) : NaN;
+            return isFinite(cur) ? cur : null;
+        } catch (e) { return null; }
+    }
+
+    // 自动同步主体：trigger = 'data'（刚拿到最新开奖数据）| 'box2'（打开页面按 box2 核对发现不一致）
+    async function autoSyncImportHistories(trigger) {
+        if (window.__histAutoSyncing || window.__histSyncing) return false;
+        try {
+            const cfg = loadHistSyncCfg();
+            if (!cfg.gistId || !cfg.token) return false; // 没配好：静默跳过（不弹设置窗）
+            const st = loadHistAutoSyncState();
+            const now = Date.now();
+            const payload = { lot: '', sig: '', box2: '' };
+            if (trigger === 'box2') {
+                const cur = box2CurrentPeriod();
+                if (cur == null) return false;
+                const key = 'macau|' + cur;
+                if (st.box2 === key) return false; // 这一期已经按 box2 校验同步过
+                const local = latestLocalHistoryPeriod('macau');
+                const hasItems = (window.__importedStrategies || []).length > 0;
+                if (local == null && !hasItems) return false; // 本机既没条目也没历史：没有可比对的东西
+                if (local != null && local === cur) return false; // 与 box2 一致：不再同步
+                payload.box2 = key;
+            } else {
+                const sig = histAutoSyncDrawSig();
+                if (!sig) return false;
+                const lot = (currentLottery === 'hk') ? 'hk' : 'macau';
+                if (st.sigs[lot] === sig) return false; // 这份开奖数据已经自动同步过
+                payload.lot = lot;
+                payload.sig = sig;
+            }
+            if (now - st.at < HIST_SYNC_AUTO_GAP_MS) return false; // 距上次自动同步不足 60 秒：等下次机会
+            window.__histAutoSyncing = true;
+            st.at = now; // 先落盘时间戳：失败也不会立刻反复重试
+            saveHistAutoSyncState(st);
+            const feedbackEl = document.getElementById('ext-strategy-feedback');
+            if (feedbackEl) {
+                feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 自动同步云端 ' + HIST_SYNC_FILE + ' …（'
+                    + (trigger === 'box2' ? '按 box2 实时开奖核对：本机最新期数与当期不一致' : '刚拿到最新开奖数据') + '）</span>';
+            }
+            // 用一个临时容器接住 runHistSync 的输出，再整体贴回反馈区（自动同步不闪按钮，只留一行结果）
+            const sink = document.createElement('div');
+            await runHistSync(null, sink);
+            if (payload.sig) st.sigs[payload.lot] = payload.sig;
+            if (payload.box2) st.box2 = payload.box2;
+            st.at = Date.now();
+            saveHistAutoSyncState(st);
+            const msg = String(sink.innerHTML || '').trim();
+            if (msg && feedbackEl) {
+                feedbackEl.innerHTML = '<div style="color:#475569;font-weight:700;">🤖 自动同步' +
+                    (trigger === 'box2' ? '（按 box2 核对）' : '（新开奖数据）') + '：</div>' + msg;
+            }
+            return true;
+        } catch (e) {
+            return false;
+        } finally {
+            window.__histAutoSyncing = false;
+        }
+    }
+    window.autoSyncImportHistories = autoSyncImportHistories;
+
+    // 打开 / 刷新页面后：等页面加载完（约 4 秒）再按 box2 的当期期数核对本机历史条目，不一致就自动同步一次
+    function checkBox2AndAutoSyncHistories(tries) {
+        try {
+            if (box2CurrentPeriod() == null) {
+                if ((tries || 0) < 2) return setTimeout(function() { checkBox2AndAutoSyncHistories((tries || 0) + 1); }, 2000);
+                return false; // 读不到 box2（离线 / 站方改协议）：静默放过，完全回退既有规则
+            }
+            return autoSyncImportHistories('box2');
+        } catch (e) { return false; }
+    }
+    window.checkBox2AndAutoSyncHistories = checkBox2AndAutoSyncHistories;
 
     // 导入历史条目：点击弹小窗选择方式（粘贴导入 / 导入JSON文件）
     window.importImportHistories = function(btn) {
@@ -9137,6 +9391,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // ========== 新增：号码暂存（香港/新澳门分开，显示在自定义策略库上方） ==========
     const SAVED_NUMS_KEY = 'zdr_saved_numbers_v1';
     const SAVED_NUMS_LIMIT = 20;
+    const STASH_NAME_MAX = 20; // v1.179：暂存分组「名称」上限（期号是固定前缀，不计入）
+
+    // v1.179：暂存分组名称（作者 2026-10-11 要求：每组的名称可自行命名编辑，期号作为不可编辑前缀保留）。
+    // 只做 trim + 合并连续空白 + 截断，不校验内容；空名 = 只显示「期号 + 期」。
+    function stashNameOf(s) {
+        return String((s && s.name) || '').trim().replace(/\s+/g, ' ').slice(0, STASH_NAME_MAX);
+    }
 
     function loadSavedNumbers() {
         try {
@@ -9145,6 +9406,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (data && typeof data === 'object' && !Array.isArray(data)) {
                 if (!Array.isArray(data.macau)) data.macau = [];
                 if (!Array.isArray(data.hk)) data.hk = [];
+                // v1.179：补上缺失的 name 字段（旧数据没有一律按「只显示期号」处理）
+                ['macau', 'hk'].forEach(function(k) {
+                    data[k].forEach(function(s) { if (s) s.name = stashNameOf(s); });
+                });
                 return data;
             }
         } catch (e) { /* ignore */ }
@@ -9206,7 +9471,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // 与已保存的某组暂存号码完全重复时自动去重（不新增、不提示）
         const dup = data[lottery].some(s => s.nums && JSON.stringify(s.nums.slice().sort()) === JSON.stringify(nums));
         if (!dup) {
-            data[lottery].push({ id: Date.now(), period: period, nums: nums, time: new Date().toISOString() });
+            data[lottery].push({ id: Date.now(), period: period, name: '', nums: nums, time: new Date().toISOString() });
             saveSavedNumbers(data);
         }
         refreshSavedNumbersPanel();
@@ -9300,6 +9565,65 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         saveSavedNumbers(data);
         refreshSavedNumbersPanel();
+    };
+
+    // ===== v1.179：暂存分组「命名」（点期号那一块进编辑，期号是不可编辑前缀）=====
+    // 作者 2026-10-11 要求：每组的名称可命名编辑，期号作为前缀保留不能改；点击进入编辑后可输入文字，
+    // 输入框右边加 ✓（确认编辑）与 ✗（退出编辑，不保存）；回车 = ✓、Esc = ✗。
+    // 数据：名称存该组自己的 name 字段（存储键与结构不变，仍是 zdr_saved_numbers_v1）。
+    // 交互保护：输入框 / ✓✗ 上的按住不参与长按拖动（见 _stashGroupHold）；刚从拖动排序松手的那一下
+    // 不再进入编辑（__stashDragFiredAt 抑制 500ms），避免拖完误入编辑。
+    function stashNameSpan(id) {
+        return document.querySelector('.zdr-stash-name[data-stash-name-id="' + id + '"]');
+    }
+    function findStashById(id) {
+        const list = (loadSavedNumbers()[currentLottery] || []);
+        return list.find(function(x) { return String(x.id) === String(id); }) || null;
+    }
+    const STASH_NAME_BTN_CSS = 'width:24px;height:24px;margin-left:4px;padding:0;vertical-align:middle;border-radius:6px;font-size:0.72rem;line-height:1;cursor:pointer;touch-action:manipulation;';
+
+    window.editStashName = function(id, spanEl) {
+        if (Date.now() - (window.__stashDragFiredAt || 0) < 500) return; // 刚拖完松开手：不进编辑
+        const span = spanEl || stashNameSpan(id);
+        if (!span || span.getAttribute('data-editing') === '1') return;
+        const st = findStashById(id);
+        if (!st) return;
+        const mk = STASH_MARKS[stashMarkType(st)] || null; // 已标记时标题颜色跟着卡片走，编辑中不改配色
+        const color = currentLottery === 'hk' ? '#b91c1c' : '#1d4ed8';
+        span.setAttribute('data-editing', '1');
+        span.innerHTML = '<span class="zdr-stash-period">' + escHtml((st.period || '当期') + '期') + '</span>' +
+            '<input class="zdr-stash-name-input" type="text" maxlength="' + STASH_NAME_MAX + '" placeholder="输入名称" autocomplete="off" value="' + escAttr(stashNameOf(st)) + '" aria-label="本组名称" style="width:9em;max-width:44vw;height:26px;box-sizing:border-box;margin-left:4px;padding:0 6px;vertical-align:middle;font-size:0.78rem;font-weight:600;color:' + (mk ? mk.text : color) + ';border:1px solid #cbd5e1;border-radius:6px;background:#fff;">' +
+            '<button title="确认编辑" aria-label="确认编辑" onclick="event.stopPropagation(); window.confirmStashNameEdit(' + id + ')" style="' + STASH_NAME_BTN_CSS + 'background:#16a34a;color:#fff;border:1px solid #16a34a;">✓</button>' +
+            '<button title="退出编辑（不保存）" aria-label="退出编辑" onclick="event.stopPropagation(); window.cancelStashNameEdit(' + id + ')" style="' + STASH_NAME_BTN_CSS + 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;">✗</button>';
+        const input = span.querySelector('input');
+        if (input) {
+            // 键盘：回车＝确认、Esc＝退出（不保存）；输入框自身的按下 / 点击不再冒泡给卡片的长按拖动
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); window.confirmStashNameEdit(id); }
+                else if (e.key === 'Escape') { e.preventDefault(); window.cancelStashNameEdit(id); }
+            });
+            input.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
+            input.addEventListener('click', function(e) { e.stopPropagation(); });
+            try { input.focus(); input.select(); } catch (e) { /* ignore */ }
+        }
+    };
+
+    window.confirmStashNameEdit = function(id) {
+        const span = stashNameSpan(id);
+        const input = span ? span.querySelector('input') : null;
+        const st = findStashById(id);
+        if (st) {
+            st.name = String((input ? input.value : '') || '').trim().replace(/\s+/g, ' ').slice(0, STASH_NAME_MAX);
+            const data = loadSavedNumbers();
+            const list = data[currentLottery] || [];
+            const target = list.find(function(x) { return String(x.id) === String(id); });
+            if (target) { target.name = st.name; saveSavedNumbers(data); }
+        }
+        refreshSavedNumbersPanel(); // 整块重绘，标题立刻变回「期号 + 名称」的展示态
+    };
+
+    window.cancelStashNameEdit = function(id) {
+        refreshSavedNumbersPanel(); // 不写存储，重绘即回到编辑前的展示态
     };
 
     // 一键导入整组暂存号码到输入框（输入框已有号码时自动取并集，不重复不删除）
@@ -9504,7 +9828,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (evt.button !== undefined && evt.button > 0) return; // 仅主键 / 主触点
         const t = evt.target;
         // 卡片内的按钮与号码徽章（长按删号）各自的手势优先，不参与拖动
-        if (t && t.closest && (t.closest('button') || t.closest('.zdr-stash-num'))) return;
+        // v1.179：分组命名编辑中的输入框同样不参与拖动（否则点输入框会被长按拖动抢走）
+        if (t && t.closest && (t.closest('button') || t.closest('.zdr-stash-num') || t.closest('input'))) return;
         stashEndDrag(false);   // 清掉上一次残留
         flushStashSettle();    // 上一次归位动画还没落地就先落地，保证下面量到的坐标是最新的
         const cards = stashGroupCards();
@@ -9566,6 +9891,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         document.addEventListener('touchmove', stashBlockTouchScroll, { passive: false });
         state.card.classList.add('zdr-stash-dragging');
         state.card.style.touchAction = 'none';
+        window.__stashDragFiredAt = Date.now(); // v1.179：拖完松手的那一下不要误触发「点标题进编辑」
         if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) { /* ignore */ } }
         stashApplyLayout(state);
         stashAutoScrollTick(state);
@@ -9715,7 +10041,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 ' onpointerdown="window._stashGroupHold(this,event)" oncontextmenu="event.preventDefault(); return false;"' +
                 ' style="margin-bottom:8px;padding:8px;border:1px solid ' + (mk ? mk.border : '#e2e8f0') + ';border-radius:8px;background:' + (mk ? mk.bg : '#f8fafc') + ';">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 6px;margin-bottom:6px;">' +
-                '<span style="font-weight:700;color:' + (mk ? mk.text : color) + ';font-size:0.85rem;"><span style="color:#94a3b8;font-weight:400;margin-right:4px;" aria-hidden="true">⋮⋮</span>' + (mk ? '★ ' : '') + (s.period || '当期') + '期</span>' +
+                // v1.179：分组标题＝「期号（不可编辑前缀）+ 自定义名称」，整块可点进编辑（✓ 保存 / ✗ 退出）
+                '<span class="zdr-stash-name" data-stash-name-id="' + s.id + '" onclick="window.editStashName(' + s.id + ', this)" title="点击给本组命名（期号固定不可改）" style="font-weight:700;color:' + (mk ? mk.text : color) + ';font-size:0.85rem;cursor:pointer;"><span style="color:#94a3b8;font-weight:400;margin-right:4px;" aria-hidden="true">⋮⋮</span>' + (mk ? '★ ' : '') + '<span class="zdr-stash-period">' + escHtml((s.period || '当期') + '期') + '</span>' + (stashNameOf(s) ? ' ' + escHtml(stashNameOf(s)) : '') + '<span style="color:#94a3b8;font-weight:400;margin-left:4px;font-size:0.7rem;" aria-hidden="true">✎</span></span>' +
                 '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">' +
                 '<button onclick="window.toggleStashMark(' + s.id + ', this)" title="' + (mk ? '再次点击取消「' + mk.label + '」标记' : '标记本组：杀死 / 预选 / 重点') + '" style="padding:5px 10px;font-size:0.72rem;min-height:30px;touch-action:manipulation;' + (mk ? 'background:' + mk.solid + ';color:#fff;border:1px solid ' + mk.solid + ';' : 'background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;') + 'border-radius:5px;cursor:pointer;">' + (mk ? '★ ' + mk.label : '☆ 标记') + '</button>' +
                 // v1.177：导入 / 删除按钮去掉各自的彩色底（蓝 / 红），改成与「☆ 标记」同一套灰（文字 #64748b、边框 #cbd5e1）；
@@ -10657,6 +10984,23 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         syncImportState();
     };
 
+    // v1.180（作者 2026-10-11 要求）：结果框右下角的一键清空 ✕「档位要回到 1」，左下角「清集」档位不变。
+    //   ✕ 走 clearAllSelections、清集走 clearClusterState —— 所以只把本函数挂进 clearAllSelections，
+    //   clearClusterState 一行都不碰。内部复用 clearAllSelections 的「一键粘贴」同样归位（作者确认同一口径）。
+    //   只复位档位与聚合口径，不写存储（与 setImportFilterVotes 同口径：档位本就只在本次会话内存生效）；
+    //   顺带就地同步滑杆位置与 1 2 3 4 刻度高亮，清单未整段重绘时也立刻看得见。
+    window.__importFilterVotesReset = function() {
+        window.__importExcludeVotes = 1;
+        const input = document.querySelector('#ext-strategy-list #zdr-import-filter-range');
+        if (input && String(input.value) !== '1') input.value = '1';
+        const scaleEl = document.querySelector('#ext-strategy-list .zdr-import-filter-scale');
+        if (scaleEl) {
+            Array.prototype.forEach.call(scaleEl.children, (el, i) => {
+                if (i + 1 === 1) el.classList.add('on'); else el.classList.remove('on');
+            });
+        }
+    };
+
     // v1.167：胜率滑杆——默认不启用；一拖动即启用：按「已判定期数 ≥10 期」的胜率，把**当前类别**的条目
     // 批量设为「胜率 ≥ 滑杆值」（达标勾上、未达标取消；不足 10 期的条目一律不动，保持原样）。
     // 拖动过程只就地更新圆圈与勾选框，不整段重绘清单（避免打断拖动）；松手（change）才落盘 + 整段重绘。
@@ -11393,14 +11737,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const autoPinnedCount = items.filter(it => isPinnedItem(it) && it.pinAuto).length;
         const manualPinnedCount = totalPinned - autoPinnedCount;
         // v1.137：置顶组内一律按胜率由高到低排序（同胜率按期数多者优先，无战绩沉底）
-        const pinned = visibleItems.filter(isPinnedItem)
-            .sort((a, b) => {
-                const sa = importHistoryStats(a, histMap), sb = importHistoryStats(b, histMap);
-                const ra = (sa && sa.rate != null) ? sa.rate : -1;
-                const rb = (sb && sb.rate != null) ? sb.rate : -1;
-                if (rb !== ra) return rb - ra;
-                return (sb ? sb.det : 0) - (sa ? sa.det : 0);
-            });
+        // v1.179：改为按「最近一次凌晨重排时定下的顺序快照」排（作者 2026-10-11 要求：不要一有数据就立刻重排）——
+        // 顺序只在凌晨重排 / 手动置顶时更新，当晚开奖数据到齐后胜率数字会变、顺序不跳；快照里没有的条目按胜率沉到末尾。
+        const pinnedOrderKeys = (loadAutoPinState().pinOrder || []);
+        const pinned = visibleItems.filter(isPinnedItem).sort(pinnedOrderComparator(histMap, pinnedOrderKeys));
         const rest = visibleItems.filter(it => !isPinnedItem(it));
         // v1.124：命中率高的条目优先显示——组内按历史命中率从高到低排序（不做开关、不加角标）。
         // 口径：已确定的历史期数中（hit!=null），中次数 / 已开奖期数；无战绩（无已开奖期数）视为无数据沉底。
@@ -11573,6 +11913,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 }
             }
         }
+        // v1.179：手动置顶 / 取消置顶是作者当场点的操作，立即把顺序快照重定一遍（不走「凌晨」那条线）
+        snapshotPinnedOrder();
         saveImportedStrategies();
         renderImportList();
         showPinToast(want
@@ -12424,6 +12766,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       scheduleMidnightClear();
       schedulePinnedDayAdvance();
       // v1.137：schedulePinnedPreDrawClear（23:59 置顶子选项清空）已并入 05:00 的 scheduleMidnightClear
+      // v1.179：等页面加载完（约 4 秒）再按 box2 实时开奖的当期期数核对本机历史条目，不一致就自动同步一次云端
+      setTimeout(function() {
+        if (typeof window.checkBox2AndAutoSyncHistories === 'function') { try { window.checkBox2AndAutoSyncHistories(0); } catch (e) { /* ignore */ } }
+      }, 4000);
     });
 
 
