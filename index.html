@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.180 · 2026-10-11 20:30</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.181 · 2026-10-13 00:14</div>
 
         </div>
     
@@ -10091,6 +10091,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return { numbers: new Set(), frozen: new Set(), firstDigit: new Set(), color: new Set(), element: new Set(), weather: new Set(), lastDigit: new Set(), genderZodiac: new Set(), size: new Set(), oddEven: new Set(), compositeOddEven: new Set(), animalType: new Set(), yinYangZodiac: new Set(), season: new Set(), art: new Set() };
     }
 
+    // v1.181：记录「上一次由导入条目写进 frozenItems 的键」，切档位 / 取消勾选时只撤掉这一批，
+    // 不碰作者手动长按冻结的项（聚合结果本身已不再产出 frozen，杀项并进票池算了）。
+    let importFrozenKeys = new Set();
+
     // 加号合集子项 → 号码列表（null 表示无法识别）。支持：类别词条 / 生肖串 / 单个号码 / 五行单字
     // 用于 【单数+羊鸡】【家禽+鼠龙】【男肖+羊蛇】 等合集组合：每项展开为具体号码再并集
     function expandComboToken(token) {
@@ -10875,74 +10879,37 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
     // 根据勾选状态重算导入贡献，并同步到页面状态（保留手动选择）
     // 聚合规则：选入类规则与页面手动选择取交集（由 updateDisplay 应用）；冻结/杀肖类规则直接进 frozenItems
-    // v1.161：「多条目筛选」1~4 档滑杆（清单标题行下方）——选入类按档位聚合：
-    //   1 档（默认，原口径）= 交集：投票条目都选中该值才保留；
-    //   2/3/4 档 = 被 2/3/4 条及以上投票条目排除的值才剔除，其余保留；
-    //   投票条目 = 确实写了该维度规则（集合非空）的已勾选条目，未写该维度的条目照旧不投票、不约束；
-    //   票数阈值按 min(滑杆档位, 投票条目数) 生效（只勾 1 条时退化为该条自身的交集口径）；
-    //   某维度全部值都被剔除时，该维度按「无贡献」处理（与原有交集为空时的既有口径一致，不额外改变行为）。
-    // v1.164：冻结 / 杀肖类改成**同一档位**执行（原来固定并集）——
-    //   1 档（默认，原口径）= 并集：任何一条勾选条目写了的杀肖 / 杀码都生效；
-    //   2/3/4 档 = 被 2/3/4 条及以上投票条目「同时杀」（写进杀死集合）才生效，只被 1 条杀的项不剔除；
-    //   阈值同样是 min(滑杆档位, 投票条目数)，所以只勾 1 条时仍等于该条的杀肖集合。
-    // v1.174：把「按当前档位聚合一组条目效果」抽成独立函数——结果框（syncImportState）与
-    // 「组合历史战绩」按期回放共用**同一份口径**（1 档＝选入取交集 / 杀死取并集；2~4 档＝被 ≥N 条排除才剔除 /
-    // 要 ≥N 条同时杀才生效；阈值按 min(档位, 投票条目数)）。以后改聚合口径只会改这一处。
+    // v1.181（作者 2026-10-13 要求）：「多条目筛选」1~4 档改成**选入类与杀死类合并计票**——
+    //   每条已勾选条目对每个号码只投一票：它的规则不排除这个号码＝同意；被它排除＝1 张反对票。
+    //   「该条目排除它」＝号码没落进它写到的每一个选入维度集合（没写到的维度不约束），或被杀项命中
+    //   （杀肖 / 杀码 / 杀尾 / 杀头 / 杀波色都算 1 张反对票）。作者确认：一条条目只算一票
+    //   （他的条目不会同时写两个维度）。
+    //   档位 N（1~4）＝ 被 ≥N 条条目排除的号码才剔除，其余保留；反对票上限 = min(N-1, 条目数-1)，
+    //   所以只勾 1 条时任意档位都退回「按这一条自己的规则」，不会变成不过滤；勾 2 条拉到 3/4 档＝并集。
+    //   1 档（默认）= 被 ≥1 条排除就剔除 = 全部条目都同意才保留，与 v1.180 的 1 档口径等价
+    //   （用作者 10 条自动置顶条目实测：两种实现都给同一批号码）。
+    //   旧 v1.161~v1.164 的「按写了该维度的条目数分别计票、杀死类要求 ≥N 条同时杀」整套作废：
+    //   那套在每个维度只有 1~4 条条目写的时候会把 3 / 4 档压成同一个结果（作者 2026-10-12 实测发现）。
+    // v1.174：这一份实现是结果框（syncImportState）与「组合历史战绩」按期回放共用的**唯一口径**。
     function aggregateEffectsByVotes(effectsList, excludeVotes) {
         const list = (effectsList || []).filter(e => e);
         const newAgg = emptyImportAgg();
-        const limitVotes = Math.max(1, parseInt(excludeVotes, 10) || 1);
-        IMPORT_CATS.forEach(cat => {
-            if (cat === 'frozen') {
-                const killProviders = list.filter(e => e[cat] && e[cat].size > 0);
-                if (!killProviders.length) return;
-                const killLimit = Math.min(limitVotes, killProviders.length);
-                if (killLimit <= 1) {
-                    // 1 档＝并集：任何一条勾选策略冻结/杀肖的都生效（原口径，逻辑未动）
-                    list.forEach(e => { if (e[cat]) e[cat].forEach(v => newAgg[cat].add(v)); });
-                } else {
-                    // v1.164 同时杀票数：先并集去重找出候选杀项，再统计每个杀项被多少条投票条目写进杀死集合；达到阈值才生效
-                    const killUnion = new Set();
-                    killProviders.forEach(e => e[cat].forEach(v => killUnion.add(v)));
-                    killUnion.forEach(v => {
-                        let votes = 0;
-                        for (let i = 0; i < killProviders.length; i++) {
-                            if (killProviders[i][cat].has(v)) {
-                                votes++;
-                                if (votes >= killLimit) { newAgg[cat].add(v); return; } // 达到票数阈值，该杀项生效
-                            }
-                        }
-                    });
-                }
-            } else {
-                // 仅在提供了该类别规则（集合非空）的勾选策略间聚合；未写该规则的策略视为无约束
-                const providers = list.filter(e => e[cat] && e[cat].size > 0);
-                if (!providers.length) return;
-                const excludeLimit = Math.min(limitVotes, providers.length);
-                if (excludeLimit <= 1) {
-                    // 1 档＝交集：所有投票条目都写了该值才保留（原口径，逻辑未动）
-                    providers[0][cat].forEach(v => newAgg[cat].add(v));
-                    for (let i = 1; i < providers.length; i++) {
-                        const keep = newAgg[cat];
-                        newAgg[cat] = new Set();
-                        providers[i][cat].forEach(v => { if (keep.has(v)) newAgg[cat].add(v); });
-                    }
-                } else {
-                    // v1.161 排除票数：先并集去重找出候选值，再统计每个值被多少条投票条目排除；达到票数阈值即剔除
-                    const union = new Set();
-                    providers.forEach(e => e[cat].forEach(v => union.add(v)));
-                    union.forEach(v => {
-                        let excluded = 0;
-                        for (let i = 0; i < providers.length; i++) {
-                            if (!providers[i][cat].has(v)) {
-                                excluded++;
-                                if (excluded >= excludeLimit) return; // 达到票数阈值，该值不保留
-                            }
-                        }
-                        newAgg[cat].add(v);
-                    });
+        if (!list.length) return newAgg;
+        const tier = Math.max(1, parseInt(excludeVotes, 10) || 1);
+        // 每条条目自己的「同意号码」集合＝它写到的各选入维度取交集、再扣掉它自己杀掉的号码
+        // （没有任何规则的条目不排除任何号码＝全部同意）
+        const allowSets = list.map(e => comboNumbersFromAgg(e));
+        const maxReject = Math.min(tier - 1, list.length - 1); // 允许的反对票上限
+        const need = list.length - maxReject;                   // 至少需要的同意票
+        allNumbers.forEach(n => {
+            let agree = 0;
+            for (let i = 0; i < allowSets.length; i++) {
+                if (allowSets[i].indexOf(n) > -1) {
+                    agree++;
+                    if (agree >= need) break;
                 }
             }
+            if (agree >= need) newAgg.numbers.add(n);
         });
         return newAgg;
     }
@@ -10952,15 +10919,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const excludeVotes = window.__importExcludeVotes || 1;
         // 类别过滤：选择了「新澳门条目/香港条目」时，仅该类别的勾选条目参与聚合
         const checkedItems = (window.__importedStrategies || []).filter(it => it.checked && (!activeCat || it.lottery === activeCat));
-        // 选入类规则（交集 ↔ 排除票数口径）与冻结/杀肖类规则（并集 ↔ 同时杀票数口径）都按同一档位走
+        // v1.181：聚合＝选入类与杀死类合并计票（见 aggregateEffectsByVotes），结果只落在 numbers 上
         const newAgg = aggregateEffectsByVotes(checkedItems.map(it => it.effects), excludeVotes);
         const oldAgg = window.__importedAgg || emptyImportAgg();
-        // 冻结/杀肖类规则：并集，继续差分同步到 frozenItems
-        oldAgg.frozen.forEach(v => { if (!newAgg.frozen.has(v)) frozenItems.delete(v); });
+        // v1.181：杀项不再单独扣号（已经并进票池），所以聚合结果里不再带 frozen；
+        // 只把**上一次由导入写进 frozenItems 的键**撤掉，作者手动长按冻结的项一个都不碰。
+        importFrozenKeys.forEach(v => { if (!newAgg.frozen.has(v)) frozenItems.delete(v); });
         newAgg.frozen.forEach(v => { if (!oldAgg.frozen.has(v)) frozenItems.add(v); });
-        // 选入类规则（numbers/firstDigit/color/element/weather/lastDigit/genderZodiac）：
-        // 不再并入 selectedOptions，保留在 __importedAgg 作为独立约束，
-        // 由 updateDisplay 与手动选择取交集（任一侧为空则该类不约束）。
+        importFrozenKeys = new Set(newAgg.frozen);
+        // 聚合号码放在 __importedAgg.numbers（updateDisplay 与手动选择取交集，任一侧为空则不约束），
+        // 以便结果框、「组合历史战绩」共用同一份结果。
         window.__importedAgg = newAgg;
         refreshFrozenClasses();
         if (typeof syncUI === 'function') syncUI();
@@ -11326,8 +11294,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //   某条目那一期没有历史记录 → 该期这条不投票；整期一条记录都没有 → 该期不参与（虚线方块、不计入胜率）；
     //   每期内容取 `zdr_import_history_v2` 里该期的 partsText（有 parts 快照就直接用），
     //   解析走 heParseByEntryRule（与「编辑历史条目 → 补充子条目」同一套通道），
-    //   聚合走 aggregateEffectsByVotes、聚合成号码走 getImportCategoryUnion(cat, agg) + frozenKeyNumbers——
-    //   与结果框**同一份口径实现**。手动点选的号码与黑名单没有历史，回放不了，故不参与历史部分。
+    //   聚合走 aggregateEffectsByVotes、聚合成号码走 comboNumbersFromAgg——与结果框**同一份口径实现**。
+    //   v1.181 起聚合口径＝选入类与杀死类合并计票，结果落在 agg.numbers（下面 comboNumbersFromAgg 同时兼容
+    //   老口径的「各维度集合 + frozen」形状，所以两边的号码算法照旧共用这一处）。
+    //   手动点选的号码与黑名单没有历史，回放不了，故不参与历史部分。
     const COMBO_HISTORY_LIMIT = 30;
     let __comboHistoryVisible = false;
     let __comboReplayCache = null; // { sig, map }：勾选集合 / 档位 / 类别 / 各条历史版本没变就复用上次回放结果
@@ -11432,6 +11402,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
 
     // 某期的聚合结果 → 号码集合（与结果框同一套口径：49 码起按各选入维度取交集，再剔除冻结/杀死号码）
+    // v1.181：合并计票口径下聚合结果只落在 numbers（frozen 为空），这一份算法不用改就能照旧算出号码。
     function comboNumbersFromAgg(agg) {
         if (!agg) return [];
         let nums = allNumbers.slice();
