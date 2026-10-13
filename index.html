@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.181 · 2026-10-13 00:14</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.186 · 2026-10-13 22:00</div>
 
         </div>
     
@@ -2523,7 +2523,8 @@ function scrollToBottom(containerId) {
    导入条目 / 历史战绩字号（桌面基准 + 移动端加大）
    ============================================================ */
 .zdr-import-head { font-size: 0.95rem; }
-/* v1.150：清单标题行 = 「已导入条目（共 N 条。）」+ 右侧两个按钮（取消全选/全部启用、复制全部） */
+/* v1.150：清单标题行 = 「已导入条目（共 N 条。）」+ 右侧按钮（v1.182 起三个：AI / 取消·启用 / 复制；
+   v1.186 起 AI 改成「点一下弹小窗选维度 · 新澳门 · 香港，再点确认」） */
 .zdr-import-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .zdr-import-head .zdr-import-head-text { flex: 1 1 auto; min-width: 0; }
 .zdr-import-head-btn {
@@ -2535,6 +2536,30 @@ function scrollToBottom(containerId) {
 }
 .zdr-import-head-btn:hover { background: #fef3c7; }
 .zdr-import-head-btn:active { transform: scale(0.97); }
+/* v1.186（作者 2026-10-13 要求）：AI 按钮改成「先在小窗里勾彩种 / 维度，再点确认复制」。
+   小窗挂在按钮外层 .zdr-model-feed-wrap（position:relative）上，右边缘与按钮对齐，
+   所以电脑端贴着按钮右侧弹出、手机上按钮换行到第二排时也不会跑出屏幕。 */
+.zdr-model-feed-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.zdr-model-feed-pop {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 9999;
+    display: none; flex-direction: column; gap: 6px; min-width: 152px;
+    padding: 8px; border-radius: 10px; background: #fff; border: 1px solid #fcd34d;
+    box-shadow: 0 12px 26px -14px rgba(15, 23, 42, .55);
+}
+.zdr-model-feed-pop.open { display: flex; }
+.zdr-model-feed-row { display: flex; gap: 6px; }
+.zdr-model-feed-opt, .zdr-model-feed-btn {
+    flex: 1 1 0; cursor: pointer; padding: 5px 0; border-radius: 6px;
+    font-size: 0.75rem; line-height: 1.4; white-space: nowrap; font-family: inherit;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.zdr-model-feed-opt { border: 1px solid #cbd5e1; background: #f8fafc; color: #475569; }
+.zdr-model-feed-opt.on { border-color: #0369a1; background: #0369a1; color: #fff; font-weight: 600; }
+.zdr-model-feed-btn { border: 1px solid #fcd34d; background: #fffbeb; color: #d97706; }
+.zdr-model-feed-btn:disabled { opacity: .45; cursor: not-allowed; }
+.zdr-model-feed-note { font-size: 0.7rem; color: #b45309; line-height: 1.35; }
+.zdr-model-feed-note:empty { display: none; }
 /* v1.163：「多条目筛选」1~4 档滑杆——不放任何文字标签：1 2 3 4 直接画成滑杆上的四个圆圈，
    当前档位圆圈填充深蓝（数字反白）；原生 input 透明覆盖整条，负责点按 / 拖动（点圆圈即跳到该档）；
    口径说明收进滑杆的 title 悬浮提示。
@@ -2666,6 +2691,10 @@ function scrollToBottom(containerId) {
 @media (max-width: 600px) {
     .zdr-import-head { font-size: 1rem; }
     .zdr-import-head-btn { font-size: 0.8rem; padding: 5px 11px; }
+    /* v1.186：AI 小窗在手机上放大一档，按键更高更好点 */
+    .zdr-model-feed-pop { min-width: 170px; padding: 9px; gap: 7px; }
+    .zdr-model-feed-opt, .zdr-model-feed-btn { font-size: 0.85rem; padding: 7px 0; }
+    .zdr-model-feed-note { font-size: 0.75rem; }
     .zdr-import-filter-slider-wrap { height: 40px; }
     .zdr-import-filter-track { left: 14px; right: 14px; height: 8px; margin-top: -4px; border-radius: 4px; }
     .zdr-import-filter-scale span { width: 28px; height: 28px; font-size: 0.85rem; line-height: 24px; }
@@ -10935,6 +10964,387 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (typeof updateDisplay === 'function') updateDisplay();
     }
 
+    // ==========================================================================
+    // v1.182（作者 2026-10-13 要求）：「喂给大模型的数据」一键复制（原「📋 喂模型」，v1.186 起按钮文案是「AI」+ 小窗）
+    //   文本 = 固定开头 + 若干「概率X%：号码…」组 + 固定结尾（开头 / 结尾与作者的模板文件逐字一致，
+    //   连行尾 CRLF 与空行数量都一样，便于和模板逐字节比对）：
+    //     ① 前 5 组固定 = 维度推荐（九肖 / 八尾 / 四头 / 四行 / 波色），按**当期**推荐算；
+    //     ② 后面的组 = **当天的自动置顶条目**——条数不固定（一般 10 条，达不到 10 条就按实际条数，
+    //        每天凌晨重排后内容与条数都会变），所以一律当场从 window.__importedStrategies 现读，
+    //        不写死任何一天的条数或内容；顺序沿用置顶组的显示顺序（凌晨重算定下的顺序快照）。
+    //   每组两个要素：
+    //     概率 = 特码落进这个号码集合的历史命中率（维度组＝该维度最近回测命中率，条目组＝该条目历史胜率）；
+    //     号码 = 只用这一组条件筛出来的号码（维度组＝该维度推荐值覆盖的号码，与预测页「动态预测号码」
+    //            同一套过滤口径；条目组＝按**该条目自己的 parts 现算**——v1.185 起强制把 parts 视作启用再
+    //            buildItemEffects + comboNumbersFromAgg，即 49 码减去它的杀项、保留它的选入项；
+    //            不能再用 it.effects：清集 / ✕ 一键清空会把 parts.checked 全部置 false，那样算出来是 49 码）。
+    //   v1.184（作者 2026-10-13 反馈「复制出来的九肖和页面上对不上」）：前 5 组**一律与预测页当前显示的那一套对齐**——
+    //     参数用页面当前生效的 window.customWeights / window.customStrategies（页面的九肖 / 八尾 / 四头 / 四行 / 波色
+    //     就是这套参数算的，作者在策略库点「应用」后它就等于那条策略），不再自作主张换参数；数据用页面渲染用的
+    //     window._rawKjData（同一份开奖记录），页面停香港 / 没数据时才回退到本机存储；反馈区写出实际策略名
+    //     （对不上策略库时提示「偏移量刷新后会重置，要用策略请先在预测页点『应用』」）、数据来源与 5 个维度的推荐值。
+    //   作者口径（2026-10-13 确认）：杀类条目＝49 码减该条杀码；没战绩的置顶条目跳过；开头不加期号。
+    //   v1.186（作者 2026-10-13 要求）：点「AI」不再直接复制，先弹小窗选彩种 / 维度再点「确认」——
+    //     上排 3 个可选中按键 = 维度 / 新澳门 / 香港（新澳门与香港互斥），下排 = 确认 / 取消：
+    //       维度 + 新澳门 = 上面这套规则（默认档位，与改动前逐字相同）；
+    //       只选新澳门 = 不带 5 组维度组，只输出当天自动置顶的新澳门条目组；
+    //       选香港 = 全部香港条目组（香港条目不能置顶，所以是清单里所有香港条目，顺序同清单）；
+    //       香港 + 维度 = 香港那套维度推荐（用香港开奖记录 + 页面当前生效参数算，口径与维度档一致）+ 香港条目组。
+    //     维度组跟彩种走：新澳门档用新澳门开奖数据、香港档用香港开奖数据。
+    //   本段只读不写：不写存储、不发网络请求、不动条目 / 档位 / 结果框的任何状态。
+    // ==========================================================================
+    const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的8个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：以下各组条件中，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。';
+    const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 8个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终8个号码，不必输出全部49个号码的评分或中间过程。\r\n\r\n注意事项：\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。\r\n不能简单认为集合内每个号码等概率。\r\n需要综合所有条件，包括低概率组和号码出现/缺失情况，自行设定合理的加权或评分方式。';
+    const MODEL_FEED_DIMS = [
+        { key: 'sx', hit: 'hitSX', name: '九肖', values: function(r) { return r.predSX || []; } },
+        { key: 'ld', hit: 'hitLD', name: '八尾', values: function(r) { return r.predLD || []; } },
+        { key: 'fd', hit: 'hitFD', name: '四头', values: function(r) { return r.predFD || []; } },
+        { key: 'wx', hit: 'hitWX', name: '四行', values: function(r) { return r.predWX || []; } },
+        { key: 'color', hit: 'hitColor', name: '波色', values: function(r) { return r.predColor || []; } }
+    ];
+
+    // 某个彩种的开奖记录（号码出全、确属本彩种、非未来期）——维度推荐按它算，与预测页同源
+    // v1.186（作者 2026-10-13 要求）：AI 小窗可选新澳门 / 香港，这里按彩种取记录
+    //（原 v1.182~v1.185 写死新澳门；默认档位「维度 + 新澳门」的结果与改动前逐字相同）
+    function modelFeedRecords(lottery) {
+        const lot = (lottery === 'hk') ? 'hk' : 'macau';
+        let list = [];
+        try {
+            list = (typeof getAllLotteryRecords === 'function') ? (getAllLotteryRecords(lot) || []) : [];
+        } catch (e) { list = []; }
+        return list.filter(function(r) {
+            if (!r || r.qishu == null || !r.num) return false;
+            if (typeof isValidKjRecord === 'function' && !isValidKjRecord(r)) return false;
+            if (typeof isRecordOfLottery === 'function' && !isRecordOfLottery(lot, r)) return false;
+            const d = String(r.date || '').slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d > importTodayStr()) return false;
+            return true;
+        });
+    }
+
+    // 单个维度：该维度推荐值覆盖的号码（过滤口径与预测页 filterNumbersByDims 完全一致）
+    function modelFeedDimNumbers(r, key) {
+        return allNumbers.filter(function(n) {
+            if (key === 'sx') return (r.predSX || []).indexOf(nz(n)) > -1;
+            if (key === 'ld') return (r.predLD || []).indexOf(n.slice(-1)) > -1;
+            if (key === 'fd') return (r.predFD || []).indexOf(n.slice(0, 1)) > -1;
+            if (key === 'wx') return (r.predWX || []).indexOf(ne(n)) > -1;
+            if (key === 'color') return (r.predColor || []).indexOf(nc(n)) > -1;
+            return false;
+        });
+    }
+
+    // 单条导入条目的「概率X%：号码」组（新澳门的自动置顶条目 / 香港条目共用同一口径）：
+    //   概率 = 该条历史胜率（香港条目查的就是香港历史战绩）；号码 = 按**该条目自己的 parts 现算**——
+    //   v1.185 起强制把 parts 视作启用再 buildItemEffects + comboNumbersFromAgg（49 码减杀项、保留选入项）；
+    //   不能再用 it.effects：清集 / ✕ 一键清空会把 parts.checked 全部置 false，那样算出来是 49 码。
+    // 返回 { status: 'ok' | 'noStats' | 'noParts', line? }：没战绩 / 算不出号码 → noStats；当期还没拿到子选项 → noParts。
+    function modelFeedItemGroup(it, histMap) {
+        const st = importHistoryStats(it, histMap);
+        if (!st || st.rate == null) return { status: 'noStats' };
+        const partsAll = (it.parts || []).map(function(p) { return Object.assign({}, p, { checked: true }); });
+        if (!partsAll.length) return { status: 'noParts' };
+        const nums = comboNumbersFromAgg(buildItemEffects(partsAll));
+        if (!nums || !nums.length) return { status: 'noStats' };
+        return { status: 'ok', line: '概率' + Math.round(st.rate * 100) + '%：' + nums.slice().sort().join(',') };
+    }
+
+    // 香港条目（作者 2026-10-13 口径）：香港条目不能置顶，所以「香港」这一档取**全部香港条目**，
+    // 顺序与清单一致——先按网站分组顺序（铁算盘 / 澳门九龙网 / 群英会 / 奥霸网 / 其他），
+    // 组内胜率由高到低、同率按清单原顺序（与 renderImportList 的排法一致）。
+    function modelFeedHkItems(histMap) {
+        const siteOrder = ['铁算盘', '澳门九龙网', '群英会', '奥霸网', '其他'];
+        const rateOf = function(it) {
+            const st = importHistoryStats(it, histMap);
+            return (st && st.rate != null) ? st.rate : -1;
+        };
+        const siteIdx = function(it) {
+            const s = (typeof detectImportSite === 'function') ? detectImportSite(it) : '其他';
+            const i = siteOrder.indexOf(s);
+            return i < 0 ? siteOrder.length : i;
+        };
+        return (window.__importedStrategies || [])
+            .map(function(it, i) { return { it: it, i: i }; })
+            .filter(function(o) { return o.it && o.it.lottery === 'hk'; })
+            .sort(function(a, b) {
+                return (siteIdx(a.it) - siteIdx(b.it)) || (rateOf(b.it) - rateOf(a.it)) || (a.i - b.i);
+            })
+            .map(function(o) { return o.it; });
+    }
+
+    // v1.183：前 5 组维度组必须跟「自定义策略库」走 —— 页面上那套维度推荐就是「页面当前生效的参数」算出来的，
+    //   作者在策略库点「应用」之后这套参数就等于那条策略，所以这里**直接用页面当前的参数**，不再另算一套。
+    // v1.184（作者反馈「复制出来的九肖和页面上对不上」）：再加一层保障——数据也用页面当前渲染的那份，
+    //   并且反馈里用 modelFeedStrategyLabel() 写出「当前这套参数对应策略库里哪条」，对不上时给出恢复提示。
+    function modelFeedStrategyLabel() {
+        const list = (typeof window.getSavedStrategies === 'function') ? (window.getSavedStrategies() || []) : [];
+        const curW = window.customWeights || {};
+        const curS = window.customStrategies || {};
+        const same = function(it) {
+            return (typeof isSameConfig === 'function')
+                ? isSameConfig(it.weights, curW, it.strategies, curS, it.isAiMode === true, window._isAiMode === true)
+                : false;
+        };
+        const matched = list.filter(same)[0] || null;
+        if (matched && matched.id === 'default') return { label: '默认策略', note: '' };
+        if (matched && matched.lotteryType !== 'hk') return { label: matched.name + '（自定义策略库·新澳门）', note: '' };
+        if (matched) {
+            return {
+                label: matched.name + '（自定义策略库·香港）',
+                note: '页面当前生效的是香港策略，维度组按这套参数算；要用新澳门策略请先在预测页对它点一下「应用」'
+            };
+        }
+        const isDefault = (function() {
+            for (const k in DEFAULT_WEIGHTS) { if (parseFloat(curW[k]) !== parseFloat(DEFAULT_WEIGHTS[k])) return false; }
+            for (const k in DEFAULT_STRATEGIES) { if (parseFloat(curS[k] || 0) !== parseFloat(DEFAULT_STRATEGIES[k])) return false; }
+            return true;
+        })();
+        if (isDefault) return { label: '默认策略', note: '' };
+        return {
+            label: '未保存的自定义参数',
+            note: '当前参数与策略库对不上（策略偏移量刷新后会重置），要用某条策略请先在预测页点一下「应用」'
+        };
+    }
+
+    // 维度组用的开奖数据：优先用**页面当前渲染的那一份**（与页面上算九肖 / 八尾等用的是同一份开奖记录，
+    // 避免「自己另取一份过滤过的存储数据」导致 150 期切片与统计口径和页面不一样）；
+    // 页面停在该彩种以外 / 还没加载数据时，才回退到本机存储，并在反馈里写明。
+    // v1.186：维度组跟彩种走——小窗选香港时用香港的开奖记录算香港那套维度推荐。
+    function modelFeedDimRecords(lottery) {
+        const lot = (lottery === 'hk') ? 'hk' : 'macau';
+        const label = (lot === 'hk') ? '香港' : '新澳门';
+        const cur = (typeof window.getCurrentLottery === 'function') ? window.getCurrentLottery() : 'macau';
+        if (cur === lot && Array.isArray(window._rawKjData) && window._rawKjData.length) {
+            return { records: window._rawKjData.slice(), source: '页面当前的' + label + '开奖数据' };
+        }
+        const note = (cur === 'hk' || cur === 'macau') ? ('（页面停' + (cur === 'hk' ? '香港特码' : '新澳门') + '）') : '';
+        return { records: modelFeedRecords(lot), source: '本机存储的' + label + '开奖记录' + note };
+    }
+    // 组装文本。opts（v1.186 起由 AI 小窗传入）：{ dims, macau, hk }；不传参 = 「维度 + 新澳门」＝改动前的规则。
+    //   维度 = 是否带上 5 组维度推荐（维度组跟彩种走）；新澳门 = 当天自动置顶的新澳门条目组；
+    //   香港 = 全部香港条目组；新澳门 / 香港互斥（两个都传进来时按香港算，UI 已挡住同时选中）。
+    // 成功返回 { text, dimCount, itemCount, hkMode, skipped, noParts, target, … }，失败返回 { error }。
+    function buildModelFeedText(opts) {
+        const sel = Object.assign({ dims: true, macau: true, hk: false }, opts || {});
+        if (sel.macau && sel.hk) sel.macau = false;       // 互斥兜底：两个都传进来时按香港算（UI 本来就挡住同时选中）
+        const hkMode = !!sel.hk;
+        const lottery = hkMode ? 'hk' : 'macau';
+        const lotLabel = hkMode ? '香港' : '新澳门';
+        const lines = [];
+        const echoes = [];
+        let dimCount = 0, target = null, dataSource = '', strategyLabel = '', strategyNote = '';
+        if (sel.dims) {
+            const rec = modelFeedDimRecords(lottery);
+            if (!rec.records.length) return { error: '本机没有' + lotLabel + '开奖记录，请先在预测页加载' + lotLabel + '开奖数据。' };
+            // v1.184：参数与数据都直接用页面的那一套（不再临时改参数），保证复制出来的 5 组与页面显示完全一致
+            let r = null;
+            try { r = (typeof predict === 'function') ? predict({ data: rec.records }) : null; } catch (e) { r = null; }
+            if (!r) return { error: lotLabel + '开奖数据不足，暂时算不出维度推荐。' };
+            const preds = r.historyPreds || [];
+            const hitRate = function(k) {
+                if (!preds.length) return null;
+                return Math.round(preds.filter(function(p) { return p[k]; }).length / preds.length * 100);
+            };
+            const missing = [];
+            MODEL_FEED_DIMS.forEach(function(d) {
+                const pct = hitRate(d.hit);
+                const nums = modelFeedDimNumbers(r, d.key);
+                if (pct == null || !nums.length) { missing.push(d.name); return; }
+                lines.push('概率' + pct + '%：' + nums.slice().sort().join(','));
+                echoes.push(d.name + ' ' + (d.values(r) || []).join(''));
+            });
+            if (missing.length) return { error: '维度推荐「' + missing.join('、') + '」还没算出来，请先在预测页刷新一次。' };
+            dimCount = MODEL_FEED_DIMS.length;
+            target = r.targetQishu;
+            dataSource = rec.source;
+            const strategyInfo = modelFeedStrategyLabel();
+            strategyLabel = strategyInfo.label;
+            strategyNote = strategyInfo.note || '';
+        }
+        // 后面的组 = 条目组：新澳门档＝当天的自动置顶条目（条数不固定，按置顶显示顺序快照排）；
+        // 香港档＝全部香港条目（香港条目不能置顶），按清单顺序排
+        const histMap = ensureImportHistories();
+        const itemList = hkMode
+            ? modelFeedHkItems(histMap)
+            : (window.__importedStrategies || [])
+                .filter(function(it) { return it && it.pinned && it.pinAuto && it.lottery !== 'hk'; })
+                .slice()
+                .sort(pinnedOrderComparator(histMap, (loadAutoPinState().pinOrder || [])));
+        let itemCount = 0, skipped = 0, noParts = 0;
+        itemList.forEach(function(it) {
+            const g = modelFeedItemGroup(it, histMap);
+            if (g.status === 'noParts') { noParts++; return; }   // 当期还没拿到子选项（等新期数据）→ 跳过
+            if (g.status !== 'ok') { skipped++; return; }        // 没战绩 / 算不出号码 → 跳过（作者 2026-10-13 口径）
+            lines.push(g.line);
+            itemCount++;
+        });
+        if (!dimCount && !itemCount) {
+            return {
+                error: hkMode
+                    ? '当前没有可提取的香港条目（清单里没有香港条目，或都还没战绩）。'
+                    : '当前没有当天自动置顶的新澳门条目（或都还没战绩）。'
+            };
+        }
+        const text = MODEL_FEED_HEAD + '\r\n\r\n\r\n' + lines.join('\r\n\r\n') + '\r\n\r\n\r\n' + MODEL_FEED_TAIL;
+        return {
+            text: text,
+            dimCount: dimCount,
+            itemCount: itemCount,
+            hkMode: hkMode,
+            skipped: skipped,
+            noParts: noParts,
+            target: target,
+            strategyLabel: strategyLabel,
+            strategyNote: strategyNote,
+            dataSource: dataSource,
+            dimEcho: echoes.join(' · ')
+        };
+    }
+
+    // 清单标题行的「AI」按钮：算好 → 写剪贴板 → 反馈区一行结果（失败只提示，不改任何既有状态）
+    // opts 由 AI 小窗传入（{dims, macau, hk}，见下面那一段）；不带参数 = 「维度 + 新澳门」＝改动前的规则。
+    window.copyModelFeedData = function(opts) {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        const say = function(html) { if (feedbackEl) feedbackEl.innerHTML = html; };
+        let out = null;
+        try { out = buildModelFeedText(opts); }
+        catch (e) { out = { error: '组装数据时出错：' + ((e && e.message) || e) }; }
+        if (!out || out.error) {
+            say('<span style="color:#ef4444;">❌ ' + escHtml(String((out && out.error) || '组装失败')) + '</span>');
+            return;
+        }
+        const done = function() {
+            const segs = [];
+            if (out.dimCount) segs.push('维度推荐 ' + out.dimCount + ' 组（' + escHtml(out.dimEcho || '') + '）');
+            segs.push((out.hkMode ? '香港条目 ' : '自动置顶条目 ') + out.itemCount + ' 条');
+            let html = '<span style="color:#16a34a;">✅ 已复制：' + segs.join(' + ');
+            if (out.target != null) html += ' · 第 ' + out.target + ' 期';
+            html += out.dimCount
+                ? (' · 维度用策略：' + escHtml(out.strategyLabel || '默认策略') + ' · 数据：' + escHtml(out.dataSource || ''))
+                : '（未含维度组）';
+            say(html +
+                (out.strategyNote ? '　⚠️ ' + escHtml(out.strategyNote) : '') +
+                (out.skipped ? '　（跳过 ' + out.skipped + ' 条无战绩条目）' : '') +
+                (out.noParts ? '　（跳过 ' + out.noParts + ' 条暂无子选项的' + (out.hkMode ? '香港' : '置顶') + '条目）' : '') + '</span>');
+        };
+        const fallbackCopy = function() {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = out.text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+                done();
+            } catch (err) {
+                say('<span style="color:#ef4444;">❌ 复制失败，请重试。</span>');
+            }
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(out.text).then(done).catch(fallbackCopy);
+        } else {
+            fallbackCopy();
+        }
+    };
+
+    // ========== v1.186（作者 2026-10-13 要求）：AI 小窗 ==========
+    // 点「AI」在按钮旁边弹小窗：上排 3 个可选中按键（维度 / 新澳门 / 香港），下排 确认 / 取消。
+    //   · 维度 + 新澳门 = 改动前的规则（5 组维度推荐 + 当天自动置顶的新澳门条目组）；
+    //   · 只选新澳门 = 不带新澳门那 5 个维度组，只输出自动置顶条目组；
+    //   · 选香港 = 全部香港条目组（选了维度就再带上香港那套维度推荐）；
+    //   · 新澳门 / 香港互斥（点其中一个自动取消另一个）；两个都没选时「确认」置灰并提示先选彩种。
+    // 选择只存在内存（window.__modelFeedSel），刷新后回到默认「维度 + 新澳门」；不写存储、不动页面任何状态。
+    window.__modelFeedSel = window.__modelFeedSel || { dims: true, macau: true, hk: false };
+
+    function modelFeedSelOn(key) {
+        const sel = window.__modelFeedSel;
+        return (key === 'dims') ? !!sel.dims : ((key === 'macau') ? !!sel.macau : !!sel.hk);
+    }
+
+    // 小窗按键 HTML（渲染清单时按当前选择画出选中态；清单每次重绘都会重新生成一遍）
+    function modelFeedOptHtml(key, label) {
+        return '<button type="button" class="zdr-model-feed-opt' + (modelFeedSelOn(key) ? ' on' : '') +
+            '" data-mf="' + key + '" onclick="window.toggleModelFeedOption(\'' + key + '\')">' + label + '</button>';
+    }
+    function modelFeedPopHtml() {
+        return '<span class="zdr-model-feed-wrap">' +
+            '<button id="ext-strategy-model-feed" class="zdr-import-head-btn" onclick="window.toggleModelFeedPop(event)" title="点一下选彩种 / 维度，再点「确认」：把选中的维度推荐 + 条目算成概率号码组，复制到剪贴板直接喂给大模型">AI</button>' +
+            '<div id="ext-strategy-model-feed-pop" class="zdr-model-feed-pop" onclick="event.stopPropagation()">' +
+                '<div class="zdr-model-feed-row">' +
+                    modelFeedOptHtml('dims', '维度') + modelFeedOptHtml('macau', '新澳门') + modelFeedOptHtml('hk', '香港') +
+                '</div>' +
+                '<div class="zdr-model-feed-row">' +
+                    '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-ok" onclick="window.confirmModelFeed()">确认</button>' +
+                    '<button type="button" class="zdr-model-feed-btn" onclick="window.closeModelFeedPop()">取消</button>' +
+                '</div>' +
+                '<div class="zdr-model-feed-note" id="ext-strategy-model-feed-note"></div>' +
+            '</div>' +
+        '</span>';
+    }
+
+    // 把内存里的选择同步到小窗（选中态 / 确认按钮可用性 / 提示文字）
+    function syncModelFeedPop() {
+        const pop = document.getElementById('ext-strategy-model-feed-pop');
+        if (!pop) return;
+        Array.prototype.forEach.call(pop.querySelectorAll('[data-mf]'), function(btn) {
+            if (modelFeedSelOn(btn.getAttribute('data-mf'))) btn.classList.add('on');
+            else btn.classList.remove('on');
+        });
+        const ready = !!(window.__modelFeedSel.macau || window.__modelFeedSel.hk);
+        const ok = document.getElementById('ext-strategy-model-feed-ok');
+        if (ok) ok.disabled = !ready;
+        const note = document.getElementById('ext-strategy-model-feed-note');
+        if (note) note.textContent = ready ? '' : '先选「新澳门」或「香港」';
+    }
+
+    // 点小窗以外的任何地方就收起来（只绑一次；清单重绘后旧的弹窗节点自然收起，选择保持）
+    let __modelFeedOutsideBound = false;
+    function modelFeedOutsideClick(ev) {
+        const pop = document.getElementById('ext-strategy-model-feed-pop');
+        if (!pop || !pop.classList.contains('open')) return;
+        const wrap = pop.parentNode;
+        if (pop.contains(ev.target) || (wrap && wrap.contains(ev.target))) return;
+        window.closeModelFeedPop();
+    }
+
+    window.toggleModelFeedPop = function(ev) {
+        if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+        const pop = document.getElementById('ext-strategy-model-feed-pop');
+        if (!pop) { window.copyModelFeedData(); return; }   // 兜底：小窗没渲染出来（正常不会发生）
+        if (pop.classList.contains('open')) { window.closeModelFeedPop(); return; }
+        syncModelFeedPop();
+        pop.classList.add('open');
+        if (!__modelFeedOutsideBound) {
+            __modelFeedOutsideBound = true;
+            document.addEventListener('click', modelFeedOutsideClick);
+        }
+    };
+
+    window.closeModelFeedPop = function() {
+        const pop = document.getElementById('ext-strategy-model-feed-pop');
+        if (pop) pop.classList.remove('open');
+    };
+
+    // 上排 3 个按键：可选中 / 取消选中；新澳门与香港互斥
+    window.toggleModelFeedOption = function(key) {
+        const sel = window.__modelFeedSel;
+        if (key === 'dims') sel.dims = !sel.dims;
+        else if (key === 'macau') { sel.macau = !sel.macau; if (sel.macau) sel.hk = false; }
+        else if (key === 'hk') { sel.hk = !sel.hk; if (sel.hk) sel.macau = false; }
+        syncModelFeedPop();
+    };
+
+    // 下排「确认」：按小窗里的选择复制
+    window.confirmModelFeed = function() {
+        const sel = window.__modelFeedSel;
+        if (!sel.macau && !sel.hk) return;   // 按钮本来就置灰，这里再兜一层
+        window.closeModelFeedPop();
+        window.copyModelFeedData({ dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk });
+    };
+
     // v1.162：切换「多条目筛选」档位（滑杆 1~4）。只改聚合口径并重算，不动条目勾选、子选项与冻结项；
     // 不写存储，刷新后回到 1 档。拖动过程中只就地更新刻度高亮（1 2 3 4）、不整段重绘清单，避免滑杆被重绘打断。
     window.setImportFilterVotes = function(raw) {
@@ -11770,8 +12180,13 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         //（反馈文字那一行不再挂按钮，改为独占一行；按钮 id / onclick 不变，仍走 updateToggleAllButton 控制显隐与文案）
         let listHtml = '<div class="zdr-import-head" style="margin:4px 0 2px;font-weight:600;">' +
             '<span class="zdr-import-head-text">' + headText + '</span>' +
-            '<button id="ext-strategy-toggle-all" class="zdr-import-head-btn" style="display:none;" onclick="window.toggleAllImportItems()">取消全选</button>' +
-            '<button id="ext-strategy-copy-btn" class="zdr-import-head-btn" style="display:none;" onclick="window.copyImportStrategies()">复制全部</button>' +
+            // v1.182（作者 2026-10-13 要求）：喂模型的按钮放在「启用 / 取消」按钮左边；
+            //   「取消全选 / 全部启用」「复制全部」的文案由四个字改成两个字，给新按钮腾位置。
+            // v1.186（作者 2026-10-13 要求）：按钮改成「AI」+ 旁边弹小窗（维度 / 新澳门 / 香港 + 确认 / 取消），
+            //   结构由 modelFeedPopHtml() 生成，选择状态存在 window.__modelFeedSel。
+            modelFeedPopHtml() +
+            '<button id="ext-strategy-toggle-all" class="zdr-import-head-btn" style="display:none;" onclick="window.toggleAllImportItems()" title="取消全选 / 全部启用（只作用于当前类别）">取消</button>' +
+            '<button id="ext-strategy-copy-btn" class="zdr-import-head-btn" style="display:none;" onclick="window.copyImportStrategies()" title="复制全部条目为 JSON（只作用于当前类别）">复制</button>' +
             '</div>';
         // v1.164：「多条目筛选」1~4 档滑杆——选入类与冻结/杀肖类都按档位聚合（1 档＝原口径：
         // 选入取交集、杀死取并集；2/3/4 档＝被 ≥N 条条目排除才剔除 / 要 ≥N 条同时杀才生效），
@@ -12017,7 +12432,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
         btn.style.display = 'inline-block';
         if (copyBtn) copyBtn.style.display = 'inline-block';
-        btn.textContent = visible.some(it => it.checked) ? '取消全选' : '全部启用';
+        // v1.182（作者 2026-10-13 要求）：文案由四个字改成两个字（原来占位太宽，给「喂模型」按钮腾位置）
+        const anyChecked = visible.some(it => it.checked);
+        btn.textContent = anyChecked ? '取消' : '启用';
+        btn.title = anyChecked ? '取消全选（只作用于当前类别）' : '全部启用（只作用于当前类别）';
     }
 
     // v1.141 起：分类按钮的统一外观（导入面板里的原按钮 + 抽屉拉手两侧的镜像按钮共用一套配色）。
