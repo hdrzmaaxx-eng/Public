@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.186 · 2026-10-13 22:00</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.187 · 2026-10-14 21:22</div>
 
         </div>
     
@@ -8514,7 +8514,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             }
             stopSpin();
             flashHistoryAction(btn, true, '同步成功', '同步失败');
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期；本机以后要加长，直接再点一次同步即可从云端取回旧期。</span>';
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期</span>';
         } catch (e) {
             const msg = String((e && e.message) || e);
             stopSpin();
@@ -10993,8 +10993,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //     维度组跟彩种走：新澳门档用新澳门开奖数据、香港档用香港开奖数据。
     //   本段只读不写：不写存储、不发网络请求、不动条目 / 档位 / 结果框的任何状态。
     // ==========================================================================
-    const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的8个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：以下各组条件中，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。';
-    const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 8个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终8个号码，不必输出全部49个号码的评分或中间过程。\r\n\r\n注意事项：\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。\r\n不能简单认为集合内每个号码等概率。\r\n需要综合所有条件，包括低概率组和号码出现/缺失情况，自行设定合理的加权或评分方式。';
+    const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的12个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：以下各组条件中，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。';
+    const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 12个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终12个号码，不必输出全部49个号码的评分或中间过程。\r\n\r\n注意事项：\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。\r\n不能简单认为集合内每个号码等概率。\r\n需要综合所有条件，包括低概率组和号码出现/缺失情况，自行设定合理的加权或评分方式。';
     const MODEL_FEED_DIMS = [
         { key: 'sx', hit: 'hitSX', name: '九肖', values: function(r) { return r.predSX || []; } },
         { key: 'ld', hit: 'hitLD', name: '八尾', values: function(r) { return r.predLD || []; } },
@@ -11271,7 +11271,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
     function modelFeedPopHtml() {
         return '<span class="zdr-model-feed-wrap">' +
-            '<button id="ext-strategy-model-feed" class="zdr-import-head-btn" onclick="window.toggleModelFeedPop(event)" title="点一下选彩种 / 维度，再点「确认」：把选中的维度推荐 + 条目算成概率号码组，复制到剪贴板直接喂给大模型">AI</button>' +
+            '<button id="ext-strategy-model-feed" class="zdr-import-head-btn" onclick="window.toggleModelFeedPop(event)" title="复制数据到剪贴板喂给大模型计算">AI</button>' +
             '<div id="ext-strategy-model-feed-pop" class="zdr-model-feed-pop" onclick="event.stopPropagation()">' +
                 '<div class="zdr-model-feed-row">' +
                     modelFeedOptHtml('dims', '维度') + modelFeedOptHtml('macau', '新澳门') + modelFeedOptHtml('hk', '香港') +
