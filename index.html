@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.187 · 2026-10-14 21:22</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.190 · 2026-10-14 22:28</div>
 
         </div>
     
@@ -8185,7 +8185,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //   ④ 跨年 / 生肖轮换：同步只搬运记录，不重算 hit、不重推生肖，历史里原有的 tm / sx / wx / color /
     //      partsText 原样保留，所以往年记录不会被今年的生肖表改写；
     //   ⑤ 安全：Token 只存本机 localStorage，只出现在 api.github.com 的请求头里，
-    //      绝不写进上传内容、不打印、不提交（红线同主脚本 0.7 多端同步模块）。
+    //      绝不写进上传内容、不打印、不提交（红线同主脚本 0.7 多端同步模块）；
+    //   ⑥ v1.188（作者 2026-10-14 确认）：合并结果与云端内容逐字一致时**跳过写回云端**——
+    //      等开奖期间每次打开 / 刷新都会核对一次，内容一字未改还 PATCH 只会在 Gist 里堆无用修订；
+    //      判据只看内容（键 / 彩种 / 标题 / 每期逐字），不看 updatedAt；云端还是空的（首次建立
+    //      history.json）或任何一处有变化 → 照旧写回（多写一次不会错，漏写才会丢数据）。
     const HIST_SYNC_CFG_KEY = 'zdr_hist_sync_cfg_v1';
     const HIST_SYNC_DEFAULT_GIST = '2f6550f70b4302aebce771a630cb2eb2'; // 与「开奖数据跨域提取助手」多端同步同一个 Gist
     const HIST_SYNC_FILE = 'history.json';
@@ -8420,6 +8424,33 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return { map: out, stats: stats };
     }
 
+    // v1.188（作者 2026-10-14 确认）：合并结果与云端内容「一模一样」时，这次就不用写回云端了 ——
+    // 等开奖期间每次打开 / 刷新都会核对一次，内容一字未改还去 PATCH 只会在 Gist 里堆一堆无用修订。
+    // 判据只看内容：键集合、每条彩种 / 标题、每期逐字（含期数与顺序，顺序在合并时统一按升序排过），
+    // 不看 updatedAt（内容一致的同期记录谁的时间戳新没有意义）；只要有一处不同就返回 false（照旧写回）。
+    // 注意 false 是安全的兜底方向：多写一次云端不会错，漏写才会丢数据。
+    function histSyncSameAsCloud(mergedMap, cloudMap) {
+        try {
+            const cloudKeys = Object.keys(cloudMap || {});
+            const mergedKeys = Object.keys(mergedMap || {});
+            if (cloudKeys.length !== mergedKeys.length) return false;
+            for (let i = 0; i < cloudKeys.length; i++) {
+                const k = cloudKeys[i];
+                const a = cloudMap[k], b = mergedMap[k];
+                if (!a || !b) return false; // 键被改名 / 消失：那次合并动了云端结构，照旧写回
+                if (String(a.lottery || '') !== String(b.lottery || '')) return false;
+                if (String(a.title || '') !== String(b.title || '')) return false;
+                const ap = Array.isArray(a.periods) ? a.periods : [];
+                const bp = Array.isArray(b.periods) ? b.periods : [];
+                if (ap.length !== bp.length) return false;
+                for (let j = 0; j < ap.length; j++) {
+                    if (JSON.stringify(ap[j]) !== JSON.stringify(bp[j])) return false;
+                }
+            }
+            return true;
+        } catch (e) { return false; }
+    }
+
     // 同步设置弹窗（Gist ID + Token，自带遮罩）：返回 Promise<boolean>（保存=true）
     function openHistSyncSettings() {
         return new Promise(function(resolve) {
@@ -8497,15 +8528,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (typeof renderImportList === 'function') renderImportList();
             if (typeof window.__refreshComboHistory === 'function') window.__refreshComboHistory();
             if (typeof scheduleImportHistoryRefresh === 'function') scheduleImportHistoryRefresh();
+            // v1.188：云端内容与合并结果逐字一致时跳过写回（省一次 PATCH、不给 Gist 添无用修订）；
+            // 云端还是空的（首次建立 history.json）或任何一处有变化 → 照旧写回。
+            const skipPush = !cloud.empty && histSyncSameAsCloud(merged, cloud.map);
             let pushErr = null;
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 正在写回云端…</span>';
-            try { await histSyncPushCloud(merged); } catch (e) { pushErr = e; }
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ ' + (skipPush ? '核对云端内容…' : '正在写回云端…') + '</span>';
+            if (!skipPush) { try { await histSyncPushCloud(merged); } catch (e) { pushErr = e; } }
             const s = mergedRes.stats || {};
             const mergedKeys = Object.keys(merged).length;
             let mergedPeriods = 0;
             Object.keys(merged).forEach(function(k) { mergedPeriods += ((merged[k] && merged[k].periods) || []).length; });
             const cloudState = cloud.empty ? '云端首次建立 ' + HIST_SYNC_FILE + '，' : '云端原有 ' + (s.cloudKeys || 0) + ' 条，';
-            const detail = cloudState + '本机原有 ' + (s.localKeys || 0) + ' 条 → 合并后 ' + mergedKeys + ' 条 / ' + mergedPeriods + ' 期（本机新增 ' + (s.addedPeriods || 0) + ' 期 · 覆盖 ' + (s.updatedPeriods || 0) + ' 期 · 待补补全 ' + (s.filledPending || 0) + ' 期）';
+            const detail = cloudState + '本机原有 ' + (s.localKeys || 0) + ' 条 → 合并后 ' + mergedKeys + ' 条 / ' + mergedPeriods + ' 期（本机新增 ' + (s.addedPeriods || 0) + ' 期 · 覆盖 ' + (s.updatedPeriods || 0) + ' 期 · 待补补全 ' + (s.filledPending || 0) + ' 期）'
+                + (skipPush ? '；云端内容与本次合并结果一致，未写回云端' : '');
             if (pushErr) {
                 stopSpin();
                 flashHistoryAction(btn, false, '同步成功', '同步失败');
@@ -8539,17 +8574,23 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         await runHistSync(btn, feedbackEl);
     };
 
-    // ========== v1.179：历史条目「自动同步云端」（作者 2026-10-11 要求） ==========
+    // ========== v1.179：历史条目「自动同步云端」（作者 2026-10-11 要求；v1.188 改核对判据） ==========
     // 两处触发，走的都是上面同一条同步通道（不带按钮、不弹设置窗、不闪按钮，只写反馈文字）：
     //   ① 「条目板块拿到最新开奖数据」→ refreshImportHistories / 补记轮询里调 autoSync('data')：
     //      只要「最新开奖数据指纹」（当前彩种最新记录的 日期 + 期数）变了，就立即自动同步一次；
     //   ② 打开 / 刷新页面后等 3~5 秒（默认 4 秒，等页面加载完）→ checkBox2AndAutoSyncHistories()：
     //      读 box2 直连通道（window.__realtimeDraw，与页面上 box2 显示的同一份站点 WebSocket 数据）的当期期数，
-    //      与本机历史条目里的最新期数比对，不一致就自动同步一次（读不到 2 秒后重试，最多 2 次，仍读不到静默放过）。
+    //      与本机历史条目的「最新一期状态」比对（读不到 2 秒后重试，最多 2 次，仍读不到静默放过）。
+    //      v1.188 判据（作者 2026-10-14 确认）：**不是**「期数是否相同」，而是「本机当期是否已拿到判定」——
+    //      本机最新期数 == box2 当期、但那一期还是「待补」（提取了当期条目、开奖数据还没到，hit=null）时也要同步一次，
+    //      否则手机端提取完当期条目后就永远拉不回云端（电脑端）同步上去的当期战绩；
+    //      本机当期已判定 → 视为一致，不同步；本机最新期数还落后于当期 → 同步（原规则）。
     // 安全 / 防抖口径：
     //   · 没配 Gist ID 或 Token → 静默跳过，绝不弹「同步设置」窗（自动动作不打断作者）；
-    //   · 同一个指纹只自动同步一次（指纹记在该键里），两次自动同步之间至少隔 60 秒（时间戳在发起前就落盘，
-    //     失败也不会立刻重试打网络）；
+    //   · 开奖数据指纹（sigs）仍是同一个指纹只同步一次；box2 指纹（'macau|当期期数'）的含义改成
+    //     「本机当期已判定」——只有核对完本机当期已是已判定才写指纹，仍待补时不写，所以等开奖期间
+    //     每次打开 / 刷新都会再核对一次（作者 2026-10-14：只按打开 / 刷新拉取，不做「页面常开时定时核对」）；
+    //   · 两次自动同步之间至少隔 60 秒（时间戳在发起前就落盘，失败也不会立刻重试打网络）；
     //   · 正在同步（window.__histSyncing）或本函数已在跑 → 直接跳过，不排队。
     // 红线不变：Token 只存本机 localStorage、只出现在 api.github.com 请求头，不写进云端文件、不打日志、不提交。
     const HIST_SYNC_AUTO_KEY = 'zdr_hist_autosync_v1';
@@ -8600,11 +8641,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         } catch (e) { return ''; }
     }
 
-    // 本机历史条目里某彩种的最新期数（一条期数都没有返回 null）
-    function latestLocalHistoryPeriod(lottery) {
+    // 本机历史条目里某彩种「最新一期」的状态：{ qishu, judged }（一条期数都没有返回 null）
+    // v1.188（作者 2026-10-14 确认）：box2 核对只看「期数是否相同」不够 —— 提取了当期条目、开奖数据还没到时，
+    // 本机当期是一条「待补」记录（hit=null），期数与 box2 当期相同但内容并不一致（云端可能已有电脑端同步上去的
+    // 判定结果），旧口径会当成「已一致」直接不同步。judged = 该期所有条目都已判定（任一还待补就算没拿到）。
+    function latestLocalHistoryInfo(lottery) {
         try {
             const map = loadImportHistories();
-            let max = null;
+            let max = null, allJudged = true;
             Object.keys(map || {}).forEach(function(k) {
                 const h = map[k];
                 if (!h || !Array.isArray(h.periods)) return;
@@ -8612,10 +8656,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 h.periods.forEach(function(p) {
                     const q = parseInt(p && p.qishu, 10);
                     if (!isFinite(q)) return;
-                    if (max == null || q > max) max = q;
+                    if (max == null || q > max) { max = q; allJudged = true; }
+                    if (q === max && !(p && p.hit != null)) allJudged = false;
                 });
             });
-            return max;
+            return max == null ? null : { qishu: max, judged: allJudged };
         } catch (e) { return null; }
     }
 
@@ -8636,17 +8681,27 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (!cfg.gistId || !cfg.token) return false; // 没配好：静默跳过（不弹设置窗）
             const st = loadHistAutoSyncState();
             const now = Date.now();
-            const payload = { lot: '', sig: '', box2: '' };
+            const payload = { lot: '', sig: '', box2: '', box2Cur: 0, box2Why: '' };
             if (trigger === 'box2') {
                 const cur = box2CurrentPeriod();
                 if (cur == null) return false;
                 const key = 'macau|' + cur;
-                if (st.box2 === key) return false; // 这一期已经按 box2 校验同步过
-                const local = latestLocalHistoryPeriod('macau');
+                const info = latestLocalHistoryInfo('macau');
                 const hasItems = (window.__importedStrategies || []).length > 0;
-                if (local == null && !hasItems) return false; // 本机既没条目也没历史：没有可比对的东西
-                if (local != null && local === cur) return false; // 与 box2 一致：不再同步
+                if (!info && !hasItems) return false; // 本机既没条目也没历史：没有可比对的东西
+                // v1.188：判据＝「本机当期是否已拿到判定」，不是「期数是否相同」。
+                // 本机当期已判定 → 视为一致（不同步），并把指纹记成「这一期已核对完成」；
+                // 本机当期还是「待补」（提取了条目、开奖数据没到）→ 也算不一致，要拉一次云端（可能就是电脑端的结果）；
+                // 本机最新期数还落后于当期 → 照旧同步。
+                if (info && info.qishu === cur && info.judged) {
+                    if (st.box2 !== key) { st.box2 = key; saveHistAutoSyncState(st); }
+                    return false;
+                }
                 payload.box2 = key;
+                payload.box2Cur = cur;
+                payload.box2Why = (info && info.qishu === cur)
+                    ? '本机当期还是「待补」（这期开奖数据没到）'
+                    : '本机最新期数还落后于当期';
             } else {
                 const sig = histAutoSyncDrawSig();
                 if (!sig) return false;
@@ -8662,13 +8717,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             const feedbackEl = document.getElementById('ext-strategy-feedback');
             if (feedbackEl) {
                 feedbackEl.innerHTML = '<span style="color:#1d4ed8;">⏳ 自动同步云端 ' + HIST_SYNC_FILE + ' …（'
-                    + (trigger === 'box2' ? '按 box2 实时开奖核对：本机最新期数与当期不一致' : '刚拿到最新开奖数据') + '）</span>';
+                    + (trigger === 'box2' ? ('按 box2 实时开奖核对：' + (payload.box2Why || '本机最新期数与当期不一致')) : '刚拿到最新开奖数据') + '）</span>';
             }
             // 用一个临时容器接住 runHistSync 的输出，再整体贴回反馈区（自动同步不闪按钮，只留一行结果）
             const sink = document.createElement('div');
             await runHistSync(null, sink);
             if (payload.sig) st.sigs[payload.lot] = payload.sig;
-            if (payload.box2) st.box2 = payload.box2;
+            // v1.188：box2 指纹（'macau|当期期数'）只在「本机当期已判定」时才写。这次核对完本机当期还是待补
+            // （云端也还没结果）就不写指纹 —— 下次打开 / 刷新会再核对一次（仍受 60 秒间隔限制），
+            // 否则又会变回「这一期永不核对」的老毛病。
+            if (payload.box2) {
+                const after = latestLocalHistoryInfo('macau');
+                if (after && after.qishu === payload.box2Cur && after.judged) st.box2 = payload.box2;
+            }
             st.at = Date.now();
             saveHistAutoSyncState(st);
             const msg = String(sink.innerHTML || '').trim();
@@ -8685,7 +8746,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     }
     window.autoSyncImportHistories = autoSyncImportHistories;
 
-    // 打开 / 刷新页面后：等页面加载完（约 4 秒）再按 box2 的当期期数核对本机历史条目，不一致就自动同步一次
+    // 打开 / 刷新页面后：等页面加载完（约 4 秒）再按 box2 的当期期数核对本机历史条目，
+    // v1.188 起「不一致」＝本机当期还没拿到判定（待补）或本机最新期数落后于当期，两种情况都会自动同步一次
     function checkBox2AndAutoSyncHistories(tries) {
         try {
             if (box2CurrentPeriod() == null) {
@@ -10993,8 +11055,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //     维度组跟彩种走：新澳门档用新澳门开奖数据、香港档用香港开奖数据。
     //   本段只读不写：不写存储、不发网络请求、不动条目 / 档位 / 结果框的任何状态。
     // ==========================================================================
-    const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的12个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：以下各组条件中，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。';
-    const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 12个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终12个号码，不必输出全部49个号码的评分或中间过程。\r\n\r\n注意事项：\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。\r\n不能简单认为集合内每个号码等概率。\r\n需要综合所有条件，包括低概率组和号码出现/缺失情况，自行设定合理的加权或评分方式。';
+    const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的10个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：下方提供的若干组概率条件，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。\r\n\r\n处理要求：\r\n先对概率组去重：完全相同的集合只保留一次；\r\n高度重叠或高度相关的集合应降权或合并处理，避免重复计分。\r\n建议采用“最大熵约束校准 / IPF”方式：要求对每组满足 \(\sum_{x \in S_i} r_x = p_i\)，在最大熵原则下联合校准，而不是简单对每组等权相加。\r\n对高概率组（如 ≥93%）可适当加大权重，其他组保持基准权重。\r\n高概率组若覆盖号码很多，需注意其信息量，避免仅因“在集合内”就过度加分。\r\n不能简单认为集合内每个号码等概率。需要综合所有条件，包括低概率组、号码出现/缺失情况，自行设定合理的加权或评分方式。\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。';
+    const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 10个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终10个号码，不必输出全部49个号码的评分或中间过程。';
     const MODEL_FEED_DIMS = [
         { key: 'sx', hit: 'hitSX', name: '九肖', values: function(r) { return r.predSX || []; } },
         { key: 'ld', hit: 'hitLD', name: '八尾', values: function(r) { return r.predLD || []; } },
@@ -13155,7 +13217,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
       scheduleMidnightClear();
       schedulePinnedDayAdvance();
       // v1.137：schedulePinnedPreDrawClear（23:59 置顶子选项清空）已并入 05:00 的 scheduleMidnightClear
-      // v1.179：等页面加载完（约 4 秒）再按 box2 实时开奖的当期期数核对本机历史条目，不一致就自动同步一次云端
+      // v1.179 / v1.188：等页面加载完（约 4 秒）再按 box2 实时开奖的当期期数核对本机历史条目
+      //（v1.188：本机当期还是「待补」也算不一致），需要时自动同步一次云端
       setTimeout(function() {
         if (typeof window.checkBox2AndAutoSyncHistories === 'function') { try { window.checkBox2AndAutoSyncHistories(0); } catch (e) { /* ignore */ } }
       }, 4000);
