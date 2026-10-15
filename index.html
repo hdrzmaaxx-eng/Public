@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.190 · 2026-10-14 22:28</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.191 · 2026-10-15 20:22</div>
 
         </div>
     
@@ -7175,7 +7175,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // v2 语义：每一期只跟自己的开奖一一对应（222 期条目只对 222 期开奖判定中/不中），
     // 同一条策略（去掉标题里的期数前缀）跨期在本地累积各自的开奖结果。
     const IMPORT_HISTORY_KEY = 'zdr_import_history_v2';
-    const IMPORT_HISTORY_LIMIT = 30; // v1.87：历史保留上限 10→30（导出/导入/清理共用；第三排默认仍只显示最近 10 期）
+    const IMPORT_HISTORY_LIMIT = 40; // v1.87：历史保留上限 10→30（导出/导入/清理共用；第三排默认仍只显示最近 10 期）
 
     // 旧版 v1 是「当前策略回测最近 10 期」的错误语义，作废并清理
     try { localStorage.removeItem('zdr_import_history_v1'); } catch (e) { /* ignore */ }
