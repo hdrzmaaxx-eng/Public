@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.194 · 2026-10-16 21:51</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.195 · 2026-10-16 22:15</div>
 
         </div>
     
@@ -7292,6 +7292,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         target.effects = buildItemEffects(target.parts || []);
         target.pinned = wasPinned;
         target.pendingRefresh = false;
+        target.partsRestored = false;   // v1.195：本机真提取到当期内容 → 不再是「云端还原」状态
+        target.cloudRestored = false;
         if (pinnedResetDate) target.pinnedResetDate = pinnedResetDate;
     }
 
@@ -7683,6 +7685,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         // 23:59 清空置顶子条目后 parts 为空：不得用空 parts 重算或新建当期记录，
         // 否则会把开奖时已登记的真实中/不中战绩覆盖成无约束的“中”（v1.84 修复 v1.82 回归）。
         if (!(it.parts || []).length) return false;
+        // v1.195：子条目是从云端历史还原来的（本机没提取过当期内容）→ 不回头重写历史：
+        //   该期记录要么是云端来的「待补」（由 fillPendingImportHistories 按记录自带的快照补全），要么已判定；
+        //   重写只会把 partsText 摘要改成另一版，把云端记录带偏。
+        if (it.partsRestored) return false;
         const key = importHistoryKey(it);
         const prev = map[key];
         const hadFilled = !!(prev && Array.isArray(prev.periods) && prev.periods.some(p => p && p.qishu != null && parseInt(p.qishu, 10) === period && p.hit != null));
@@ -7773,6 +7779,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // 开奖数据刷新后登记历史并刷新清单；置顶条目期数只由午夜确认任务推进。
     function refreshImportHistories() {
         ensureImportHistories();
+        // v1.195：开奖数据一到，除登记历史外，也按本机历史（含云端那份）补齐当期条目 / 还原子条目
+        // （期数没往前走时内部直接返回，不会反复动清单）
+        try { restoreImportedItemsFromHistory({}); } catch (e) { /* ignore */ }
         if (typeof renderImportList === 'function') renderImportList();
         // v1.179：拿到最新开奖数据并登记完历史后，立即自动同步一次云端（没配 Token / 同一份数据已同步过则静默跳过）
         if (typeof window.autoSyncImportHistories === 'function') { try { window.autoSyncImportHistories('data'); } catch (e) { /* ignore */ } }
@@ -8525,6 +8534,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 localOut[k] = { lottery: h.lottery, title: h.title, periods: h.periods.slice(), updatedAt: h.updatedAt || '' };
             });
             if (!saveImportHistories(localOut)) throw new Error('本机历史条目写入失败（浏览器存储可能已满或被禁用）');
+            // v1.195（作者 2026-10-16 要求）：历史合并好之后，按这份（含云端拉回来的）历史把当期条目补齐 / 子条目还原 ——
+            //   本机自己提取过的条目内容一致时什么都不做；没提取过的那台设备（手机）会得到跟电脑端一样的当期条目与子条目。
+            //   手点「同步云端（合并）」时带 force：即使这一期本机已经处理过，也照当前云端内容重算一次。
+            let restoreInfo = null;
+            try { restoreInfo = restoreImportedItemsFromHistory({ force: !!btn }); } catch (e) { restoreInfo = null; }
             if (typeof renderImportList === 'function') renderImportList();
             if (typeof window.__refreshComboHistory === 'function') window.__refreshComboHistory();
             if (typeof scheduleImportHistoryRefresh === 'function') scheduleImportHistoryRefresh();
@@ -8544,12 +8558,12 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (pushErr) {
                 stopSpin();
                 flashHistoryAction(btn, false, '同步成功', '同步失败');
-                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#b45309;">⚠️ 云端写入失败：' + escHtml(String((pushErr && pushErr.message) || pushErr)) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机已合并完成（' + escHtml(detail) + '），云端未更新，请检查 Token 的 gist 权限后重试。</span>';
+                if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#b45309;">⚠️ 云端写入失败：' + escHtml(String((pushErr && pushErr.message) || pushErr)) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机已合并完成（' + escHtml(detail) + '），云端未更新，请检查 Token 的 gist 权限后重试。</span>' + importRestoreSummaryHtml(restoreInfo);
                 return;
             }
             stopSpin();
             flashHistoryAction(btn, true, '同步成功', '同步失败');
-            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期</span>';
+            if (feedbackEl) feedbackEl.innerHTML = '<span style="color:#16a34a;">✅ 同步完成：' + escHtml(detail) + '</span><br><span style="color:#64748b;font-size:0.75rem;">本机按最近 ' + IMPORT_HISTORY_LIMIT + ' 期使用，云端保留最近 ' + HIST_SYNC_CLOUD_LIMIT + ' 期</span>' + importRestoreSummaryHtml(restoreInfo);
         } catch (e) {
             const msg = String((e && e.message) || e);
             stopSpin();
@@ -8758,6 +8772,200 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         } catch (e) { return false; }
     }
     window.checkBox2AndAutoSyncHistories = checkBox2AndAutoSyncHistories;
+
+    // ========== v1.195（作者 2026-10-16 要求）：云端「当期条目」还原 ==========
+    // 场景（作者原话）：电脑端提了当期条目、拿到开奖数据并把历史同步到了云端；手机端没提取，只是把云端历史拉回来，
+    //   这时手机端条目的子条目显示「（请先获取数据）」。要求：手机端要跟电脑端提取后的样子一样 ——
+    //   当期**全部**条目（置顶的与不置顶的都算）都显示出来、子条目也是当期的，之后照既有逻辑跨天清空。
+    // 口径：
+    //   ① 目标期数 = 本机历史（含刚合并回来的云端记录）里该彩种「最新的一期」，且那条记录 24 小时内更新过
+    //      （updatedAt）——当期内容本来就是「昨晚开奖后写好、留到今晚开奖」这一段，隔太久没再更新的旧期不翻出来当当期；
+    //   ② 每个彩种记一个「已还原到哪一期」的小本本（IMPORT_RESTORE_KEY，只存本机）：期数没往前走就不动手 ——
+    //      这样 05:00 跨天清空之后，下次自动同步 / 刷新 / 等开奖期间的核对都不会把清单又还原回一大堆条目；
+    //      「同步云端（合并）」是作者手点的，按强制还原处理（当期条目会被拉回来，再想清空就点清空）；
+    //   ③ 键已在本机清单里（最常见的是置顶条目，或本机自己提取过的）→ 用该期内容就地更新它，走
+    //      updateImportedStrategyRecord —— 与「提取条目」完全同一条路：保留勾选 / 置顶，标题推进到当期、子条目换成当期；
+    //      键不在清单里 → 新建条目（不置顶、默认勾选，打 cloudRestored 标记：本机以后真提取到同策略同期内容时由它接管，
+    //      不会多出一条重复条目）；
+    //   ④ 子条目内容：优先用「待补」记录留下的 parts 快照（逐字段原样），没有快照就把 partsText 按段标签还原
+    //      （comboPartsFromText，v1.174「组合历史战绩」回放那一套，作者 577 条真实历史实测 99.3%）；
+    //   ⑤ 只搬内容、绝不重算：不写云端、不改云端记录里的 hit / tm / sx / wx / color（红线：同步只搬运记录）；
+    //      还原出来的条目也不回头重写历史（partsRestored 标记），免得把 partsText 摘要改写成另一版、把云端记录带偏；
+    //   ⑥ 标题：以该条历史的标题为底拼成「<期数>期:<标题>」——与主脚本 ensureEntryTitle 的成品格式一致，
+    //      这样条目自己的期数、网站分组、历史键（importHistoryKey）都跟提取来的条目完全对得上；
+    //      latest_data 记该期摘要（partsText），方便悬浮查看。
+    const IMPORT_RESTORE_KEY = 'zdr_import_restore_v1';
+    const IMPORT_RESTORE_FRESH_MS = 24 * 60 * 60 * 1000;
+
+    function loadImportRestoreState() {
+        try {
+            const raw = localStorage.getItem(IMPORT_RESTORE_KEY);
+            const d = raw ? JSON.parse(raw) : null;
+            return {
+                macau: parseInt((d && d.macau) || 0, 10) || 0,
+                hk: parseInt((d && d.hk) || 0, 10) || 0
+            };
+        } catch (e) { return { macau: 0, hk: 0 }; }
+    }
+
+    function saveImportRestoreState(st) {
+        try {
+            localStorage.setItem(IMPORT_RESTORE_KEY, JSON.stringify({
+                macau: parseInt((st && st.macau) || 0, 10) || 0,
+                hk: parseInt((st && st.hk) || 0, 10) || 0
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
+    // 某期记录里的子条目：优先 parts 快照，没有就按 partsText 还原（都没有返回 null）
+    function importPartsForPeriod(h, p, key) {
+        if (!p) return null;
+        if (Array.isArray(p.parts) && p.parts.length) {
+            return p.parts.map(function(x) { return Object.assign({ checked: x.checked !== false }, x); });
+        }
+        const text = String(p.partsText || '');
+        if (!text) return null;
+        try {
+            const parts = (typeof comboPartsFromText === 'function') ? comboPartsFromText(text, h, key) : null;
+            return (parts && parts.length) ? parts : null;
+        } catch (e) { return null; }
+    }
+
+    // 该彩种「最新的一期」（只看 24 小时内更新过的记录；一条都没有返回 null）
+    function importRestoreTarget(lottery, histMap) {
+        let best = null;
+        Object.keys(histMap || {}).forEach(function(k) {
+            const h = histMap[k];
+            if (!h || !Array.isArray(h.periods)) return;
+            if (((h.lottery === 'hk') ? 'hk' : 'macau') !== lottery) return;
+            const at = Date.parse(String(h.updatedAt || ''));
+            if (!isFinite(at) || (Date.now() - at) > IMPORT_RESTORE_FRESH_MS) return;
+            h.periods.forEach(function(p) {
+                const q = parseInt(p && p.qishu, 10);
+                if (!isFinite(q)) return;
+                if (!best || q > best.period) best = { period: q };
+            });
+        });
+        return best;
+    }
+
+    function importRestoreTitle(h, key, period) {
+        // 与主脚本 ensureEntryTitle 的成品格式对齐：「<期数>期:<标题>」（标题里万一还留着期数先剥掉）
+        const base = String((h && h.title) || (typeof historyTitleFromKey === 'function' ? historyTitleFromKey(key) : '') || key || '').trim();
+        const core = base.replace(/^\s*0*\d{1,4}\s*期[:：]?\s*/, '') || base;
+        return String(period) + '期:' + core;
+    }
+
+    // 还原单个彩种（返回 { lottery, target, added, updated, moved }）
+    function restoreImportedItemsForLottery(lottery, histMap, state, opts) {
+        const res = { lottery: lottery, target: null, added: 0, updated: 0, moved: false };
+        const target = importRestoreTarget(lottery, histMap);
+        if (!target) return res;
+        res.target = target.period;
+        const prev = parseInt((state && state[lottery]) || 0, 10) || 0;
+        if (target.period <= prev && !(opts && opts.force)) return res;   // 期数没往前走：不动手
+        res.moved = target.period > prev;
+        const items = window.__importedStrategies || [];
+        // 本机清单里该彩种现有的最大期数：云端这份比它旧就什么都不做，绝不把条目往旧期推
+        // （电脑端当晚还没提取、本机置顶条目已经推到新期时会出现这种情况）
+        let localMaxPeriod = null;
+        items.forEach(function(it) {
+            if (!it || ((it.lottery === 'hk') ? 'hk' : 'macau') !== lottery) return;
+            const p = extractItemPeriod(it);
+            if (p == null) return;
+            if (localMaxPeriod == null || p > localMaxPeriod) localMaxPeriod = p;
+        });
+        if (localMaxPeriod != null && localMaxPeriod > target.period) return res;
+        Object.keys(histMap || {}).forEach(function(k) {
+            const h = histMap[k];
+            if (!h || !Array.isArray(h.periods)) return;
+            if (((h.lottery === 'hk') ? 'hk' : 'macau') !== lottery) return;
+            const at = Date.parse(String(h.updatedAt || ''));
+            if (!isFinite(at) || (Date.now() - at) > IMPORT_RESTORE_FRESH_MS) return;
+            const p = h.periods.filter(function(x) { return parseInt(x && x.qishu, 10) === target.period; })[0];
+            if (!p) return;
+            const parts = importPartsForPeriod(h, p, k);
+            if (!parts || !parts.length) return;
+            const title = importRestoreTitle(h, k, target.period);
+            const exist = items.filter(function(it) { return it && importHistoryKey(it) === k; })[0] || null;
+            if (exist) {
+                // 已经是当期内容（本机自己提取过的）：不动它
+                const existPeriod = extractItemPeriod(exist);
+                if (existPeriod === target.period && (exist.parts || []).length) return;
+                if (existPeriod != null && existPeriod > target.period) return;   // 本机这条更靠后：不倒推
+                const wasCloudRestored = !!exist.cloudRestored;   // updateImportedStrategyRecord 会清掉标记，这里原样还回去
+                try {
+                    updateImportedStrategyRecord(exist, {
+                        title: title,
+                        latest_data: String(p.partsText || ''),
+                        lottery: lottery,
+                        parts: parts
+                    });
+                    exist.partsRestored = true;   // 内容来自云端：不回头重写历史
+                    exist.cloudRestored = wasCloudRestored;
+                    res.updated++;
+                } catch (e) { /* 单条异常不影响其它条目 */ }
+                return;
+            }
+            try {
+                items.push({
+                    title: title,
+                    latest_data: String(p.partsText || ''),
+                    lottery: lottery,
+                    checked: true,
+                    parts: parts,
+                    effects: buildItemEffects(parts),
+                    pinned: false,
+                    pinAuto: false,
+                    cloudRestored: true,
+                    partsRestored: true
+                });
+                res.added++;
+            } catch (e) { /* ignore */ }
+        });
+        return res;
+    }
+
+    // 入口：按当前本机历史（含云端刚合并回来的那份）补齐当期条目 / 还原子条目
+    // opts.force = true（作者手点「同步云端（合并）」）时，即使期数没往前走也重算一次当期
+    function restoreImportedItemsFromHistory(opts) {
+        const out = { added: 0, updated: 0, details: [], changed: false };
+        try {
+            const map = loadImportHistories();
+            const state = loadImportRestoreState();
+            let moved = false;
+            ['macau', 'hk'].forEach(function(lot) {
+                const r = restoreImportedItemsForLottery(lot, map, state, opts);
+                if (!r.target) return;
+                out.details.push({ lottery: lot, target: r.target, added: r.added, updated: r.updated });
+                out.added += r.added;
+                out.updated += r.updated;
+                // 小本本只往上记（期数倒退时不写低）
+                if (r.moved || (opts && opts.force)) { state[lot] = Math.max(parseInt(state[lot], 10) || 0, r.target); moved = true; }
+            });
+            if (moved) saveImportRestoreState(state);
+            if (out.added || out.updated) {
+                out.changed = true;
+                if (typeof saveImportedStrategies === 'function') saveImportedStrategies();
+                if (typeof syncImportState === 'function') syncImportState();
+                if (typeof renderImportList === 'function') renderImportList();
+            }
+        } catch (e) { /* ignore */ }
+        return out;
+    }
+    window.restoreImportedItemsFromHistory = restoreImportedItemsFromHistory;
+
+    // 还原结果 → 反馈区里的一行（没有动作时返回空串）
+    function importRestoreSummaryHtml(res) {
+        if (!res || !(res.added || res.updated)) return '';
+        const segs = [];
+        (res.details || []).forEach(function(d) {
+            if (!(d.added || d.updated)) return;
+            segs.push((d.lottery === 'hk' ? '香港' : '新澳门') + '第 ' + d.target + ' 期：新增 ' + d.added + ' 条 / 补齐 ' + d.updated + ' 条');
+        });
+        if (!segs.length) return '';
+        return '<br><span style="color:#0f766e;font-size:0.75rem;">📥 已按云端历史还原当期条目（' + escHtml(segs.join('；')) + '）</span>';
+    }
 
     // 导入历史条目：点击弹小窗选择方式（粘贴导入 / 导入JSON文件）
     window.importImportHistories = function(btn) {
@@ -11057,6 +11265,19 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     // ==========================================================================
     const MODEL_FEED_HEAD = '根据下方多组概率条件，从01–49中选出综合概率最高的10个号码\r\n\r\n号码范围为 01–49，共49个号码。\r\n已知条件：下方提供的若干组概率条件，每组表示“最终号码落入该集合中”的概率。注意：概率只表示最终号码落入该集合的可能性，不代表集合内每个号码单独概率相同。\r\n\r\n处理要求：\r\n先对概率组去重：完全相同的集合只保留一次；\r\n高度重叠或高度相关的集合应降权或合并处理，避免重复计分。\r\n建议采用“最大熵约束校准 / IPF”方式：要求对每组满足 \(\sum_{x \in S_i} r_x = p_i\)，在最大熵原则下联合校准，而不是简单对每组等权相加。\r\n对高概率组（如 ≥93%）可适当加大权重，其他组保持基准权重。\r\n高概率组若覆盖号码很多，需注意其信息量，避免仅因“在集合内”就过度加分。\r\n不能简单认为集合内每个号码等概率。需要综合所有条件，包括低概率组、号码出现/缺失情况，自行设定合理的加权或评分方式。\r\n不要只被高概率组迷惑：高概率组虽然包含大量号码，但组内未必含有目标号码，低概率组同理。';
     const MODEL_FEED_TAIL = '输出要求：\r\n从01–49中选出 10个号码。\r\n按综合概率 从高到低排序。\r\n只需输出最终10个号码，不必输出全部49个号码的评分或中间过程。';
+    // v1.195（作者 2026-10-16 要求）：「容错」要求按小窗的档位追加在「已知条件：…」那段结尾——
+    //   基准＝新澳门 2 组 / 香港 3 组（该档位下至少有这么多组「一个预测号都不包含」），勾了「维度」再 +1 组：
+    //     维度 + 新澳门 = 3 · 只新澳门 = 2 · 维度 + 香港 = 4 · 只香港 = 3
+    //   拼法：MODEL_FEED_HEAD（固定头）一个字节都不动，直接把这一句接在它后面（组间格式 / 固定尾巴 / CRLF 不动）。
+    //   同一档位的数字也给「预测」按钮的硬性约束用（见下面 modelFeedPickNumbers）。
+    const MODEL_FEED_TOLERANT_BASE = { macau: 2, hk: 3 };
+    function modelFeedTolerantCount(sel) {
+        const base = (sel && sel.hk) ? MODEL_FEED_TOLERANT_BASE.hk : MODEL_FEED_TOLERANT_BASE.macau;
+        return base + ((sel && sel.dims) ? 1 : 0);
+    }
+    function modelFeedTolerantSentence(sel) {
+        return '至少有' + modelFeedTolerantCount(sel) + '组不包含命中号码。';
+    }
     const MODEL_FEED_DIMS = [
         { key: 'sx', hit: 'hitSX', name: '九肖', values: function(r) { return r.predSX || []; } },
         { key: 'ld', hit: 'hitLD', name: '八尾', values: function(r) { return r.predLD || []; } },
@@ -11108,7 +11329,14 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (!partsAll.length) return { status: 'noParts' };
         const nums = comboNumbersFromAgg(buildItemEffects(partsAll));
         if (!nums || !nums.length) return { status: 'noStats' };
-        return { status: 'ok', line: '概率' + Math.round(st.rate * 100) + '%：' + nums.slice().sort().join(',') };
+        // v1.195：除了成行的文本，也把「号码集合 + 概率」交给调用方（AI 小窗的「预测」要用这两样打分，
+        //   保证页面内算的就是复制给大模型的那几组，不另起一套口径）
+        return {
+            status: 'ok',
+            line: '概率' + Math.round(st.rate * 100) + '%：' + nums.slice().sort().join(','),
+            rate: st.rate,
+            nums: nums.slice().sort()
+        };
     }
 
     // 香港条目（作者 2026-10-13 口径）：香港条目不能置顶，所以「香港」这一档取**全部香港条目**，
@@ -11194,6 +11422,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const lotLabel = hkMode ? '香港' : '新澳门';
         const lines = [];
         const echoes = [];
+        const groups = [];   // v1.195：给「预测」按钮用的结构化概率组 [{name, nums, p}]（p = 0~1）
         let dimCount = 0, target = null, dataSource = '', strategyLabel = '', strategyNote = '';
         if (sel.dims) {
             const rec = modelFeedDimRecords(lottery);
@@ -11213,6 +11442,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 const nums = modelFeedDimNumbers(r, d.key);
                 if (pct == null || !nums.length) { missing.push(d.name); return; }
                 lines.push('概率' + pct + '%：' + nums.slice().sort().join(','));
+                groups.push({ name: d.name, nums: nums.slice().sort(), p: pct / 100 });
                 echoes.push(d.name + ' ' + (d.values(r) || []).join(''));
             });
             if (missing.length) return { error: '维度推荐「' + missing.join('、') + '」还没算出来，请先在预测页刷新一次。' };
@@ -11239,6 +11469,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (g.status !== 'ok') { skipped++; return; }        // 没战绩 / 算不出号码 → 跳过（作者 2026-10-13 口径）
             lines.push(g.line);
             itemCount++;
+            groups.push({ name: (hkMode ? '香港条目' : '置顶条目') + itemCount, nums: g.nums, p: g.rate });
         });
         if (!dimCount && !itemCount) {
             return {
@@ -11247,7 +11478,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     : '当前没有当天自动置顶的新澳门条目（或都还没战绩）。'
             };
         }
-        const text = MODEL_FEED_HEAD + '\r\n\r\n\r\n' + lines.join('\r\n\r\n') + '\r\n\r\n\r\n' + MODEL_FEED_TAIL;
+        // v1.195：固定头原样 + 按档位追加的容错句（「已知条件：…」那段结尾），其余不动
+        const text = MODEL_FEED_HEAD + modelFeedTolerantSentence(sel) + '\r\n\r\n\r\n' + lines.join('\r\n\r\n') + '\r\n\r\n\r\n' + MODEL_FEED_TAIL;
         return {
             text: text,
             dimCount: dimCount,
@@ -11259,7 +11491,9 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             strategyLabel: strategyLabel,
             strategyNote: strategyNote,
             dataSource: dataSource,
-            dimEcho: echoes.join(' · ')
+            dimEcho: echoes.join(' · '),
+            groups: groups,
+            tolerant: modelFeedTolerantCount(sel)
         };
     }
 
@@ -11312,6 +11546,168 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         }
     };
 
+    // ========== v1.195（作者 2026-10-16 要求）：AI 小窗「预测」= 页面内直接出号 ==========
+    // 作者原话：与其把数据复制出去喂别的模型，不如页面自己算。所以这里把固定头里那套要求**照着自己实现一遍**：
+    //   ① 概率组来源与「喂模型」完全相同 —— 同一档选择下 buildModelFeedText 拼进文本的那几组
+    //      （维度组 5 个 + 条目组若干），所以复制出去的内容和这里算的内容永远是同一份；
+    //   ② 打分：完全相同的集合只留一次（取概率高的那条）→ 高度重叠（Jaccard ≥0.8）的后一条降权 →
+    //      ≥93% 的高概率组加权 → 最大熵约束校准（IPF）：反复把每组的 Σ_{x∈S_i} r_x 拉向 p_i（阻尼 0.5、逐步归一化），
+    //      **不按组内等概率**，最后按 r_x 从高到低取前 10；
+    //   ③ 硬性容错（作者 2026-10-16 拍板要硬约束，不是只提示）：选出的 10 个号码里必须至少有 N 组「一个都不包含」，
+    //      N 与小窗提示词那句同一个数（维度+新澳门 3 / 只新澳门 2 / 维度+香港 4 / 只香港 3）。
+    //      做法：枚举「哪 N 组游离」（按组权重合计从小到大取前 12 组做组合，最多 C(12,4)=495 种），
+    //      把游离组的号码整组排除后取权重最高的 10 个，选总分最高的那一种；真凑不出 10 个（排除得太狠）才退回不约束，
+    //      并在反馈里如实说明实际满足了几组；
+    //   ④ 出号写进结果框，走的是「一键粘贴」同一条路（进撤销栈 → 一键清空 → 把号码固化成普通号码），
+    //      电脑端 / 手机端一致；特码筛选器页与预测页那两个结果框本来就镜像同一批号码，所以一起显示。
+    // 只读输入、只写结果框与撤销栈：不改条目、不改档位、不发网络请求、不写本地存储。
+    const MODEL_FEED_TAKE = 10;
+
+    function modelFeedJaccard(a, b) {
+        const sa = {};
+        (a || []).forEach(n => { sa[n] = 1; });
+        let inter = 0, uni = 0;
+        (b || []).forEach(n => { if (sa[n]) inter++; });
+        uni = Object.keys(sa).length + (b || []).length - inter;
+        return uni > 0 ? inter / uni : 0;
+    }
+
+    // 概率组 → 每个号码的权重 r_x（最大熵 / IPF 校准；返回 { table, list }）
+    function modelFeedWeights(groups) {
+        const list = [], seen = {};
+        (groups || []).forEach(function(g) {
+            if (!g || !Array.isArray(g.nums)) return;
+            const nums = g.nums.filter(n => allNumbers.indexOf(n) > -1);
+            if (!nums.length) return;
+            const key = nums.slice().sort().join(',');
+            const p = Math.min(0.999, Math.max(0.001, Number(g.p) || 0));
+            if (seen[key] !== undefined) {                    // ① 完全相同的集合只留一次（取概率高的）
+                if (p > list[seen[key]].p) list[seen[key]].p = p;
+                return;
+            }
+            seen[key] = list.length;
+            list.push({ name: g.name || '', nums: nums, p: p, w: 1 });
+        });
+        for (let i = 0; i < list.length; i++) {               // ② 高度重叠（≥0.8）的集合降权，避免重复计分
+            for (let j = i + 1; j < list.length; j++) {
+                if (modelFeedJaccard(list[i].nums, list[j].nums) >= 0.8) list[j].w = Math.min(list[j].w, 0.5);
+            }
+        }
+        list.forEach(o => { if (o.p >= 0.93) o.w = Math.min(2, o.w * 1.2); });  // ③ 高概率组加权
+        const r = {};
+        allNumbers.forEach(n => { r[n] = 1 / allNumbers.length; });
+        for (let iter = 0; iter < 300; iter++) {              // ④ IPF
+            let maxStep = 0;
+            list.forEach(function(o) {
+                let sum = 0;
+                o.nums.forEach(n => { sum += r[n]; });
+                if (!(sum > 0)) return;
+                let f = Math.pow(o.p / sum, 0.5 * o.w);
+                if (!isFinite(f)) return;
+                f = Math.min(6, Math.max(1 / 6, f));
+                o.nums.forEach(n => { r[n] *= f; });
+                let total = 0;
+                allNumbers.forEach(n => { total += r[n]; });
+                if (total > 0) allNumbers.forEach(n => { r[n] /= total; });
+                const step = Math.abs(Math.log(f));
+                if (step > maxStep) maxStep = step;
+            });
+            if (maxStep < 1e-4) break;
+        }
+        return { table: r, list: list };
+    }
+
+    // 硬性容错选号：ranked = [{num, r}]（按 r 降序），groups = 去重降权后的概率组，need = 至少几组「一个都不包含」
+    function modelFeedPickNumbers(ranked, groups, need, take) {
+        take = take || MODEL_FEED_TAKE;
+        const rate = {};
+        ranked.forEach(o => { rate[o.num] = o.r; });
+        const G = (groups || []).filter(g => g && Array.isArray(g.nums) && g.nums.length);
+        const fallback = ranked.slice(0, take).map(o => o.num);
+        const missOf = nums => G.filter(g => !g.nums.some(n => nums.indexOf(n) > -1)).length;
+        const needN = Math.max(0, Math.min(need || 0, G.length));
+        if (!needN) return { nums: fallback.slice().sort(), need: 0, miss: missOf(fallback), constrained: false };
+        // 候选游离组：按「该组权重合计 + 号码个数」从小到大取前 12 个（排除它们代价最小），再枚举 C(n, needN) 组合
+        const pool = G.map((g, i) => ({ i: i, g: g, t: g.nums.reduce((s, n) => s + (rate[n] || 0), 0) }))
+            .sort((a, b) => (a.t - b.t) || (a.g.nums.length - b.g.nums.length) || (a.i - b.i))
+            .slice(0, 12)
+            .map(o => o.g);
+        const combos = [];
+        const build = function(start, chosen) {
+            if (chosen.length === needN) { combos.push(chosen.slice()); return; }
+            for (let i = start; i < pool.length; i++) {
+                if (pool.length - i < needN - chosen.length) break;
+                chosen.push(pool[i]);
+                build(i + 1, chosen);
+                chosen.pop();
+            }
+        };
+        if (needN <= pool.length) build(0, []);
+        let best = null;
+        combos.forEach(function(combo) {
+            const forbidden = {};
+            combo.forEach(g => g.nums.forEach(n => { forbidden[n] = 1; }));
+            const nums = [];
+            ranked.forEach(o => { if (nums.length < take && !forbidden[o.num]) nums.push(o.num); });
+            if (nums.length < take) return;                  // 排除后凑不够 10 个：这一组游离方案做不到，换下一组
+            const miss = missOf(nums);
+            if (miss < needN) return;                        // 双保险（按构造不会发生）
+            let score = 0;
+            nums.forEach(n => { score += rate[n] || 0; });
+            if (!best || score > best.score + 1e-12) best = { nums: nums, score: score, miss: miss };
+        });
+        if (!best) return { nums: fallback.slice().sort(), need: needN, miss: missOf(fallback), constrained: false };
+        return { nums: best.nums.slice().sort(), need: needN, miss: best.miss, constrained: true };
+    }
+
+    // 小窗「预测」：按当前选择算 10 码 → 写进结果框（失败只提示，不改其它状态）
+    window.predictModelFeed = function() {
+        const feedbackEl = document.getElementById('ext-strategy-feedback');
+        const say = function(html) { if (feedbackEl) feedbackEl.innerHTML = html; };
+        const sel = window.__modelFeedSel;
+        if (!sel || (!sel.macau && !sel.hk)) return;   // 两个彩种都没选：按钮本来就置灰
+        const opts = { dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk };
+        window.closeModelFeedPop();
+        let out = null;
+        try { out = buildModelFeedText(opts); }
+        catch (e) { out = { error: '组装概率组时出错：' + ((e && e.message) || e) }; }
+        if (!out || out.error) {
+            say('<span style="color:#ef4444;">❌ ' + escHtml(String((out && out.error) || '组装失败')) + '</span>');
+            return;
+        }
+        const groups = (out.groups || []).filter(g => g && g.nums && g.nums.length);
+        if (!groups.length) {
+            say('<span style="color:#ef4444;">❌ 没有可用的概率组，请先提取条目 / 在预测页加载开奖数据。</span>');
+            return;
+        }
+        const cal = modelFeedWeights(groups);
+        const ranked = allNumbers.map(n => ({ num: n, r: cal.table[n] || 0 }))
+            .sort((a, b) => (b.r - a.r) || (a.num < b.num ? -1 : 1));
+        const need = modelFeedTolerantCount(opts);
+        const pick = modelFeedPickNumbers(ranked, cal.list, need, MODEL_FEED_TAKE);
+        try {
+            pushZdrHistory();                                 // 与「一键粘贴」同一条路：先压撤销栈
+            window.clearAllSelections(true, true);             // 再一键清空（保留撤销栈）
+            pick.nums.forEach(n => selectedOptions.numbers.add(n));
+            if (typeof syncUI === 'function') syncUI();
+            if (typeof updateDisplay === 'function') updateDisplay();
+        } catch (e) {
+            say('<span style="color:#ef4444;">❌ 写入结果框失败：' + escHtml(String((e && e.message) || e)) + '</span>');
+            return;
+        }
+        const segs = [];
+        segs.push('概率组 ' + groups.length + ' 组');
+        if (out.dimCount) segs.push('维度 ' + out.dimCount + ' 组');
+        if (out.itemCount) segs.push((out.hkMode ? '香港条目 ' : '置顶条目 ') + out.itemCount + ' 条');
+        if (out.target != null) segs.push('第 ' + out.target + ' 期');
+        say('<span style="color:#16a34a;">✅ 已出号 ' + escHtml(pick.nums.join(' ')) + '（' + pick.nums.length + ' 码已写入结果框）</span>'
+            + '<br><span style="color:#64748b;font-size:0.75rem;">' + escHtml(segs.join(' · '))
+            + ' · 容错：' + (pick.constrained
+                ? ('已有 ' + pick.miss + ' 组不含预测号（要求 ≥' + pick.need + '）')
+                : ('⚠️ 凑不出「至少 ' + pick.need + ' 组不含预测号」，已按权重最高的 ' + pick.nums.length + ' 码出号（实际 ' + pick.miss + ' 组）'))
+            + '</span>');
+    };
+
     // ========== v1.186（作者 2026-10-13 要求）：AI 小窗 ==========
     // 点「AI」在按钮旁边弹小窗：上排 3 个可选中按键（维度 / 新澳门 / 香港），下排 确认 / 取消。
     //   · 维度 + 新澳门 = 改动前的规则（5 组维度推荐 + 当天自动置顶的新澳门条目组）；
@@ -11339,6 +11735,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     modelFeedOptHtml('dims', '维度') + modelFeedOptHtml('macau', '新澳门') + modelFeedOptHtml('hk', '香港') +
                 '</div>' +
                 '<div class="zdr-model-feed-row">' +
+                    '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-predict" onclick="window.predictModelFeed()" title="按当前选择在本页直接算出 10 码并写入结果框（硬性容错：见按钮上方的 X 组要求）">预测</button>' +
                     '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-ok" onclick="window.confirmModelFeed()">确认</button>' +
                     '<button type="button" class="zdr-model-feed-btn" onclick="window.closeModelFeedPop()">取消</button>' +
                 '</div>' +
@@ -11358,6 +11755,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const ready = !!(window.__modelFeedSel.macau || window.__modelFeedSel.hk);
         const ok = document.getElementById('ext-strategy-model-feed-ok');
         if (ok) ok.disabled = !ready;
+        const pred = document.getElementById('ext-strategy-model-feed-predict');
+        if (pred) pred.disabled = !ready;   // v1.195：没选彩种时「预测」同样置灰
         const note = document.getElementById('ext-strategy-model-feed-note');
         if (note) note.textContent = ready ? '' : '先选「新澳门」或「香港」';
     }
@@ -12994,6 +13393,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
 
             let importCount = 0;
             let updatedPinnedCount = 0;
+            let cloudTakenCount = 0; // v1.195：本机真提取到「云端还原条目」的同策略同期内容，就地接管它的条数
             let staleCount = 0;
             let titleGuessedCount = 0; // v1.140：数据没带彩种、按标题兜底归类的条数（用于反馈提示）
             const unparsedItems = []; // v1.149：正文解析不出子选项的条目（旧版静默丢弃，现在点名提示）
@@ -13025,6 +13425,20 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                 // v1.69：置顶是“关注某个策略”，不是复制一条固定旧记录。导入同彩种/同网站/同策略的新期时，
                 // 直接更新已置顶条目，并在后续合并中移除旧副本，取消置顶后不会在网站分组里出现重复。
                 const incomingKey = importStrategyIdentityKey(incoming);
+                // v1.195：清单里那条是「云端还原」出来的（本机之前没提取过当期），现在本机真提取到同策略同期内容 →
+                //   由这次提取接管它（就地更新），不再多出一条重复条目。
+                if (incomingKey) {
+                    const incomingPeriod = extractItemPeriod(incoming);
+                    const taken = (window.__importedStrategies || []).filter(function(it) {
+                        return it && it.cloudRestored && importStrategyIdentityKey(it) === incomingKey
+                            && extractItemPeriod(it) === incomingPeriod;
+                    })[0];
+                    if (taken) {
+                        updateImportedStrategyRecord(taken, incoming);
+                        cloudTakenCount++;
+                        return;
+                    }
+                }
                 const pinnedIndex = incomingKey
                     ? (window.__importedStrategies || []).findIndex(it => it.pinned && importStrategyIdentityKey(it) === incomingKey)
                     : -1;
@@ -13043,7 +13457,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             window.__importedStrategies = pruneImportedStrategies(window.__importedStrategies);
             const prunedCount = beforePrune - window.__importedStrategies.length;
 
-            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0) {
+            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0 || cloudTakenCount > 0) {
                 // 导入后按网站分组排序，保证清单与「复制全部」导出顺序一致（同网站条目集中）
                 const siteRank = { '铁算盘': 0, '澳门九龙网': 1, '群英会': 2, '奥霸网': 3, '其他': 4 };
                 window.__importedStrategies.sort((a, b) => (siteRank[detectImportSite(a)] != null ? siteRank[detectImportSite(a)] : 4) - (siteRank[detectImportSite(b)] != null ? siteRank[detectImportSite(b)] : 4));
@@ -13072,10 +13486,11 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     + escHtml(unparsedNames.join('、')) + (unparsedItems.length > unparsedNames.length ? ' 等' : '') + '</span>')
                 : '';
 
-            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0) {
+            if (importCount > 0 || updatedPinnedCount > 0 || mergedPinnedCount > 0 || cloudTakenCount > 0) {
                 const catName = lottery === 'hk' ? '香港' : '新澳门';
                 feedbackEl.innerHTML = `✅ 识别并已导入${catName}条目 ${importCount} 条。`
                     + (updatedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已更新置顶条目 ${updatedPinnedCount} 条）</span>` : '')
+                    + (cloudTakenCount > 0 ? `<span style="color:#0f766e;">（已接管云端还原条目 ${cloudTakenCount} 条）</span>` : '')
                     + (staleCount > 0 ? `<span style="color:#b45309;">（已过滤旧期条目 ${staleCount} 条）</span>` : '')
                     + (mergedPinnedCount > 0 ? `<span style="color:#1d4ed8;">（已合并置顶重复条目 ${mergedPinnedCount} 条）</span>` : '')
                     + (titleGuessedCount > 0 ? `<span style="color:#b45309;">（其中 ${titleGuessedCount} 条按标题判定为香港条目）</span>` : '')
