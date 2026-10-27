@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.196 · 2026-10-18 23:38</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.197 · 2026-10-27 20:25</div>
 
         </div>
     
@@ -6278,7 +6278,22 @@ var rateKey = isAiMode ? 'hitCombined' : 'hit8';
 
 
 async function tryFetch(url) {
-      // 1. 优先尝试原生直连 (第一重保险：检测是否有 CORS Helper 扩展支持)
+      // 1. 优先使用油猴特权通道（GM_xmlhttpRequest 不受页面 CORS 限制）
+      if (typeof window.requestCORS === 'function') {
+        try {
+          console.log("检测到油猴环境，优先尝试特权直连...");
+          // 油猴直连增加 8 秒硬超时：GM_xmlhttpRequest 未设 timeout 时网络卡死会一直转圈
+          const data = await Promise.race([
+            window.requestCORS(url, { method: 'GET' }),
+            new Promise(function(_, reject) { setTimeout(function() { reject(new Error("油猴直连超时")); }, 8000); })
+          ]);
+          if (data) return { payload: data, source: "油猴直连" };
+        } catch(e) {
+          console.warn("油猴请求失败，准备降级至原生直连/代理...", e && e.message);
+        }
+      }
+
+      // 2. 油猴不可用时尝试原生直连（需目标站允许 CORS）
       try {
         console.log("尝试原生直连 (检测是否有 CORS 扩展支持)...");
         const controller = new AbortController();
@@ -6293,22 +6308,7 @@ async function tryFetch(url) {
           return { payload: data, source: "原生直连" };
         }
       } catch (e) {
-        console.warn("原生直连失败 (无扩展或跨域拦截)，准备检查油猴环境...");
-      }
-
-      // 2. 检查并使用油猴特权函数 (第二重保险)
-      if (typeof window.requestCORS === 'function') {
-        try {
-          console.log("检测到油猴环境，尝试特权直连...");
-          // 油猴直连增加 8 秒硬超时：GM_xmlhttpRequest 未设 timeout 时网络卡死会一直转圈
-          const data = await Promise.race([
-            window.requestCORS(url, { method: 'GET' }),
-            new Promise(function(_, reject) { setTimeout(function() { reject(new Error("油猴直连超时")); }, 8000); })
-          ]);
-          if (data) return { payload: data, source: "油猴直连" };
-        } catch(e) { 
-          console.warn("油猴请求失败，准备降级至代理...", e && e.message); 
-        }
+        console.warn("原生直连失败 (无扩展或跨域拦截)，准备降级至代理...");
       }
 
       // 3. 准备代理队列（默认先试 CF，失败再自动切腾讯云）
@@ -6492,7 +6492,7 @@ async function tryFetch(url) {
   window._currentFetchMode = 'default';
   var bar = document.getElementById("bar");
   bar.className = "status-bar status-bl";
-  bar.innerHTML = '<span class="loading-spinner"></span>正在智能分配节点获取数据...';
+  bar.innerHTML = '<span class="loading-spinner"></span>正在获取开奖数据（油猴通道优先）...';
   document.getElementById("rb").style.display = "none";
   document.getElementById("mp").style.display = "none";
   document.getElementById("al").href = API;
