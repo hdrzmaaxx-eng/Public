@@ -667,7 +667,7 @@
                 </div>
             </div>
 
-  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.198 · 2026-11-12 20:06</div>
+  <div style="text-align:right; padding:10px 4px 4px; font-size:11px; color:#b0b8c4;">v1.199 · 2026-11-14 22:55</div>
 
         </div>
     
@@ -1007,6 +1007,7 @@
             const tags = container ? container.querySelectorAll('.num-tag') : [];
             const currentNums = Array.from(tags).map(tag => (tag.textContent || '').trim().substring(0, 2));
             window.currentSelectionSource = 'manual';
+            window.__zdrProbOrder = null;   // v1.199：清集后不再按上次「预测」的概率顺序排
             for (const key in selectedOptions) selectedOptions[key].clear();
             frozenItems.clear();
             document.querySelectorAll('.btn').forEach(b => { b.classList.remove('active'); b.classList.remove('frozen'); });
@@ -1600,6 +1601,7 @@
             Object.keys(selectedOptions).forEach(key => selectedOptions[key].clear());
             frozenItems.clear();
             window.currentSelectionSource = 'manual';
+            window.__zdrProbOrder = null;   // v1.199：一次性组合固化后不再沿用上次「预测」的概率顺序
             (numbers || []).forEach(num => selectedOptions.numbers.add(num));
 
             if (window.__importedStrategies) {
@@ -1843,7 +1845,12 @@
 
 
 
-           result.sort((a,b) => parseInt(a) - parseInt(b)).forEach(num => {
+           const probOrder = window.__zdrProbOrder;
+           const useProb = !!(probOrder && result.length && result.every(n => probOrder[n] != null));
+           // v1.199（作者 2026-11-14 要求）：AI 小窗「预测」出的号码按综合概率从高到低排（其余情况仍按号码升序）
+           if (useProb) result.sort((a, b) => (probOrder[a] - probOrder[b]));
+           else result.sort((a, b) => parseInt(a) - parseInt(b));
+           result.forEach(num => {
                 const colorClass = redNums.includes(num) ? 'red' : (blueNums.includes(num) ? 'blue' : 'green');
                 const tagHTML = `${num}<span class="zodiac-label">${numToZodiacMap[num]}</span>`;
                 
@@ -1936,6 +1943,7 @@
             if (!skipHistory) pushZdrHistory();
             if (!preserveCombine) window.__zdrPendingCombineMode = null;
             window.currentSelectionSource = 'manual';
+            window.__zdrProbOrder = null;   // v1.199：一键清空后不再按上次「预测」的概率顺序排
             for (let key in selectedOptions) {
                 selectedOptions[key].clear();
             }
@@ -2560,6 +2568,19 @@ function scrollToBottom(containerId) {
 .zdr-model-feed-btn:disabled { opacity: .45; cursor: not-allowed; }
 .zdr-model-feed-note { font-size: 0.7rem; color: #b45309; line-height: 1.35; }
 .zdr-model-feed-note:empty { display: none; }
+/* v1.199：最下方「容错」一行——左边小标签 + 中间 1 2 3 4 四个键（等宽）+ 右边「自动」键；
+   没锁定 1~4 时「自动」高亮（＝不预选、按维度/彩种的自动基准算）。 */
+.zdr-model-feed-tol-row { display: flex; align-items: center; gap: 5px; }
+.zdr-model-feed-tol-label { font-size: 0.7rem; color: #64748b; flex-shrink: 0; }
+.zdr-model-feed-tol-btns { flex: 1 1 auto; gap: 4px; }
+.zdr-model-feed-tol-btns .zdr-model-feed-tol { flex: 1 1 0; }
+.zdr-model-feed-tol-auto {
+    flex-shrink: 0; cursor: pointer; padding: 4px 6px; border-radius: 6px;
+    font-size: 0.7rem; line-height: 1.4; white-space: nowrap; font-family: inherit;
+    border: 1px solid #cbd5e1; background: #f8fafc; color: #475569;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.zdr-model-feed-tol-auto.on { border-color: #0369a1; background: #0369a1; color: #fff; font-weight: 600; }
 /* v1.163：「多条目筛选」1~4 档滑杆——不放任何文字标签：1 2 3 4 直接画成滑杆上的四个圆圈，
    当前档位圆圈填充深蓝（数字反白）；原生 input 透明覆盖整条，负责点按 / 拖动（点圆圈即跳到该档）；
    口径说明收进滑杆的 title 悬浮提示。
@@ -2695,6 +2716,10 @@ function scrollToBottom(containerId) {
     .zdr-model-feed-pop { min-width: 170px; padding: 9px; gap: 7px; }
     .zdr-model-feed-opt, .zdr-model-feed-btn { font-size: 0.85rem; padding: 7px 0; }
     .zdr-model-feed-note { font-size: 0.75rem; }
+    /* v1.199：手机上「容错」一行也放大一档（标签 / 1 2 3 4 / 自动 同排，不换行） */
+    .zdr-model-feed-tol-row { gap: 6px; }
+    .zdr-model-feed-tol-label { font-size: 0.78rem; }
+    .zdr-model-feed-tol-auto { font-size: 0.8rem; padding: 5px 8px; }
     .zdr-import-filter-slider-wrap { height: 40px; }
     .zdr-import-filter-track { left: 14px; right: 14px; height: 8px; margin-top: -4px; border-radius: 4px; }
     .zdr-import-filter-scale span { width: 28px; height: 28px; font-size: 0.85rem; line-height: 24px; }
@@ -11317,8 +11342,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //     维度 + 新澳门 = 2 · 只新澳门 = 1 · 维度 + 香港 = 3 · 只香港 = 2
     //   拼法：MODEL_FEED_HEAD（固定头）一个字节都不动，直接把这一句接在它后面（组间格式 / 固定尾巴 / CRLF 不动）。
     //   同一档位的数字也给「预测」按钮的硬性约束用（见下面 modelFeedPickNumbers）。
+    // v1.199（作者 2026-11-14 要求）：小窗**最下方**新增「容错 1 2 3 4」选择，可手动指定 1~4 组；
+    //   没点（tolerant 缺省 / 0 / 非法值）＝**不预选**，仍按上面这套自动基准算（与原行为逐字一致）；
+    //   点第 N 个＝锁定 N 组，再点同一个＝取消、回到自动。
     const MODEL_FEED_TOLERANT_BASE = { macau: 1, hk: 2 };
+    function modelFeedTolerantValue(sel) {
+        const t = sel ? parseInt(sel.tolerant, 10) : 0;
+        return (t >= 1 && t <= 4) ? t : 0;
+    }
     function modelFeedTolerantCount(sel) {
+        const fixed = modelFeedTolerantValue(sel);
+        if (fixed) return fixed;
         const base = (sel && sel.hk) ? MODEL_FEED_TOLERANT_BASE.hk : MODEL_FEED_TOLERANT_BASE.macau;
         return base + ((sel && sel.dims) ? 1 : 0);
     }
@@ -11673,7 +11707,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const fallback = ranked.slice(0, take).map(o => o.num);
         const missOf = nums => G.filter(g => !g.nums.some(n => nums.indexOf(n) > -1)).length;
         const needN = Math.max(0, Math.min(need || 0, G.length));
-        if (!needN) return { nums: fallback.slice().sort(), need: 0, miss: missOf(fallback), constrained: false };
+        if (!needN) return { nums: fallback.slice(), need: 0, miss: missOf(fallback), constrained: false };
         // 候选游离组：按「该组权重合计 + 号码个数」从小到大取前 12 个（排除它们代价最小），再枚举 C(n, needN) 组合
         const pool = G.map((g, i) => ({ i: i, g: g, t: g.nums.reduce((s, n) => s + (rate[n] || 0), 0) }))
             .sort((a, b) => (a.t - b.t) || (a.g.nums.length - b.g.nums.length) || (a.i - b.i))
@@ -11703,8 +11737,10 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             nums.forEach(n => { score += rate[n] || 0; });
             if (!best || score > best.score + 1e-12) best = { nums: nums, score: score, miss: miss };
         });
-        if (!best) return { nums: fallback.slice().sort(), need: needN, miss: missOf(fallback), constrained: false };
-        return { nums: best.nums.slice().sort(), need: needN, miss: best.miss, constrained: true };
+        // v1.199（作者 2026-11-14 要求）：返回的 nums 按综合概率**从高到低**排好（原来一律 .sort() 成升序），
+    //   出号顺序 / 反馈回显 / 写进结果框的顺序三处统一都按这个顺序来。
+        if (!best) return { nums: fallback.slice(), need: needN, miss: missOf(fallback), constrained: false };
+        return { nums: best.nums.slice(), need: needN, miss: best.miss, constrained: true };
     }
 
     // 小窗「预测」：按当前选择算 10 码 → 写进结果框（失败只提示，不改其它状态）
@@ -11713,7 +11749,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         const say = function(html) { if (feedbackEl) feedbackEl.innerHTML = html; };
         const sel = window.__modelFeedSel;
         if (!sel || (!sel.macau && !sel.hk)) return;   // 两个彩种都没选：按钮本来就置灰
-        const opts = { dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk };
+        const opts = { dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk, tolerant: modelFeedTolerantValue(sel) };
         window.closeModelFeedPop();
         let out = null;
         try { out = buildModelFeedText(opts); }
@@ -11732,10 +11768,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             .sort((a, b) => (b.r - a.r) || (a.num < b.num ? -1 : 1));
         const need = modelFeedTolerantCount(opts);
         const pick = modelFeedPickNumbers(ranked, cal.list, need, MODEL_FEED_TAKE);
+        // v1.199（作者 2026-11-14 要求）：把这次出号的**概率顺序**（高→低）挂到全局，
+        //   updateDisplay() 用它排结果框；没挂上 / 结果框号码不是这次这批时自动退回号码升序。
+        const probRank = {};
+        pick.nums.forEach((n, i) => { probRank[n] = i; });
         try {
             pushZdrHistory();                                 // 与「一键粘贴」同一条路：先压撤销栈
             window.clearAllSelections(true, true);             // 再一键清空（保留撤销栈）
             pick.nums.forEach(n => selectedOptions.numbers.add(n));
+            window.__zdrProbOrder = probRank;                  // 清空之后挂（clearAllSelections 会把它清掉）
             if (typeof syncUI === 'function') syncUI();
             if (typeof updateDisplay === 'function') updateDisplay();
         } catch (e) {
@@ -11749,6 +11790,7 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         if (out.target != null) segs.push('第 ' + out.target + ' 期');
         say('<span style="color:#16a34a;">✅ 已出号 ' + escHtml(pick.nums.join(' ')) + '（' + pick.nums.length + ' 码已写入结果框）</span>'
             + '<br><span style="color:#64748b;font-size:0.75rem;">' + escHtml(segs.join(' · '))
+            + ' · 已出号按概率从高到低排' + (modelFeedTolerantValue(sel) ? '（容错为手动选择 ' + modelFeedTolerantValue(sel) + ' 组）' : '')
             + ' · 容错：' + (pick.constrained
                 ? ('已有 ' + pick.miss + ' 组不含预测号（要求 ≥' + pick.need + '）')
                 : ('⚠️ 凑不出「至少 ' + pick.need + ' 组不含预测号」，已按权重最高的 ' + pick.nums.length + ' 码出号（实际 ' + pick.miss + ' 组）'))
@@ -11763,6 +11805,8 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
     //   · 新澳门 / 香港互斥（点其中一个自动取消另一个）；两个都没选时「确认」置灰并提示先选彩种。
     // 选择只存在内存（window.__modelFeedSel），刷新后回到默认「维度 + 新澳门」；不写存储、不动页面任何状态。
     window.__modelFeedSel = window.__modelFeedSel || { dims: true, macau: true, hk: false };
+    // v1.199：tolerant＝最下方手动锁定的容错组数（1~4）；0 / 缺省 = 不预选、按自动基准算
+    if (typeof window.__modelFeedSel.tolerant !== 'number') window.__modelFeedSel.tolerant = 0;
 
     function modelFeedSelOn(key) {
         const sel = window.__modelFeedSel;
@@ -11774,6 +11818,15 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         return '<button type="button" class="zdr-model-feed-opt' + (modelFeedSelOn(key) ? ' on' : '') +
             '" data-mf="' + key + '" onclick="window.toggleModelFeedOption(\'' + key + '\')">' + label + '</button>';
     }
+    // v1.199（作者 2026-11-14 要求）：AI 小窗最下方新增「容错 1 2 3 4」——手动锁定 N 组「一个都不包含」；
+    //   不选（缺省）＝不预选，按上面那套自动基准算；点第 N 个＝锁定 N 组，再点同一个＝取消回自动。
+    function modelFeedTolHtml(n) {
+        const sel = window.__modelFeedSel;
+        const on = modelFeedTolerantValue(sel) === n;
+        return '<button type="button" class="zdr-model-feed-opt zdr-model-feed-tol' + (on ? ' on' : '') +
+            '" data-mft="' + n + '" onclick="window.toggleModelFeedTolerant(' + n + ')"' +
+            ' title="至少 ' + n + ' 组不包含预测号' + (on ? '（再点一次取消，回到自动基准）' : '') + '">' + n + '</button>';
+    }
     function modelFeedPopHtml() {
         return '<span class="zdr-model-feed-wrap">' +
             '<button id="ext-strategy-model-feed" class="zdr-import-head-btn" onclick="window.toggleModelFeedPop(event)" title="选维度/新澳门 各加1组容错，选香港加2组容错（至少有X组不包含命中号码）">AI</button>' +
@@ -11782,9 +11835,16 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
                     modelFeedOptHtml('dims', '维度') + modelFeedOptHtml('macau', '新澳门') + modelFeedOptHtml('hk', '香港') +
                 '</div>' +
                 '<div class="zdr-model-feed-row">' +
-                    '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-predict" onclick="window.predictModelFeed()" title="按当前选择在本页直接算出 10 码并写入结果框（硬性容错：见按钮上方的 X 组要求）">预测</button>' +
+                    '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-predict" onclick="window.predictModelFeed()" title="按当前选择在本页直接算出 10 码并写入结果框（硬性容错：见最下方那排「容错」要求）">预测</button>' +
                     '<button type="button" class="zdr-model-feed-btn" id="ext-strategy-model-feed-ok" onclick="window.confirmModelFeed()">确认</button>' +
                     '<button type="button" class="zdr-model-feed-btn" onclick="window.closeModelFeedPop()">取消</button>' +
+                '</div>' +
+                '<div class="zdr-model-feed-tol-row">' +
+                    '<span class="zdr-model-feed-tol-label">容错</span>' +
+                    '<div class="zdr-model-feed-row zdr-model-feed-tol-btns">' +
+                        modelFeedTolHtml(1) + modelFeedTolHtml(2) + modelFeedTolHtml(3) + modelFeedTolHtml(4) +
+                    '</div>' +
+                    '<button type="button" class="zdr-model-feed-tol-auto" id="ext-strategy-model-feed-tol-auto" onclick="window.toggleModelFeedTolerant(0)" title="回到自动基准：维度+新澳门 2 组 / 只新澳门 1 组 / 维度+香港 3 组 / 只香港 2 组">自动</button>' +
                 '</div>' +
                 '<div class="zdr-model-feed-note" id="ext-strategy-model-feed-note"></div>' +
             '</div>' +
@@ -11799,6 +11859,17 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
             if (modelFeedSelOn(btn.getAttribute('data-mf'))) btn.classList.add('on');
             else btn.classList.remove('on');
         });
+        // v1.199：最下方「容错 1 2 3 4」选中态 + 自动键高亮（不选 1~4 时「自动」高亮）
+        const tol = modelFeedTolerantValue(window.__modelFeedSel);
+        Array.prototype.forEach.call(pop.querySelectorAll('[data-mft]'), function(btn) {
+            if (parseInt(btn.getAttribute('data-mft'), 10) === tol) btn.classList.add('on');
+            else btn.classList.remove('on');
+        });
+        const tolAuto = document.getElementById('ext-strategy-model-feed-tol-auto');
+        if (tolAuto) {
+            if (tol) tolAuto.classList.remove('on');
+            else tolAuto.classList.add('on');
+        }
         const ready = !!(window.__modelFeedSel.macau || window.__modelFeedSel.hk);
         const ok = document.getElementById('ext-strategy-model-feed-ok');
         if (ok) ok.disabled = !ready;
@@ -11845,12 +11916,21 @@ var hasPre2024 = missingPeriods.some(function(p) { return parseInt(p) < 2024; })
         syncModelFeedPop();
     };
 
+    // v1.199：最下方「容错 1 2 3 4」——n≥1 锁定 n 组；n=0（自动键）或再点已选中的那个＝取消回自动基准
+    window.toggleModelFeedTolerant = function(n) {
+        const v = parseInt(n, 10) || 0;
+        const sel = window.__modelFeedSel;
+        if (!v) sel.tolerant = 0;
+        else sel.tolerant = (modelFeedTolerantValue(sel) === v) ? 0 : v;
+        syncModelFeedPop();
+    };
+
     // 下排「确认」：按小窗里的选择复制
     window.confirmModelFeed = function() {
         const sel = window.__modelFeedSel;
         if (!sel.macau && !sel.hk) return;   // 按钮本来就置灰，这里再兜一层
         window.closeModelFeedPop();
-        window.copyModelFeedData({ dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk });
+        window.copyModelFeedData({ dims: !!sel.dims, macau: !!sel.macau, hk: !!sel.hk, tolerant: modelFeedTolerantValue(sel) });
     };
 
     // v1.162：切换「多条目筛选」档位（滑杆 1~4）。只改聚合口径并重算，不动条目勾选、子选项与冻结项；
